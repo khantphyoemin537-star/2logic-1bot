@@ -1187,7 +1187,37 @@ async def add_character(event):
         await event.reply(success_msg, parse_mode='html')
     except Exception as e:
         await event.reply(f"❌ <b>Database Inject Error</b>: <code>{escape_html(str(e))}</code>", parse_mode='html')
-
+# ==========================================
+# 🗑️ OWNER-ONLY CHARACTER DELETE COMMAND
+# ==========================================
+@bot1.on(events.NewMessage(pattern=r'^/(delchar|removechar)(?:\s+(\S+))?(?:@\w+)?$'))
+async def delete_character_by_owner(event):
+    # Owner စစ်ထုတ်ခြင်း (မောင်မင်းကြီးသားများ သုံးခွင့်မရှိစေရန်)
+    if event.sender_id != OWNER_ID: 
+        return
+        
+    char_id = event.pattern_match.group(2)
+    if not char_id:
+        await event.reply(f"❌ ကျေးဇူးပြု၍ ဖျက်လိုသော Character ID ကို ရိုက်ထည့်ပေးပါ Chief!\nExample: `/delchar BOD789`")
+        return
+        
+    # ID က ကာရက်တာစနစ်မှာ 'id' ရော 'char_id' ရော ဖြစ်နိုင်လို့ နှစ်မျိုးလုံးကို Query စစ်ပြီးဖျက်ခြင်း
+    query = {"$or": [{"id": char_id}, {"char_id": char_id}]}
+    
+    # Collection နှစ်ခုလုံးထဲကနေ အပြီးတိုင် ဖျက်ထုတ်ခြင်း
+    res1 = await db["characters"].delete_many(query)
+    res2 = await db["characters_base_data"].delete_many(query)
+    
+    if res1.deleted_count > 0 or res2.deleted_count > 0:
+        # သင့် Bot ရဲ့ Font Style အတိုင်း f() သုံးပြီး Reply ပြန်ခြင်း
+        reply_msg = (
+            f"🔥 {f('DATABASE REMOVED')} / စနစ်ထဲမှ ဖြုတ်ချပြီး\n"
+            f"🆔 {f('Character ID')}: {char_id}\n\n"
+            f"𝚂𝚝𝚊𝚝𝚞𝚜: အဆိုပါ Character အား ဒေတာဘေ့စ်ထဲကနေ အပြီးတိုင် အောင်မြင်စွာ ဖျက်ဆီး/ဖြုတ်ချ ပြီးပါပြီ Boss! 🧹😎"
+        )
+        await event.reply(reply_msg)
+    else:
+        await event.reply(f"❌ Database ထဲမှာ ID `{char_id}` နဲ့ Character လုံးဝ ရှာမတွေ့ပါ Chief!")
 
 @bot1.on(events.NewMessage(pattern=r'^/haiclean$'))
 async def haiclean_handler(event):
