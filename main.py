@@ -196,7 +196,7 @@ OWNER_ID = 6015356597
 MONGO_URI = "mongodb+srv://khantphyoemin537_db_user:9VRKiaeZkz7rJdpz@cluster0.w6tgi8j.mongodb.net/?appName=Cluster0&tlsAllowInvalidCertificates=true"
 APP_ID = 35766004
 APP_HASH = 'd15b4226b81724722279bae6af69e22d'
-MAIN_BOT_TOKEN = "8575371720:AAEWWV42CGrwooM_joiJXdo2iEw2_7atyXU"
+MAIN_BOT_TOKEN = "8575371720:AAHZJ-aP6mUsWIz4tl6k-S5Er23eXRIDYOs"
 SPECIFIC_CONTROL_GROUP = -1003940667453
 SPECIFIC_GROUP = -1003580630981 
 TZ = pytz.timezone('Asia/Yangon')
