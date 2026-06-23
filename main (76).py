@@ -187,26 +187,6 @@ async def register_temporary_mute(chat_id, user_id, duration_minutes=60):
         upsert=True
     )
 
-# ==========================================
-# 🌤️ MYANMAR WEATHER DASHBOARD DATA ENGINE
-# ==========================================
-WEATHER_REGIONS_DATA = {
-    "mdy": {"name": "မန္တလေး တိုင်းဒေသကြီး", "temp": "၃၈°C", "condition": "☀️ နေသာပြီး အလွန်ပူပြင်းသည်", "humidity": "၄2%", "wind": "၁၂ km/h"},
-    "ygn": {"name": "ရန်ကုန် တိုင်းဒေသကြီး", "temp": "၃၂°C", "condition": "🌧️ နေရာကွက်ကျား မိုးရွာနိုင်သည်", "humidity": "၇၈%", "wind": "၁၅ km/h"},
-    "npw": {"name": "နေပြည်တော် ကောင်စီနယ်မြေ", "temp": "၃၆°C", "condition": "⛅ တိမ်အသင့်အတင့် ဖြစ်ထွန်းသည်", "humidity": "၅၀%", "wind": "၁၀ km/h"},
-    "sgn": {"name": "စစ်ကိုင်း တိုင်းဒေသကြီး", "temp": "၃၇°C", "condition": "☀️ နေသာပြီး ရာသီဥတု ပူပြင်းသည်", "humidity": "၄၅%", "wind": "၉ km/h"},
-    "bgo": {"name": "ပဲခူး တိုင်းဒေသကြီး", "temp": "၃၃°C", "condition": "⛅ တိမ်အနည်းငယ် ဖြစ်ထွန်းသည်", "humidity": "၆၅%", "wind": "၁၁ km/h"},
-    "mgy": {"name": "မကွေး တိုင်းဒေသကြီး", "temp": "၃၉°C", "condition": "☀️ နေသာပြီး အပူရှိန် အလွန်ပြင်းထန်သည်", "humidity": "၃၈%", "wind": "၁၄ km/h"},
-    "ayd": {"name": "ဧရာဝတီ တိုင်းဒေသကြီး", "temp": "၃၁°C", "condition": "🌧️ မိုးသက်လေပြင်း ကျရောက်နိုင်သည်", "humidity": "၈၂%", "wind": "၁၈ km/h"},
-    "tny": {"name": "တနင်္သာရီ တိုင်းဒေသကြီး", "temp": "၃၀°C", "condition": "🌧️ မိုးအသင့်အတင့် ရွာသွန်းနိုင်သည်", "humidity": "၈၅%", "wind": "၂၀ km/h"},
-    "kcn": {"name": "ကချင် ပြည်နယ်", "temp": "၂၆°C", "condition": "🌫️ မြူဆိုင်းပြီး ရာသီဥတု အေးမြသည်", "humidity": "၇၀%", "wind": "၆ km/h"},
-    "kyh": {"name": "ကယား ပြည်နယ်", "temp": "၂၉°C", "condition": "⛅ တိမ်အသင့်အတင့် ဖြစ်ထွန်းသည်", "humidity": "၆၀%", "wind": "၈ km/h"},
-    "kyn": {"name": "ကရင် ပြည်နယ်", "temp": "၃၁°C", "condition": "🌧️ နေရာကွက်ကျား မိုးထူထပ်နိုင်သည်", "humidity": "၇၅%", "wind": "၁၃ km/h"},
-    "chn": {"name": "ချင်း ပြည်နယ်", "temp": "၂၂°C", "condition": "❄️ ရာသီဥတု အလွန်အေးမြပြီး တိမ်ထူထပ်သည်", "humidity": "၅၅%", "wind": "၇ km/h"},
-    "mon": {"name": "မွန် ပြည်နယ်", "temp": "၃၁°C", "condition": "🌧️ မိုးရွာသွန်းရန် ရာခိုင်နှုန်း များသည်", "humidity": "၈0%", "wind": "၁၆ km/h"},
-    "shn": {"name": "ရှမ်း ပြည်နယ်", "temp": "၂၅°C", "condition": "🌫️ တောင်ပေါ်ဒေသများ မြူပိတ်ပြီး အေးမြသည်", "humidity": "၆၂%", "wind": "၈ km/h"}
-}
-
 def generate_weather_text(region_id):
     data = WEATHER_REGIONS_DATA.get(region_id)
     if not data: return "အချက်အလက် မရှိပါ။"
@@ -379,26 +359,6 @@ async def system_callback_router(event):
     data = event.data.decode('utf-8')
     user_id = event.sender_id
     
-    # 🌦️ WEATHER SELECTION SYSTEM INTERCEPTOR
-    if data.startswith("w_"):
-        region_code = data.split("_")[1]
-        weather_report_txt = generate_weather_text(region_code)
-        back_btn = [[Button.inline("🔙 Back to Weather Dashboard", data="nav_weather_dash")]]
-        return await event.edit(bq(weather_report_txt), parse_mode='html', buttons=back_btn)
-        
-    if data == "nav_weather_dash":
-        weather_msg = "🇲🇲 <b>မြန်မာနိုင်ငံ တိုင်းဒေသကြီးများနှင့် ပြည်နယ်များ၏ ရာသီဥတုကို စစ်ဆေးရန် ခလုတ်များကို နှိပ်ပါ-</b>"
-        buttons = [
-            [Button.inline("မန္တလေး", data="w_mdy"), Button.inline("ရန်ကုန်", data="w_ygn")],
-            [Button.inline("နေပြည်တော်", data="w_npw"), Button.inline("စစ်ကိုင်း", data="w_sgn")],
-            [Button.inline("ပဲခူး", data="w_bgo"), Button.inline("မကွေး", data="w_mgy")],
-            [Button.inline("ဧရာဝတီ", data="w_ayd"), Button.inline("တနင်္သာရီ", data="w_tny")],
-            [Button.inline("ကချင်", data="w_kcn"), Button.inline("ကယား", data="w_kyh")],
-            [Button.inline("ကရင်", data="w_kyn"), Button.inline("ချင်း", data="w_chn")],
-            [Button.inline("မွန်", data="w_mon"), Button.inline("ရှမ်း", data="w_shn")],
-            [Button.inline("🔙 Return to Main", data="nav_back_home")]
-        ]
-        return await event.edit(bq(weather_msg), parse_mode='html', buttons=buttons)
 
     # UI INLINE INTERACTION MANAGEMENT
     if data == "nav_back_home":
@@ -463,26 +423,6 @@ async def direct_help_handler(event):
         f" <code>/weather</code> - မိုးလေဝသ တိုင်းဒေသကြီးများ Dashboard။"
     )
     await event.respond(bq(help_text), parse_mode='html', buttons=[[Button.inline("⚙️ Navigation Home", data="nav_back_home")]])
-
-# ====================================================================================
-# 🌤️ ADVANCED SYSTEM LOGIC 6: INTERACTIVE WEATHER DASHBOARD & COMMAND
-# ====================================================================================
-@bot1.on(events.NewMessage(pattern=r'^/weather$'))
-async def weather_dashboard_command(event):
-    is_cd, rem = await is_on_cooldown(event.sender_id, "weather", 3)
-    if is_cd: return await event.reply(bq(f"⚠️ Flood Protection: {rem} စက္ကန့် စောင့်ဆိုင်းပေးပါ။"), parse_mode='html')
-    
-    weather_msg = "🇲🇲 <b>မြန်မာနိုင်ငံ တိုင်းဒေသကြီးများနှင့် ပြည်နယ်များ၏ ရာသီဥတုကို စစ်ဆေးရန် ခလုတ်များကို နှိပ်ပါ Chief-</b>"
-    buttons = [
-        [Button.inline("မန္တလေး", data="w_mdy"), Button.inline("ရန်ကုန်", data="w_ygn")],
-        [Button.inline("နေပြည်တော်", data="w_npw"), Button.inline("စစ်ကိုင်း", data="w_sgn")],
-        [Button.inline("ပဲခူး", data="w_bgo"), Button.inline("မကွေး", data="w_mgy")],
-        [Button.inline("ဧရာဝတီ", data="w_ayd"), Button.inline("တနင်္သာရီ", data="w_tny")],
-        [Button.inline("ကချင်", data="w_kcn"), Button.inline("ကယား", data="w_kyh")],
-        [Button.inline("ကရင်", data="w_kyn"), Button.inline("ချင်း", data="w_chn")],
-        [Button.inline("မွန်", data="w_mon"), Button.inline("ရှမ်း", data="w_shn")]
-    ]
-    await event.respond(bq(weather_msg), parse_mode='html', buttons=buttons)
 
 # ====================================================================================
 # 🔢 ADVANCED SYSTEM LOGIC 5: SECURE ARITHMETIC CALCULATOR
@@ -938,7 +878,7 @@ async def tag_admins(event):
     try:
         admins = await bot1.get_participants(event.chat_id, filter=ChannelParticipantsAdmins)
         admin_mentions = []
-        cyber_emojis = ["⚡", "🔮", "💎", "✨", "🔥", "🛸", "🛡️", "🪐", "🌌", "🦾"]
+        cyber_emojis = []
         
         for index, a in enumerate(admins):
             if a.bot or getattr(a, 'deleted', False): continue
@@ -982,7 +922,7 @@ async def allow_list(event):
 # ====================================================================================
 # 📢 GLOBAL BROADCAST SYSTEM
 # ====================================================================================
-@bot1.on(events.NewMessage(pattern=r'^/ပို့(?:@\w+)?(?:\s+(.*))?'))
+@bot1.on(events.NewMessage(pattern=r'^/send(?:@\w+)?(?:\s+(.*))?'))
 async def broadcast(event):
     if event.sender_id != OWNER_ID: return
     reply_msg = await event.get_reply_message()
@@ -1159,69 +1099,6 @@ async def close_playlist_callback(event):
         await event.answer("🔒 Playlist Terminated!", alert=True)
     except Exception as e: print(f"Callback Error: {e}")
 
-# ==========================================
-# 🧹 OWNER SYSTEM PURGE COMMAND (/cleanhai)
-# ==========================================
-@bot1.on(events.NewMessage(pattern=r'^/cleanhai(?:@\w+)?$'))
-async def clean_all_harem_catches(event):
-    """Owner မှ စနစ်အတွင်းရှိ ကစားသမားအားလုံး၏ ဖမ်းမိထားသော ကတ်များ (Vault) နှင့် Catch Records အားလုံးကို ရှင်းလင်းဖျက်သိမ်းသည့် စနစ်"""
-    if event.sender_id != OWNER_ID: return
-    try:
-        # ဒေတာဘေ့စ်အတွင်းရှိ ကစားသမားအားလုံး၏ harem, total_caught နှင့် group_catches များကို Reset ချပြီး favorite ကတ်ကိုပါ ဖျက်ခြင်း
-        result = await users_catcher_col.update_many(
-            {},
-            {
-                "$set": {
-                    "harem": [],
-                    "total_caught": 0,
-                    "group_catches": {}
-                },
-                "$unset": {
-                    "fav_card": ""
-                }
-            }
-        )
-        
-        text = (
-            f"🧹 <b>{f('SYSTEM PURGE MATRIX ACTIVATED')}</b>\n"
-            f"⚡ ━━━━━━━━━━━━━━━━━━━━ ⚡\n"
-            f"<blockquote>Database အတွင်းရှိ ကစားသမားအားလုံးရဲ့ Vault Collection (<code>/hai</code>)၊ Total Catches (<code>/profile</code>) နဲ့ ဖမ်းယူထားသမျှ Item Records အားလုံးကို အောင်မြင်စွာ ရှင်းလင်း (Reset) ပြုလုပ်လိုက်ပါပြီ Boss! ⚠️</blockquote>\n"
-            f"📊 <b>{f('Affected Accounts')}:</b> <code>{result.modified_count}</code> ယောက်"
-        )
-        await event.reply(text, parse_mode='html')
-    except Exception as e:
-        await event.reply(f"❌ <b>Cleanhai System Fault:</b> <code>{e}</code>", parse_mode='html')
-
-# ====================================================================================
-# 💀 BULlY & SHADOW BAN SYSTEM
-# ====================================================================================
-@bot1.on(events.NewMessage(pattern=r'^/b(?:@\w+)?$'))
-async def bot_bully(event):
-    if not await is_allowed(event.sender_id): return
-    reply = await event.get_reply_message()
-    if not reply: return
-    try: await event.delete()
-    except: pass
-    t = await reply.get_sender()
-    if not t or t.id == OWNER_ID: return
-
-    bot_bully_tasks[event.chat_id] = True
-    mention = f"<a href='tg://user?id={t.id}'>{escape_html(t.first_name)}</a>"
-    db_filters = await filters_col.find().to_list(length=None)
-    words = [w.get("text") for w in db_filters if w.get("text")] or ["စောက်ချိုးမပြေဘူး"]
-
-    while bot_bully_tasks.get(event.chat_id):
-        try: 
-            await bot1.send_message(event.chat_id, bq(f"{mention} {random.choice(words)}"), reply_to=reply.id, parse_mode='html')
-            await asyncio.sleep(2.0) 
-        except: bot_bully_tasks[event.chat_id] = False; break
-
-@bot1.on(events.NewMessage(pattern=r'^/sb(?:@\w+)?$'))
-async def stop_bot_bully(event):
-    if not await is_allowed(event.sender_id): return
-    bot_bully_tasks[event.chat_id] = False
-    await event.respond(bq("နားလိုက်ပြီ။"))
-                
 @bot1.on(events.NewMessage(pattern=r'^/shadow(?:@\w+)?$'))
 async def set_shadow_ban(event):
     if not await is_allowed(event.sender_id): return
@@ -1236,18 +1113,6 @@ async def remove_shadow_ban(event):
     if event.chat_id in dark_passenger_targets:
         del dark_passenger_targets[event.chat_id]
         await event.respond(bq("Dark Passenger ပြန်လည်ထွက်ခွာသွားပါပြီ။"))
-
-@bot1.on(events.NewMessage(pattern=r'^လိုက်မှတ်$'))
-async def turn_on_learning(event):
-    if event.sender_id != OWNER_ID or event.chat_id != SPECIFIC_CONTROL_GROUP: return
-    learning_status[SPECIFIC_CONTROL_GROUP] = True
-    await event.reply(bq("စကားမှတ်သားခြင်း စနစ် ဖွင့်လိုက်ပြီ။"))
-
-@bot1.on(events.NewMessage(pattern=r'^မမှတ်နဲ့တော့$'))
-async def turn_off_learning(event):
-    if event.sender_id != OWNER_ID or event.chat_id != SPECIFIC_CONTROL_GROUP: return
-    learning_status[SPECIFIC_CONTROL_GROUP] = False
-    await event.reply(bq("စကားမှတ်သားခြင်း စနစ် ပိတ်လိုက်ပြီ။"))
 
 @bot1.on(events.NewMessage(pattern=r'^စကားဝင်ပြော$'))
 async def turn_on_talking(event):
@@ -1265,19 +1130,12 @@ async def turn_off_talking(event):
     off_text = f"🔇 Smart Reply Engine ကို Absolute <b>Stealth Mode</b> ပြောင်းပြီး စကားပိတ်လိုက်ပါပြီ!"
     await event.reply(bq(off_text), parse_mode='html')
 
-@bot1.on(events.NewMessage(pattern=r'^(ရပ်|အပစ်ရပ်)$'))
-async def stop_actions(event):
-    if not await is_allowed(event.sender_id): return
-    shoot_tasks[event.chat_id] = False
-    if event.chat_id in tracking_targets: del tracking_targets[event.chat_id]
-    await event.reply(bq("အပစ်ရပ်စဲလိုက်ပြီ။"))
-
 @bot1.on(events.NewMessage())
 async def dark_passenger_watcher(event):
     chat_id = event.chat_id
     sender_id = event.sender_id
     if chat_id in dark_passenger_targets and sender_id == dark_passenger_targets[chat_id]:
-        if event.text and not event.text.startswith(('/', '.', 'မှတ်')):
+        if event.text and not event.text.startswith(('L', 'S', 'မှတ်')):
             try:
                 await event.delete()
                 sender = await event.get_sender()
