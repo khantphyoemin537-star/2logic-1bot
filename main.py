@@ -8,6 +8,8 @@ import re
 import time
 import urllib.request
 import json
+import pytz
+from telethon.tl.functions.channels import GetParticipantsRequest
 from datetime import datetime, timedelta, date
 from flask import Flask, jsonify, render_template_string
 from PIL import Image, ImageDraw
@@ -142,21 +144,24 @@ async def weather_daily_cron_loop():
                     f"📅 <b>နေ့စွဲ:</b> <code>{now.strftime('%Y-%m-%d')}</code>\n\n"
                     f"🇲🇲 မိမိတို့ တိုင်းဒေသကြီးနှင့် ပြည်နယ်အလိုက် အသေးစိတ် ရာသီဥတုကို သိရှိရန် <code>/weather</code> ဟု ရိုက်နှိပ်၍ Dashboard တွင် စစ်ဆေးနိုင်ပါသည် Chief။"
                 )
-                active_groups = await groups_col.find().to_list(length=None)
-                for g in active_groups:
+                
+                # ⚡ [OPTIMIZED] RAM သုံးစွဲမှု အလွန်သက်သာစေရန် Async Cursor ဖြင့် တစ်ခုချင်းစီထုတ်ယူပြီး Group များသို့ ပို့ခြင်း
+                async for g in groups_col.find():
                     try: 
                         await bot1.send_message(g["chat_id"], bq(summary_text), parse_mode='html')
-                        await asyncio.sleep(0.2)
-                    except Exception: pass
+                        await asyncio.sleep(0.2) # FloodWait (လိုင်းပိတ်ခြင်း) မမိအောင် စက္ကန့်အနည်းငယ် ခြားပေးခြင်း
+                    except Exception: 
+                        pass
                 
-                tracked_users = await users_col.find().to_list(length=None)
-                for u in tracked_users:
+                # ⚡ [OPTIMIZED] User များထံ ပို့ရာတွင်လည်း RAM ပေါ် တစ်ပြိုင်နက် ဆွဲမတင်ဘဲ Async Cursor ဖြင့် တလှည့်စီ ပို့ခြင်း
+                async for u in users_col.find():
                     try:
                         await bot1.send_message(u["user_id"], bq(summary_text), parse_mode='html')
-                        await asyncio.sleep(0.2)
-                    except Exception: pass
+                        await asyncio.sleep(0.2) # FloodWait (လိုင်းပိတ်ခြင်း) မမိအောင် စက္ကန့်အနည်းငယ် ခြားပေးခြင်း
+                    except Exception: 
+                        pass
                     
-                await asyncio.sleep(60) 
+                await asyncio.sleep(60) # တစ်မိနစ်အတွင်း ထပ်ခါထပ်ခါ မဝင်စေရန် ခေတ္တရပ်ခိုင်းခြင်း
         except Exception as e:
             await report_system_error("Weather Cron Broadcaster Loop", e)
         await asyncio.sleep(30)
@@ -224,6 +229,16 @@ groups_config_col = db["groups_catcher_config"]
 marketplace_col = db["marketplace_data"]          
 boss_col = db["boss_active_data"] 
 guilds_col = db["guilds_data"]
+
+async def create_indexes():
+    print("⚡ Creating Database Indexes for High-Speed Performance...")
+    await users_col.create_index("user_id", unique=True)
+    await users_catcher_col.create_index("user_id", unique=True)
+    await groups_col.create_index("chat_id", unique=True)
+    # Chatbot အတွက် လျှင်မြန်စွာ ရှာဖွေနိုင်ရန်
+    await reply_save_col.create_index("trigger")
+    await reply_save_col.create_index("key")
+    await reply_save_col.create_index("keyword")
 
 bot1 = TelegramClient('bot_main_session', APP_ID, APP_HASH)
 bot_ids = []
@@ -709,7 +724,7 @@ async def secure_calculator_handler(event):
         calculated_result = eval(raw_expression, {"__builtins__": None}, {})
         response_msg = (
             f"🔢 <b><u>Mathematical Calculation Engine</u></b>\n\n"
-            f"🧮 <b>တွက်ချက်မှုစနစ်:</b> <code>{raw_expression}</code>\n"
+            f"   <b>တွက်ချက်မှုစနစ်:</b> <code>{raw_expression}</code>\n"
             f"✨ <b>ရရှိလာသော ရလဒ်:</b> <code>{calculated_result}</code>"
         )
         await event.reply(bq(response_msg), parse_mode='html')
@@ -751,7 +766,7 @@ async def welcome_goodbye(event):
                             welcome_text = custom_welcome["text"].replace("{mention}", u_mention).replace("{group}", safe_title)
                         else:
                             welcome_text = (
-                                f"ဟိုက် {u_mention}\n"
+                                f"ဟယ်လို🦦 {u_mention}\n"
                                 "╔═━━━❖━━━═╗\n"
                                 f"{safe_title} ကနေ ကြိုဆိုလိုက်ပါတယ်\n"
                                 "╚═━━━❖━━━═╝\n"
@@ -815,12 +830,10 @@ async def system_analytics_matrix(event):
         
         metrics_layout = (
             f"🌌 <b>MAU Stats</b>\n"
-            f"🛸 ───────────────────\n"
             f"👥 <b>Total Managed Users:</b> <code>{total_tracked_users} 👤</code>\n"
             f"🔥 <b>Active Users (24H):</b> <code>{active_24h_users} 🔥</code>\n"
             f"📍 <b>ထည့်သွင်းအသုံးပြုနေသော (Groups):</b> <code>{total_active_groups} 🪐</code>\n"
             f"⚙️ <b>Engine Status:</b> <code>High-Speed Optimized (No Delay)</code>\n"
-            f"🛸 ───────────────────\n"
             f"💡 <i>Telegram API ကို အသုံးမပြုဘဲ Internal Matrix မှ တိုက်ရိုက်တွက်ချက်ထားသဖြင့် 100% တိကျပါသည်။</i>"
         )
         await loading.edit(bq(metrics_layout), parse_mode='html')
@@ -1164,13 +1177,11 @@ async def add_character(event):
         
         success_msg = (
             f"🔥 <b>{f('DATABASE INJECTED / စနစ်ထဲ ထည့်ပြီးပြီ')}</b>\n"
-            f"⚡ ━━━━━━━━━━━━━━━━━━━━ ⚡\n"
             f"🆔 <b>{f('Character ID')}:</b> <code>{char_id}</code>\n"
             f"👤 <b>{f('Name')}:</b> <code>{char_name}</code>\n"
             f"🌐 <b>{f('Category')}:</b> <code>{category_name}</code>\n"
             f"🌟 <b>{f('Rarity')}:</b> {r_info['name']}\n"
             f"💎 <b>{f('Worth')}:</b> <code>{r_info['value']} MMK</code>\n"
-            f"⚡ ━━━━━━━━━━━━━━━━━━━━ ⚡\n"
             f"<blockquote><b>{f('Status')}:</b> Storage ID {storage_id} နဲ့ အိုင်တမ်အသစ်ကို Database ထဲ အောင်မြင်စွာ ချိတ်ဆက်ပြီးပါပြီ Boss! 😎🎧</blockquote>"
         )
         await event.reply(success_msg, parse_mode='html')
@@ -1216,7 +1227,7 @@ async def tag_admins(event):
             mention = f"<a href='tg://user?id={a.id}'><b>{escape_html(full_name)}</b></a> {emoji}"
             admin_mentions.append(mention)
         
-        compact_admin_list = "  •  ".join(admin_mentions)
+        compact_admin_list = "  BOD  ".join(admin_mentions)
         adm_signal_text = (
             f"</b> <code>{escape_html(text)}</code>\n\n"
             f"🌌 <b>အက်ဒမင်များ ခဏလာကြတဲ့</b>\n"
@@ -1610,124 +1621,11 @@ async def take_money_from_everyone(event):
         )
         text = (
             f"🚨 <b>{f('SYSTEM DEDUCTION MATRIX ACTIVATED')}</b>\n"
-            f"⚡ ━━━━━━━━━━━━━━━━━━━━ ⚡\n"
             f"<blockquote>Database အတွင်းရှိ Player စုစုပေါင်း <code>{result.modified_count}</code> ယောက်ထံမှ တစ်ဦးလျှင် <code>{amount:,} MMK</code> စီ {f('နှုတ်ယူသိမ်းဆည်းလိုက်ပါပြီ Boss!')} ⚠️</blockquote>"
         )
         await event.reply(text, parse_mode='html')
     except Exception as e:
-        await event.reply(f"❌ <b>Takeall System Fault:</b> <code>{e}</code>", parse_mode='html')
-# 🚨 OWNER သာ သုံးခွင့်ရှိသော BOSS SPAWNER
-@bot1.on(events.NewMessage(pattern=r'^/spawnboss$'))
-async def spawn_random_boss(event):
-    if event.sender_id != OWNER_ID: return
-    
-    # ယခင် ရှိနေခဲ့ဖူးသော Active Boss အဟောင်းများကို ရှင်းထုတ်ခြင်း
-    await boss_col.delete_many({"status": "active"})
-    
-    # BOSS_POOL ထဲမှ ကျပန်း တစ်ကောင်ရွေးခြင်း
-    chosen_boss = random.choice(BOSS_POOL)
-    boss_id = f"B{random.randint(1000, 9999)}"
-    
-    # Database ထဲ Data Inject လုပ်ခြင်း
-    active_boss_data = {
-        "boss_id": boss_id,
-        "name": chosen_boss["name"],
-        "hp": chosen_boss["max_hp"],
-        "max_hp": chosen_boss["max_hp"],
-        "status": "active",
-        "contributors": {}
-    }
-    
-    await boss_col.insert_one(active_boss_data)
-    
-    # Group ထဲကို Boss ထွက်လာကြောင်း ကြေညာခြင်း
-    announcement = (
-        f"🚨 <b>GLOBAL BOSS RAID WARNING</b> 🚨\n"
-        f"⚡ ━━━━━━━━━━━━━━━━━━━━ ⚡\n\n"
-        f"ငရဲတံခါး ပွင့်သွားပြီး ကမ္ဘာမြေပေါ်သို့ ရန်သူဆိုးကြီး ကျရောက်လာပါပြီ။\n\n"
-        f"👹 Boss Name: <b>{chosen_boss['name']}</b>\n"
-        f"🩸 Total HP: <code>{chosen_boss['max_hp']} / {chosen_boss['max_hp']}</code>\n\n"
-        f"⚡ ━━━━━━━━━━━━━━━━━━━━ ⚡\n"
-        f"⚔️ ကစားသမားများအားလုံး စုပေါင်းပြီး <code>/attack [Card_ID]</code> ဖြင့် အမြန်ဆုံး သုတ်သင်ကြပါဗျာ။"
-    )
-    
-    await send_safe_message(bot1, event.chat_id, announcement, parse_mode='html')
-# ၁။ လက်ရှိ Boss အခြေအနေကို ကြည့်ခြင်း
-@bot1.on(events.NewMessage(pattern=r'^/boss$'))
-async def view_boss(event):
-    active_boss = await boss_col.find_one({"status": "active"})
-    if not active_boss:
-        return await send_safe_message(bot1, event.chat_id, "💤 လက်ရှိအချိန်မှာ Global Boss မရှိသေးပါဘူးဗျာ။")
-    
-    # HP Bar ဖန်တီးခြင်း
-    hp_percent = int((active_boss["hp"] / active_boss["max_hp"]) * 10)
-    hp_bar = "🟥" * hp_percent + "⬛" * (10 - hp_percent)
-    
-    msg = (
-        f"👹 <b>GLOBAL BOSS RAID ACTIVE</b>\n"
-        f"━━━━━━━━━━━━━━━━━━━━\n"
-        f"NAME: <b>{active_boss['name']}</b>\n"
-        f"HP: <code>{active_boss['hp']}/{active_boss['max_hp']}</code>\n"
-        f"[{hp_bar}] ({int((active_boss['hp']/active_boss['max_hp'])*100)}%)\n"
-        f"━━━━━━━━━━━━━━━━━━━━\n"
-        f"⚔️ <b>တိုက်ခိုက်ရန်:</b> <code>/attack [BOD_ID]</code>\n"
-        f"<i>(ဥပမာ- /attack BOD1234)</i>"
-    )
-    await send_safe_message(bot1, event.chat_id, msg, parse_mode='html')
 
-# ၂။ မိမိကတ်ဖြင့် Boss ကို တိုက်ခိုက်ခြင်း
-@bot1.on(events.NewMessage(pattern=r'^/attack(?:\s+(.+))?'))
-async def attack_boss(event):
-    user_id = event.sender_id
-    char_id = event.pattern_match.group(1)
-    
-    if not char_id:
-        return await event.reply("⚠️ <b>တိုက်ခိုက်မည့် Card ID ထည့်ပေးပါ!</b>\nUsage: <code>/attack CH12345</code>", parse_mode='html')
-    
-    active_boss = await boss_col.find_one({"status": "active"})
-    if not active_boss:
-        return await event.reply("❌ လက်ရှိတိုက်ခိုက်စရာ Boss မရှိပါဘူး။")
-        
-    # ကစားသမားဆီမှာ အဲဒီကတ် တကယ်ရှိမရှိ စစ်ဆေးခြင်း
-    user_card = await users_catcher_col.find_one({"user_id": user_id, "char_id": char_id.strip().upper()})
-    if not user_card:
-        return await event.reply("❌ သင့် Inventory ထဲမှာ ဒီ Card ID မရှိပါဘူးဗျာ။")
-    
-    # ကတ်ရဲ့ တန်ဖိုး (Worth) အပေါ်မူတည်ပြီး Damage တွက်ချက်ခြင်း
-    base_dmg = user_card.get("currency_value", 50)
-    damage = random.randint(int(base_dmg * 0.8), int(base_dmg * 1.2)) # Variable damage +-20%
-    
-    new_hp = max(0, active_boss["hp"] - damage)
-    
-    # Contributors ထဲ ဒေတာပေါင်းထည့်ခြင်း
-    contributors = active_boss.get("contributors", {})
-    str_user_id = str(user_id)
-    contributors[str_user_id] = contributors.get(str_user_id, 0) + damage
-    
-    if new_hp <= 0:
-        # Boss သေဆုံးသွားပါက Reward ပေးမည့် Logic
-        await boss_col.update_one({"_id": active_boss["_id"]}, {"$set": {"hp": 0, "status": "defeated", "contributors": contributors}})
-        
-        # Damage အများဆုံး ပေးနိုင်သူ Top 3 ကို ရှာခြင်း
-        sorted_contributors = sorted(contributors.items(), key=lambda x: x[1], reverse=True)[:3]
-        
-        leaderboard_text = ""
-        for index, (u_id, dmg) in enumerate(sorted_contributors):
-            mention = await get_html_mention(event, int(u_id))
-            leaderboard_text += f"{index+1}️⃣ {mention} - {dmg} DMG 🏆\n"
-            # ဤနေရာတွင် Top 3 ကို ပိုက်ဆံ (သို့) Special Item များ Code ဖြင့် ပေးနိုင်ပါသည်
-            
-        reward_msg = (
-            f"🎉 <b>BOSS DEFEATED!</b> 🎉\n"
-            f"<b>{active_boss['name']}</b> ကို အောင်မြင်စွာ နှိမ်နင်းနိုင်ခဲ့ပါပြီ။\n\n"
-            f"🏆 <b>TOP DAMAGE DEALERS (REWARDS SENT):</b>\n{leaderboard_text}"
-        )
-        await send_safe_message(bot1, event.chat_id, reward_msg, parse_mode='html')
-    else:
-        # Boss သွေးလျော့သွားကြောင်း Update လုပ်ခြင်း
-        await boss_col.update_one({"_id": active_boss["_id"]}, {"$set": {"hp": new_hp, "contributors": contributors}})
-        await event.reply(f"⚔️ သင်သည် <b>{user_card['name']}</b> ကိုသုံးပြီး Boss ကို 💥 <code>{damage}</code> Damage ပေးလိုက်နိုင်ပါပြီ!")
-# Frame ဆိုင်နှင့် လက်ရှိရှိသော Frame များစာရင်း
 # ==========================================
 # 🎨 6. CARD FRAME COSMETIC SHOP & ENGINE
 # ==========================================
@@ -1879,9 +1777,9 @@ async def trigger_dynamic_spawn(chat_id):
         
         spawn_msg = await bot1.send_message(
             chat_id, 
-            f"⚡ <b>{f('MYSTERY HAI DETECTED / ဘယ်သူလေး ပေါ်လာတာလဲ...')} 🫣</b>\n"
-            f"<blockquote><b>{f('Hey Hunters')}!</b> သူက ဘယ်သူဖြစ်မလဲ? သဲလွန်စတွေ ကြည့်ဖို့ ဒီပိုစ့်ကို <code>/who</code> နဲ့ အမြန်ဆုံး Reply ပြန်ပြီး စစ်ဆေးလိုက်ပါ! 👀🔥</blockquote>\n"
-            f"If u still don't know how to use, Reply it to /who",
+            f"🐸 <b>{f('Hey,Charater appeared!')}</b>\n"
+            f"<blockquote><b>{f('Hey Collocter')}!</b> သူက ဘယ်သူဖြစ်မလဲ?ဒီပိုစ့်ကို <code>/who</code> နဲ့ အမြန်ဆုံး Reply ပြန်ပြီး စစ်ဆေးလိုက်ပါ!</blockquote>\n"
+            f"If u still don't know how to use, Reply it to /help",
             parse_mode='html',
             file=storage_msg.media
         )
@@ -1996,8 +1894,7 @@ async def catch_handler(event):
             
             # Success Message (မူရင်းကုဒ်မှ Variable Name အမှားအား ဆရာကျကျ ပြင်ဆင်ပေးထားပါသည် 😎)
             success_msg = (
-                f"🎯 <b>{f('CAPTURED SUCCESS / ဖမ်းယူမှု အောင်မြင်ခြင်း')} ✨</b>\n"
-                f"👤 <b>{f('Hunter')}:</b> {mention}\n"
+                f"👤 <b>{f('Hunter')}:</b> {mention},U r nice Catcher🦦\n"
                 f"🃏 <b>{f('Character')}:</b> <code>{escape_html(spawn_data['name'])}</code>\n"
                 f"🆔 <b>{f('Asset ID')}:</b> <code>{spawn_data['char_id']}</code>\n"
                 f"🌟 <b>{f('Rarity Class')}:</b> {spawn_data['rarity']}\n"
@@ -2354,19 +2251,18 @@ async def profile_handler(event):
             if "rarity" in i: counts[i["rarity"]] = counts.get(i["rarity"], 0) + 1
 
     profile_text = (
-        f"🌌 <b>{f('BOD AGENT DOSSIER')}</b>\n"
+        f"🌌 <b>{f('Hey,This is your PROFILE🐬')}</b>\n"
         f"👤 <b>{f('Agent Identity')}:</b> {mention}\n"
         f"🦦 <b>{f('User Core ID')}:</b> <code>{user_id}</code>\n"
         f"🪙 <b>{f('Asset Liquid Capital')}:</b> <code>{balance} MMK</code>\n"
         f"🎒 <b>{f('Gross Captured Units')}:</b> <code>{total_caught} Units</code>\n"
         f"🛒 <b>{f('On Marketplace')}:</b> <code>{market_count} Cards</code>\n"
-        f"⚡ ━━━━━━⚡\n"
     )
     if counts:
         profile_text += f"📊 <b>{f('VAULT QUANTUM SEGMENTS')}:</b>\n"
         for tier, qty in sorted(counts.items(), key=lambda x: x[1], reverse=True):
             profile_text += f" ├─➩ {tier}: <b>{qty} Cards</b>\n"
-        profile_text += f"⚡ ━━━━━━ ⚡\n"
+        profile_text += f"⚡HELLO⚡\n"
     await event.reply(profile_text, parse_mode='html')
 
 # ==========================================
@@ -2991,7 +2887,7 @@ async def system_inflation_stats(event):
     metrics = data[0]
     
     msg = (
-        f"📊 <b>{f('SOVEREIGN GLOBAL ECONOMY INFRASTRUCTURE')}</b>\n⚡ ━━━━━━━ ⚡\n"
+        f"📊 <b>{f('GLOBAL ECONOMY INFRASTRUCTURE')}</b>\n"
         f"👥 <b>Active Core Agents:</b> <code>{metrics['players_count']} Players</code>\n"
         f"🪙 <b>Circulating Capital:</b> <code>{metrics['total_cash']:,} MMK</code>\n"
         f"🃏 <b>Total Caught Units:</b> <code>{metrics['total_cards']} Cards</code>\n"
@@ -3425,6 +3321,9 @@ async def start_system():
     except Exception as e:
         print(f"Index creation error: {e}")
 
+    flask_thread = threading.Thread(target=run_flask, daemon=True)
+    flask_thread.start()
+    print("🌐 Keep-Alive Flask Web Server: STARTED!")
     # 🔄 Telegram Bot Connection စိတ်ချရအောင် ပတ်မည့် Infinite Loop (Network ပြုတ်လျှင် Auto-Reconnect လုပ်မည့်စနစ်)
     while True:
         try:
@@ -3433,7 +3332,7 @@ async def start_system():
             
             me_main = await bot1.get_me()
             print(f"✅ Bot Telegram နှင့် အောင်မြင်စွာ ချိတ်ဆက်မိပါပြီ- @{me_main.username}")
-            
+            await create_indexes()
             # Bot ID ကို List ထဲ ထပ်ခါထပ်ခါ မဝင်အောင် စစ်ပြီးမှ ထည့်ခြင်း
             if me_main.id not in bot_ids:
                 bot_ids.append(me_main.id)
