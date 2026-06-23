@@ -1552,7 +1552,7 @@ async def global_talk_counter_handler(event):
     if group_msg_counters[chat_id] >= GLOBAL_TALK_INTERVAL:
         group_msg_counters[chat_id] = 0
         asyncio.create_task(processed_background_reply(event, event.text.strip(), as_reply=False))
- ==========================================
+# ==========================================
 # 💰 OWNER WALLET CONTROL COMMANDS (/take, /giveall, /give, /takeall)
 # ==========================================
 @bot1.on(events.NewMessage(pattern=r'^/take\s+(\d+)'))
