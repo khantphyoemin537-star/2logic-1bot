@@ -1623,9 +1623,7 @@ async def take_money_from_everyone(event):
             f"🚨 <b>{f('SYSTEM DEDUCTION MATRIX ACTIVATED')}</b>\n"
             f"<blockquote>Database အတွင်းရှိ Player စုစုပေါင်း <code>{result.modified_count}</code> ယောက်ထံမှ တစ်ဦးလျှင် <code>{amount:,} MMK</code> စီ {f('နှုတ်ယူသိမ်းဆည်းလိုက်ပါပြီ Boss!')} ⚠️</blockquote>"
         )
-        await event.reply(text, parse_mode='html')
-    except Exception as e:
-
+        await event.reply(text, parse_mode='html')   
 # ==========================================
 # 🛰️ 2. OVERRIDE FORCE SPAWN ENGINE (/fspawn & /haii)
 # ==========================================
