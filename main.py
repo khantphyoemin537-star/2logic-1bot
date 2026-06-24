@@ -134,38 +134,6 @@ async def register_temporary_mute(chat_id, user_id, duration_minutes=60):
         upsert=True
     )
 
-async def weather_daily_cron_loop():
-    while True:
-        try:
-            now = datetime.now(TZ)
-            if now.hour == 20 and now.minute == 0:
-                summary_text = (
-                    f"☀️ <b>မြန်မာနိုင်ငံလုံးဆိုင်ရာ နေ့စဉ် မိုးလေဝသသတင်းစလွှာ</b>\n"
-                    f"📅 <b>နေ့စွဲ:</b> <code>{now.strftime('%Y-%m-%d')}</code>\n\n"
-                    f"🇲🇲 မိမိတို့ တိုင်းဒေသကြီးနှင့် ပြည်နယ်အလိုက် အသေးစိတ် ရာသီဥတုကို သိရှိရန် <code>/weather</code> ဟု ရိုက်နှိပ်၍ Dashboard တွင် စစ်ဆေးနိုင်ပါသည် Chief။"
-                )
-                
-                # ⚡ [OPTIMIZED] RAM သုံးစွဲမှု အလွန်သက်သာစေရန် Async Cursor ဖြင့် တစ်ခုချင်းစီထုတ်ယူပြီး Group များသို့ ပို့ခြင်း
-                async for g in groups_col.find():
-                    try: 
-                        await bot1.send_message(g["chat_id"], bq(summary_text), parse_mode='html')
-                        await asyncio.sleep(0.2) # FloodWait (လိုင်းပိတ်ခြင်း) မမိအောင် စက္ကန့်အနည်းငယ် ခြားပေးခြင်း
-                    except Exception: 
-                        pass
-                
-                # ⚡ [OPTIMIZED] User များထံ ပို့ရာတွင်လည်း RAM ပေါ် တစ်ပြိုင်နက် ဆွဲမတင်ဘဲ Async Cursor ဖြင့် တလှည့်စီ ပို့ခြင်း
-                async for u in users_col.find():
-                    try:
-                        await bot1.send_message(u["user_id"], bq(summary_text), parse_mode='html')
-                        await asyncio.sleep(0.2) # FloodWait (လိုင်းပိတ်ခြင်း) မမိအောင် စက္ကန့်အနည်းငယ် ခြားပေးခြင်း
-                    except Exception: 
-                        pass
-                    
-                await asyncio.sleep(60) # တစ်မိနစ်အတွင်း ထပ်ခါထပ်ခါ မဝင်စေရန် ခေတ္တရပ်ခိုင်းခြင်း
-        except Exception as e:
-            await report_system_error("Weather Cron Broadcaster Loop", e)
-        await asyncio.sleep(30)
-
 # ==========================================
 # 🔍 SMART TEXT NORMALIZER FOR TEXT MATCHING
 # ==========================================
@@ -227,19 +195,15 @@ users_catcher_col = db["users_catcher_data"]
 groups_counters_col = db["groups_msg_counters"]    
 groups_config_col = db["groups_catcher_config"]   
 marketplace_col = db["marketplace_data"]          
-boss_col = db["boss_active_data"] 
-guilds_col = db["guilds_data"]
 
 async def create_indexes():
     print("⚡ Creating Database Indexes for High-Speed Performance...")
     await users_col.create_index("user_id", unique=True)
     await users_catcher_col.create_index("user_id", unique=True)
     await groups_col.create_index("chat_id", unique=True)
-    # Chatbot အတွက် လျှင်မြန်စွာ ရှာဖွေနိုင်ရန်
+    # reply_save_col ထဲက trigger field ကို Index (မာတိကာအညွှန်း) ဆောက်ပေးခြင်း
     await reply_save_col.create_index("trigger")
-    await reply_save_col.create_index("key")
-    await reply_save_col.create_index("keyword")
-
+    
 bot1 = TelegramClient('bot_main_session', APP_ID, APP_HASH)
 bot_ids = []
 bot_names = []
@@ -277,23 +241,6 @@ def bq(text): return f"<blockquote><b>{text}</b></blockquote>"
 
 def owner_tag():
     return f"<a href='https://t.me/{OWNER_USERNAME}'>@{OWNER_USERNAME}</a>"
-# ==========================================
-# 🌌 GLOBAL BOSS POOL MATRIX (၁၀ ကောင်မှ ၁၅ ကောင် စာရင်း)
-# ==========================================
-BOSS_POOL = [
-    {"name": "🔥 𝔎𝔦𝔫𝔤 𝔇𝔢𝔪𝔬𝔫 𝔄𝔰𝔥𝔱𝔞𝔯𝔬𝔱𝔥", "max_hp": 5000},
-    {"name": "🐉 𝔄𝔫𝔠𝔦𝔢𝔫𝔱 𝔙𝔬𝔶𝔡 𝔇𝔯𝔞𝔤𝔬𝔫", "max_hp": 7500},
-    {"name": "💀 𝔖𝔥𝔞𝔡𝔬𝔴 𝔑𝔢𝔠𝔯𝔬𝔪𝔞𝔫𝔠𝔢𝔯", "max_hp": 4000},
-    {"name": "⚡ ℭ𝔥𝔞𝔬𝔰 ℔𝔥𝔲𝔫𝔡𝔢𝔯 𝔊𝔬𝔡", "max_hp": 6500},
-    {"name": "❄️ 𝔉𝔯𝔬𝔰𝔱 𝔖𝔭𝔢𝔠𝔱𝔢𝔯 ℜ𝔢𝔵", "max_hp": 4500},
-    {"name": "🎭 𝔗𝔥𝔢 𝔐𝔞𝔡 𝔍𝔢𝔰𝔱𝔢𝔯", "max_hp": 3500},
-    {"name": "🩸 𝔙𝔞𝔪𝔭𝔦𝔯𝔢 ℔𝔬𝔯𝔡 𝔇𝔯𝔞𝔠𝔲𝔩𝔞", "max_hp": 5500},
-    {"name": "⛰️ ℭ𝔲𝔯𝔰𝔢𝔡 𝔖𝔱𝔬𝔫𝔢 𝔊𝔬𝔩𝔢𝔪", "max_hp": 8000},
-    {"name": "🦊 𝔑𝔦𝔫𝔢-𝔗𝔞𝔦𝔩𝔢𝔡 𝔇𝔢𝔪𝔬𝔫 𝔉𝔬𝔵", "max_hp": 6000},
-    {"name": "⚔️ 𝔓𝔥𝔞𝔫𝔱𝔬𝔪 𝔖𝔥𝔦𝔫𝔬𝔟𝔦 𝔒𝔯𝔬𝔠𝔥𝔦", "max_hp": 4800},
-    {"name": "🪐 𝔖𝔭𝔞𝔿𝔢 ℔𝔦𝔱𝔥 ℭ𝔱𝔥𝔲𝔩𝔥𝔲", "max_hp": 9999},
-    {"name": "🦾 ℭ𝔶𝔟𝔢𝔯𝔫𝔢𝔱𝔦𝔠 𝔇𝔢𝔰𝔱𝔯𝔬𝔶𝔢𝔯", "max_hp": 7000}
-]
 
 # 🎭 RARITY MAPPING MATRIX (NEON GACHA EDITION 🔥)
 # ==========================================
@@ -317,207 +264,35 @@ async def get_html_mention(event, user_id=None):
     except:
         fullname = f"Agent {user_id}"
     return f"<a href='tg://user?id={user_id}'><b>{escape_html(fullname)}</b></a>"
-
 # ==========================================
-# 🎨 SMART PIL CIRCULAR PROFILE OVERLAY ENGINE
+# ⚔️ ALL GROUPS COMMAND INTERCEPTOR (AUTO ACC OPENER)
 # ==========================================
-from PIL import Image, ImageDraw
-import io
-
-def overlay_profile_picture(bg_bytes, pfp_bytes):
-    """နောက်ခံပုံပေါ်တွင် User Profile ကို အဝိုင်းပုံစံ ထင်ထင်ရှားရှား အလယ်ဗဟို၌ ထည့်ပေးသည့် Function"""
-    try:
-        bg_img = Image.open(io.BytesIO(bg_bytes)).convert("RGBA")
-        pfp_img = Image.open(io.BytesIO(pfp_bytes)).convert("RGBA")
-        
-        bg_w, bg_h = bg_img.size
-        # ပုံရဲ့ Size ပေါ်မူတည်ပြီး Profile Size ကို အချိုးကျတွက်ချက်ခြင်း
-        pfp_size = min(bg_w, bg_h) // 4
-        if pfp_size < 120: pfp_size = 120
-        if pfp_size > 320: pfp_size = 320
-        
-        pfp_img = pfp_img.resize((pfp_size, pfp_size), Image.Resampling.LANCZOS)
-        
-        # Profile ကို အဝိုင်းဖြစ်အောင် Mask ပြုလုပ်ခြင်း
-        mask = Image.new("L", (pfp_size, pfp_size), 0)
-        draw = ImageDraw.Draw(mask)
-        draw.ellipse((0, 0, pfp_size, pfp_size), fill=255)
-        
-        circular_pfp = Image.new("RGBA", (pfp_size, pfp_size))
-        circular_pfp.paste(pfp_img, (0, 0), mask=mask)
-        
-        # ထင်ထင်ရှားရှားဖြစ်အောင် အဖြူရောင် Border လိုင်းလှလှလေး ထည့်ခြင်း
-        draw_border = ImageDraw.Draw(circular_pfp)
-        draw_border.ellipse((0, 0, pfp_size - 1, pfp_size - 1), outline="white", width=5)
-        
-        # အလယ်ဗဟိုတည်နေရာ ရှာဖွေခြင်း
-        pos_x = bg_w // 2 - pfp_size // 2
-        pos_y = bg_h // 2 - pfp_size // 2
-        
-        bg_img.paste(circular_pfp, (pos_x, pos_y), circular_pfp)
-        
-        output = io.BytesIO()
-        bg_img.convert("RGB").save(output, format="JPEG", quality=95)
-        return output.getvalue()
-    except Exception as e:
-        print(f"Pillow Overlay Error: {e}")
-        return bg_bytes
-
-# ==========================================
-# ⚙️ GLOBAL WELCOME TEMPLATE SETTER COMMANDS
-# ==========================================
-
-@bot1.on(events.NewMessage(pattern=r'^/setwc$'))
-async def set_welcome_caption(event):
-    """Owner မှ Welcome စာသားအား Premium Emoji ပါဝင်မှုမပျက် သိမ်းဆည်းရန်"""
-    if event.sender_id != OWNER_ID: return
-        
-    if not event.is_reply:
-        return await event.reply("⚠️ <b>Welcome စာသားကို Reply ပြန်ပြီး <code>/setwc</code> ဟု ရိုက်ပေးပါ Boss!</b>", parse_mode='html')
-        
-    reply_msg = await event.get_reply_message()
-    if not reply_msg or (not reply_msg.text and not reply_msg.message):
-        return await event.reply("❌ <b>Reply ပြန်ထားတဲ့ မက်ဆေ့ခ်ျထဲမှာ စာသားမတွေ့ပါဘူး Bro!</b>", parse_mode='html')
-        
-    # Unicode / Premium Emoji Formatting အပြည့်အစုံကို HTML သို့ ပြောင်းလဲခြင်း
-    html_template = message_to_html(reply_msg.message, reply_msg.entities)
-    
-    await groups_config_col.update_one(
-        {"chat_id": "global_welcome_settings"},
-        {"$set": {"welcome_html_template": html_template}},
-        upsert=True
-    )
-    
-    success_text = (
-        f"✅ <b>{f('GLOBAL WELCOME TEXT CONFIG MATRIX LOCKED')}</b>\n"
-        f"{html_template}\n\n"
-        f"<🔥</blockquote>"
-    )
-    
-    # 🌟 FIX: parse_mode='html' ကို မသုံးဘဲ Custom Parser ဖြင့် Text နှင့် Entities ခွဲထုတ်ပြီး ပို့ဆောင်ခြင်း
-    clean_text, entities = parse_html_to_telethon(success_text)
-    await event.reply(clean_text, entities=entities)
-
-
-@bot1.on(events.NewMessage(pattern=r'^/setbg$'))
-async def set_welcome_background(event):
-    """Owner မှ Welcome နောက်ခံ ပုံ (သို့) ဗီဒီယိုအား Group အားလုံးအတွက် သတ်မှတ်ရန်"""
-    if event.sender_id != OWNER_ID: return
-        
-    if not event.is_reply:
-        return await event.reply("⚠️ <b>Welcome နောက်ခံဖြစ်စေချင်တဲ့ ပုံ (သို့) ဗီဒီယိုကို Reply ပြန်ပြီး <code>/setbg</code> ဟု ရိုက်ပေးပါ Boss!</b>", parse_mode='html')
-        
-    reply_msg = await event.get_reply_message()
-    if not reply_msg or not (reply_msg.photo or reply_msg.video or reply_msg.document):
-        return await event.reply("❌ <b>ထည့်သွင်းရန် သင့်လျော်သော ပုံ (သို့) ဗီဒီယို ရှာမတွေ့ပါ Bro!</b>", parse_mode='html')
-        
-    media_type = "photo" if reply_msg.photo else "video"
-    if reply_msg.document and reply_msg.document.mime_type.startswith("video"):
-        media_type = "video"
-        
-    try:
-        # Control Group ထဲသို့ သိမ်းဆည်းရန်အတွက် လုံခြုံစွာ Forward လုပ်ခြင်း
-        forwarded_msg = await send_safe_message(bot1, SPECIFIC_CONTROL_GROUP, "", file=reply_msg.media)
-        storage_msg_id = forwarded_msg.id
-        
-        await groups_config_col.update_one(
-            {"chat_id": "global_welcome_settings"},
-            {"$set": {
-                "bg_storage_msg_id": storage_msg_id,
-                "bg_media_type": media_type
-            }},
-            upsert=True
-        )
-        
-        await event.reply(f"✅ <b>Global Welcome Background Injected!</b>\n\n📸 Type: <code>{media_type.upper()}</code>\n📦 Storage Msg ID: <code>{storage_msg_id}</code>\n<blockquote>နောက်ခံ Media အား စနစ်ထဲ ထည့်သွင်းပြီးပါပြီ။ ဂရုအားလုံးတွင် သုံးပါမည် Boss! ⚡</blockquote>", parse_mode='html')
-    except Exception as e:
-        await event.reply(f"❌ <b>Background Save Fault:</b> <code>{escape_html(str(e))}</code>", parse_mode='html')
-
-
-# ==========================================
-# 🌌 GLOBAL USER JOIN ACTION DISPATCHER
-# ==========================================
-@bot1.on(events.ChatAction)
-async def global_welcome_handler(event):
-    """လူသစ်ဝင်လာပါက Auto Account ဖွင့်ပေးပြီး Premium Welcome Media ပေးပို့သည့် စနစ်"""
-    if not (event.user_joined or event.user_added):
+@bot1.on(events.NewMessage(pattern=r'^/'))
+async def global_slash_cmd_acc_opener(event):
+    """ဘယ် group မှာမဆို / (slash) နဲ့စတဲ့ ဘာစာပဲရိုက်ရိုက်
+    အကောင့်မရှိသေးတဲ့ လူဟောင်း/လူသစ်အားလုံးကို Auto Acc ဖွင့်ပေးမည့်စနစ်"""
+    user_id = event.sender_id
+    if not user_id:
         return
         
     try:
-        chat = await event.get_chat()
-        group_name = getattr(chat, 'title', 'This Active Realm')
-        group_id = event.chat_id
-    except:
-        return
-        
-    user_id = event.user_id
-    try:
-        user_entity = await event.get_user()
+        # Command ရိုက်လိုက်တဲ့သူရဲ့ Telegram Profile နာမည်ကို လှမ်းယူခြင်း
+        user_entity = await event.get_sender()
         first_name = getattr(user_entity, 'first_name', '') or ''
         last_name = getattr(user_entity, 'last_name', '') or ''
         fullname = f"{first_name} {last_name}".strip()
         if not fullname:
-            fullname = getattr(user_entity, 'username', '') or f"Agent {user_id}"
+            fullname = getattr(user_entity, 'username', '') or f"User {user_id}"
     except:
-        fullname = f"Agent {user_id}"
+        fullname = f"User {user_id}"
         
-    # Joined Date အား လှပသပ်ရပ်စွာ ထုတ်ယူခြင်း
-    joined_date = datetime.now().strftime("%Y-%m-%d %I:%M %p")
+    # Database ထဲမှာ အကောင့်ရှိမရှိ စစ်ပြီး မရှိသေးရင် Auto Acc ဖွင့်ပေးသွားမည်
+    # (ensure_user_registered function ထဲမှာ အကောင့်ရှိပြီးသားဆို ကျော်သွားမယ့် logic ပါပြီးသားမို့ ထပ်ခါထပ်ခါ Acc ပွင့်မနေပါဘူး)
+    await ensure_user_registered(user_id, fullname)
     
-    # လူသစ်အား Catcher Game စနစ်ထဲ အလိုအလျောက် အကောင့်ဖွင့်ပေးခြင်း
-    mention_html = f"<a href='tg://user?id={user_id}'><b>{escape_html(fullname)}</b></a>"
-    await ensure_user_registered(user_id, mention_html)
-    
-    # ဒေတာဘေ့စ်မှ Welcome Settings ကို ထုတ်ယူခြင်း
-    settings = await groups_config_col.find_one({"chat_id": "global_welcome_settings"})
-    if not settings:
-        return # သတ်မှတ်မထားပါက ဘာမှဝင်မလုပ်ပါ
-        
-    welcome_html_template = settings.get("welcome_html_template")
-    bg_storage_msg_id = settings.get("bg_storage_msg_id")
-    bg_media_type = settings.get("bg_media_type", "photo")
-    
-    if not welcome_html_template:
-        return # စာသားမရှိလျှင် မပို့ပါ
-        
-    # Placeholder များကို ပုံစံမပျက် ဘေးကင်းစွာ အစားထိုးခြင်း
-    caption_html = welcome_html_template.replace("{fullname}", mention_html).replace("{groupname}", escape_html(group_name)).replace("{joined_date}", escape_html(joined_date))
-    
-    # 🌟 FIX: HTML Template အား Telethon သုံးနိုင်ရန် Text နှင့် Entities အဖြစ် ကြိုတင်ခွဲထုတ်ခြင်း
-    clean_caption, entities = parse_html_to_telethon(caption_html)
-    
-    if bg_storage_msg_id:
-        try:
-            # Control Group ထဲက မူရင်း မီဒီယာဖိုင်ကို ဆွဲထုတ်ခြင်း
-            storage_msg = await bot1.get_messages(SPECIFIC_CONTROL_GROUP, ids=bg_storage_msg_id)
-            if storage_msg and storage_msg.media:
-                if bg_media_type == "photo":
-                    # ပုံဖြစ်ပါက ဒေါင်းလုဒ်ဆွဲပြီး Profile Overlay Engine သို့ ပို့မည်
-                    bg_stream = io.BytesIO()
-                    await bot1.download_media(storage_msg.media, file=bg_stream)
-                    
-                    pfp_stream = io.BytesIO()
-                    has_pfp = await bot1.download_profile_photo(user_id, file=pfp_stream)
-                    
-                    if has_pfp:
-                        processed_image = overlay_profile_picture(bg_stream.getvalue(), pfp_stream.getvalue())
-                    else:
-                        processed_image = bg_stream.getvalue()
-                        
-                    # 🌟 FIX: parse_mode='html' ကိုဖြုတ်ပြီး ပြောင်းလဲထားသော entities ကို တိုက်ရိုက်ထည့်သွင်းပေးပို့ခြင်း
-                    await send_safe_file(bot1, group_id, file=io.BytesIO(processed_image), caption=clean_caption, entities=entities)
-                    return
-                else:
-                    # ဗီဒီယိုဖြစ်ပါက မူရင်း Quality အတိုင်း တိုက်ရိုက် Spawn ပို့ပေးမည်
-                    # 🌟 FIX: parse_mode='html' ကိုဖြုတ်ပြီး ပြောင်းလဲထားသော entities ကို တိုက်ရိုက်ထည့်သွင်းပေးပို့ခြင်း
-                    await send_safe_file(bot1, group_id, file=storage_msg.media, caption=clean_caption, entities=entities)
-                    return
-        except Exception as e:
-            print(f"Welcome Media Forwarding Error: {e}")
-            
-    # အကယ်၍ မီဒီယာပို့ရာတွင် Error တက်ပါက Safe စာသားသက်သက်ဖြင့်သာ လှမ်းအော်ပေးမည်
-    # 🌟 FIX: parse_mode='html' ကိုဖြုတ်ပြီး ပြောင်းလဲထားသော entities ကို တိုက်ရိုက်ထည့်သွင်းပေးပို့ခြင်း
-    await send_safe_message(bot1, group_id, clean_caption, entities=entities)
+    # 💡 ဒီနေရာမှာ event.stop_propagation() မသုံးထားတဲ့အတွက် 
+    # အကောင့်ဖွင့်ပေးပြီးတာနဲ့ သူရိုက်လိုက်တဲ့ /cmd က သက်ဆိုင်ရာ Handler ဆီ ဆက်သွားပြီး ပုံမှန်အတိုင်း အလုပ်လုပ်ပါလိမ့်မယ်။
+
 # ==========================================
 # 🛠️ ADMIN CAPABILITY CORE ENGINE
 # ==========================================
@@ -557,28 +332,36 @@ async def update_admin_cache(client, chat_id):
         return set()
 
 # ==========================================
-# 🧠 SCHEMA-AGNOSTIC SMART REPLY SEARCH ENGINE
+# 🧠 OPTIMIZED TRIGGER-RESPONSES SMART REPLY ENGINE
 # ==========================================
 async def fetch_optimized_smart_reply(user_text):
     reply_text = None
     user_text_clean = user_text.strip().lower()
 
+    # ✨ အဆင့် (၁) - EXACT MATCH (စာသားချင်း အတိအကျတူတာကို ဦးစားပေး ရှာဖွေခြင်း)
+    # ဒေတာဘေ့စ်ထဲက "trigger" နဲ့ လူရိုက်လိုက်တဲ့စာသား အတိအကျတူရင် "responses" ထဲကနေ တန်းရွေးမယ်
+    try:
+        exact_doc = await reply_save_col.find_one({"trigger": user_text_clean})
+        if exact_doc and exact_doc.get("responses") and isinstance(exact_doc["responses"], list):
+            # ကြော်ငြာ Link များ ဖယ်ထုတ်ခြင်း
+            valid_choices = [c for c in exact_doc["responses"] if not ('@' in str(c) or 't.me/' in str(c))]
+            if valid_choices:
+                return random.choice(valid_choices) # အတိအကျတူတာတွေ့ရင် ဒီမှာတင် တန်းပြန်ဖြေပြီး ပွဲသိမ်းပြီ။
+    except Exception as e:
+        print(f"Exact Match DB Error: {e}")
+
+    # ✨ အဆင့် (၂) - SUBSTRING MATCH PIPELINE (စာသားထဲမှာ Trigger စာလုံး ပါဝင်နေရင် ရှာဖွေပေးမည့်စနစ်)
+    # ဥပမာ - လူက "ဟေး မောနီး" လို့ ရိုက်ရင် ဒေတာဘေ့စ်ထဲက "မောနီး" ဆိုတဲ့ Trigger ကို လိုက်ရှာပေးမယ်
     match_pipeline = [
         {"$match": {
-            "$or": [
-                {"$and": [{"$ifNull": ["$trigger", False]}, {"$gte": [{"$strLenCP": "$trigger"}, 2]}, {"$gte": [{"$indexOfCP": [user_text_clean, {"$toLower": "$trigger"}]}, 0]}]},
-                {"$and": [{"$ifNull": ["$key", False]}, {"$gte": [{"$strLenCP": "$key"}, 2]}, {"$gte": [{"$indexOfCP": [user_text_clean, {"$toLower": "$key"}]}, 0]}]},
-                {"$and": [{"$ifNull": ["$keyword", False]}, {"$gte": [{"$strLenCP": "$keyword"}, 2]}, {"$gte": [{"$indexOfCP": [user_text_clean, {"$toLower": "$keyword"}]}, 0]}]}
+            "$and": [
+                {"$ifNull": ["$trigger", False]}, 
+                {"$gte": [{"$strLenCP": "$trigger"}, 2]}, # စာလုံးအရှည် ၂ လုံးနှင့်အထက်ရှိမှ စစ်မယ် (စာလုံးအိုကေစေရန်)
+                {"$gte": [{"$indexOfCP": [user_text_clean, {"$toLower": "$trigger"}]}, 0]} # လူရိုက်တဲ့စာထဲမှာ trigger ပါနေရမယ်
             ]
         }},
         {"$addFields": {
-            "weight": {
-                "$max": [
-                    {"$cond": [{"$and": [{"$ifNull": ["$trigger", False]}, {"$gte": [{"$indexOfCP": [user_text_clean, {"$toLower": "$trigger"}]}, 0]}]}, {"$strLenCP": "$trigger"}, 0]},
-                    {"$cond": [{"$and": [{"$ifNull": ["$key", False]}, {"$gte": [{"$indexOfCP": [user_text_clean, {"$toLower": "$key"}]}, 0]}]}, {"$strLenCP": "$key"}, 0]},
-                    {"$cond": [{"$and": [{"$ifNull": ["$keyword", False]}, {"$gte": [{"$indexOfCP": [user_text_clean, {"$toLower": "$keyword"}]}, 0]}]}, {"$strLenCP": "$keyword"}, 0]}
-                ]
-            }
+            "weight": {"$strLenCP": "$trigger"} # ကိုက်ညီတဲ့အထဲကမှ စာလုံးအရှည်ဆုံး Trigger ကို ဦးစားပေးရန် weight သတ်မှတ်ခြင်း
         }},
         {"$sort": {"weight": -1}},
         {"$limit": 5}
@@ -593,30 +376,180 @@ async def fetch_optimized_smart_reply(user_text):
             max_weight = matched_docs[0]["weight"]
             best_docs = [d for d in matched_docs if d["weight"] == max_weight]
             
+            # ကိုက်ညီမှုအရှိဆုံး Document များထဲမှ responses (List) များကို စုစည်းခြင်း
             for doc in best_docs:
-                chosen = None
-                if doc.get("responses") and isinstance(doc["responses"], list): chosen = random.choice(doc["responses"])
-                elif doc.get("values") and isinstance(doc["values"], list): chosen = random.choice(doc["values"])
-                elif doc.get("response"): chosen = doc["response"]
-                elif doc.get("value"): chosen = doc["value"]
-                elif doc.get("text"): chosen = doc["text"]
-
-                if chosen and not ('@' in str(chosen) or 't.me/' in str(chosen)): valid_choices.append(str(chosen))
+                if doc.get("responses") and isinstance(doc["responses"], list):
+                    choices = [c for c in doc["responses"] if not ('@' in str(c) or 't.me/' in str(c))]
+                    valid_choices.extend(choices)
             
-            if valid_choices: reply_text = random.choice(valid_choices)
+            if valid_choices: 
+                reply_text = random.choice(valid_choices)
     except Exception as e:
         print(f"Smart Reply DB Error: {e}")
 
-    if not reply_text:
-        try:
-            fallback_cursor = talk_col.aggregate([{"$sample": {"size": 1}}])
-            fallback_docs = await fallback_cursor.to_list(length=1)
-            if fallback_docs and fallback_docs[0].get("text"):
-                chosen_fb = fallback_docs[0]["text"]
-                if not ('@' in chosen_fb or 't.me/' in chosen_fb): reply_text = chosen_fb
-        except Exception: pass
+    # ⚠️ ပြတ်သားသော အချက် - talk_col ထဲက ကြုံရာကျပန်း Fallback စနစ်ကို လုံးဝ ဖြုတ်ပစ်ထားတဲ့အတွက်
+    # ဒေတာဘေ့စ်ထဲမှာ မသင်ထားတဲ့စာဆိုရင် Bot က အဆက်အစပ်မရှိတာတွေ လျှောက်မပြောတော့ဘဲ ငြိမ်နေပါလိမ့်မယ်ဗျာ။
 
     return reply_text
+
+# ==========================================
+
+COLLECTIONS_LIST = [
+    {"col": "custom_filters", "name": "Custom Filters"},
+    {"col": "filters", "name": "Filters Main"},
+    {"col": "allowed_users", "name": "Allowed Users"},
+    {"col": "active_groups", "name": "Active Groups"},
+    {"col": "random_talk", "name": "Random Talk (talk_col)"},
+    {"col": "talker", "name": "Talker Database"},
+    {"col": "custom_welcome", "name": "Custom Welcome"},
+    {"col": "chatbot_answers", "name": "Chatbot Answers"},
+    {"col": "morgan_talk", "name": "Morgan Talk"},
+    {"col": "rank_col", "name": "Rank Collection"},
+    {"col": "system_col", "name": "System Config"},
+    {"col": "reply_save_col", "name": "Smart Reply Save"},
+    {"col": "users", "name": "Core Users"},
+    {"col": "user_game_profiles", "name": "Game Profiles"},
+    {"col": "characters", "name": "Game Characters"},
+    {"col": "muted_registry", "name": "Muted Registry"},
+    {"col": "characters_base_data", "name": "Characters Base Data"},
+    {"col": "users_catcher_data", "name": "Users Catcher Data"},
+    {"col": "groups_msg_counters", "name": "Groups Msg Counters"},
+    {"col": "groups_catcher_config", "name": "Groups Catcher Config"},
+    {"col": "marketplace_data", "name": "Marketplace Data"}
+]
+
+# 🧮 Bytes မှ KB, MB, GB သို့ ပြောင်းပေးမည့် Utility Helper
+def format_size(bytes_size):
+    for unit in ['B', 'KB', 'MB', 'GB']:
+        if bytes_size < 1024.0:
+            return f"{bytes_size:.2f} {unit}"
+        bytes_size /= 1024.0
+    return f"{bytes_size:.2f} TB"
+
+# 🔍 Database တစ်ခုလုံးနှင့် သက်ဆိုင်ရာ Page လိုက် Collection stats ဖတ်ပေးမည့် Core Function
+async def build_db_stats_message(page=1):
+    try:
+        # MongoDB Database Stats တစ်ခုလုံးကို လှမ်းတောင်းခြင်း
+        db_stats = await db.command("dbStats")
+        total_data_size = format_size(db_stats.get("dataSize", 0))
+        total_storage_size = format_size(db_stats.get("storageSize", 0))
+        total_index_size = format_size(db_stats.get("indexSize", 0))
+        all_collections_count = db_stats.get("collections", 0)
+        
+        text = "🤖 <b>[ MONGODB CORE SYSTEM MONITOR ]</b> 📊\n"
+        text += "====================================\n"
+        text += f"👑 <b>Database:</b> <code>telegram_bot</code>\n"
+        text += f"📦 <b>Total Data Size:</b> <code>{total_data_size}</code>\n"
+        text += f"💾 <b>Storage Size:</b> <code>{total_storage_size}</code>\n"
+        text += f"🔑 <b>Index Size:</b> <code>{total_index_size}</code>\n"
+        text += f"📂 <b>Total Collections:</b> <code>{all_collections_count} ခု</code>\n"
+        text += "====================================\n\n"
+        
+        # Pagination စနစ်အတွက် စာရင်းကို ခွဲထုတ်ခြင်း (Page 1 = ပထမ ၁၁ ခု, Page 2 = ကျန်တဲ့ ၁၀ ခု)
+        start_idx = 0 if page == 1 else 11
+        end_idx = 11 if page == 1 else len(COLLECTIONS_LIST)
+        target_cols = COLLECTIONS_LIST[start_idx:end_idx]
+        
+        text += f"📝 <b>Collection Details (Page {page}/2):</b>\n"
+        text += "------------------------------------\n"
+        
+        for item in target_cols:
+            col_name = item["col"]
+            display_name = item["name"]
+            
+            try:
+                # Collection တစ်ခုချင်းစီ၏ Detail Stats ဖတ်ခြင်း
+                coll_stats = await db.command("collStats", col_name)
+                doc_count = coll_stats.get("count", 0)
+                storage_size = format_size(coll_stats.get("storageSize", 0))
+            except Exception:
+                # ဒေတာ လုံးဝမရှိသေး၍ error တက်ပါက Safe Fallback သုံးရန်
+                doc_count = 0
+                storage_size = "0.00 B"
+                
+            text += f"🔹 <b>{display_name}</b>\n"
+            text += f" ├ 📄 Docs: <code>{doc_count:,}</code> | 💾 Size: <code>{storage_size}</code>\n"
+            text += f" └ 🏷️ <i>Key: {col_name}</i>\n\n"
+            
+        text += f"🕒 <i>Last Checked UTC: {datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')}</i>"
+        return text
+    except Exception as e:
+        return f"❌ DB Stats Fetch Failed: {str(e)}"
+
+# ==========================================
+# 📥 TELETHON EVENT HANDLERS (COMMAND & CALLBACK)
+# ==========================================
+
+# ၁။ /checkdb Command အား လက်ခံသည့်အပိုင်း (Private DM + Owner Only ဖြစ်ရမည်)
+@bot1.on(events.NewMessage(pattern='/checkdb', incoming=True))
+async def check_db_command_handler(event):
+    if not event.is_private:
+        return # Bot ကို DM လာပြောမှသာ အလုပ်လုပ်မည်
+        
+    if event.sender_id != OWNER_ID:
+        await event.respond("🚷 <b>Error:</b> ဤ Command သည် Bot Owner သီးသန့်ဖြစ်သဖြင့် အသုံးပြုခွင့်မရှိပါ။")
+        return
+
+    waiting_msg = await event.respond("⏳ Database တစ်ခုလုံးကို စစ်ဆေးနေပါသည်... ခေတ္တစောင့်ဆိုင်းပေးပါ...")
+    
+    # Page 1 အတွက် စာသားတည်ဆောက်ပြီး Inline Button နှင့်တကွ ပို့ပေးခြင်း
+    stats_text = await build_db_stats_message(page=1)
+    
+    buttons = [
+        [
+            Button.inline("➡️ Page 2 ကြည့်ရန်", data="db_page_2")
+        ],
+        [
+            Button.inline("🔄 Refresh Stats", data="db_refresh_1")
+        ]
+    ]
+    
+    await waiting_msg.delete()
+    await event.respond(stats_text, parse_mode='html', buttons=buttons)
+
+
+# ၂။ Inline Buttons များကို နှိပ်ပါက စာမျက်နှာ လှန်ပေးမည့် အပိုင်း
+@bot1.on(events.CallbackQuery(pattern=r'^db_'))
+async def db_stats_callback_handler(event):
+    if event.sender_id != OWNER_ID:
+        await event.answer("⚠️ သင်သည် ဤခလုတ်ကို နှိပ်ပိုင်ခွင့် မရှိပါ!", alert=True)
+        return
+        
+    action = event.data.decode('utf-8')
+    
+    await event.answer("🔄 Updating Stats...")
+    
+    if action == "db_page_1":
+        stats_text = await build_db_stats_message(page=1)
+        buttons = [
+            [Button.inline("➡️ Page 2 ကြည့်ရန်", data="db_page_2")],
+            [Button.inline("🔄 Refresh Stats", data="db_refresh_1")]
+        ]
+        await event.edit(stats_text, parse_mode='html', buttons=buttons)
+        
+    elif action == "db_page_2":
+        stats_text = await build_db_stats_message(page=2)
+        buttons = [
+            [Button.inline("⬅️ Page 1 သို့ပြန်သွားရန်", data="db_page_1")],
+            [Button.inline("🔄 Refresh Stats", data="db_refresh_2")]
+        ]
+        await event.edit(stats_text, parse_mode='html', buttons=buttons)
+        
+    elif action == "db_refresh_1":
+        stats_text = await build_db_stats_message(page=1)
+        buttons = [
+            [Button.inline("➡️ Page 2 ကြည့်ရန်", data="db_page_2")],
+            [Button.inline("🔄 Refresh Stats", data="db_refresh_1")]
+        ]
+        await event.edit(stats_text, parse_mode='html', buttons=buttons)
+        
+    elif action == "db_refresh_2":
+        stats_text = await build_db_stats_message(page=2)
+        buttons = [
+            [Button.inline("⬅️ Page 1 သို့ပြန်သွားရန်", data="db_page_1")],
+            [Button.inline("🔄 Refresh Stats", data="db_refresh_2")]
+        ]
+        await event.edit(stats_text, parse_mode='html', buttons=buttons)
 
 # ====================================================================================
 # 🛡️ SYSTEM COMMANDS & NAVIGATION HANDLERS (START, HELP, GAME)
@@ -711,25 +644,80 @@ async def direct_help_handler(event):
 # ====================================================================================
 # 🔢 ADVANCED SYSTEM LOGIC 5: SECURE ARITHMETIC CALCULATOR
 # ====================================================================================
-@bot1.on(events.NewMessage(pattern=r'^/calc\s+(.*)'))
-async def secure_calculator_handler(event):
-    is_cd, rem = await is_on_cooldown(event.sender_id, "calc", 2)
-    if is_cd: return await event.reply(bq(f"⚠️ Cooldown: {rem} စက္ကန့် စောင့်ပါ။"), parse_mode='html')
+@bot1.on(events.NewMessage)
+async def auto_calculator_handler(event):
+    # Command တွေရိုက်ရင် ဒီအတိုင်း ကျော်သွားမည်
+    if event.text.startswith('/'):
+        return
+        
+    text = event.text.strip()
     
-    raw_expression = event.pattern_match.group(1).strip()
-    if not re.match(r'^[0-9\+\-\*\/\.\s\(\)]+$', raw_expression):
-        return await event.reply(bq("❌ <b>လုံခြုံရေး သတိပေးချက်:</b> ခွင့်မပြုသော ကာရက်တာများ ပါဝင်နေပါသည်။ ဂဏန်းနှင့် သင်္ချာအော်ပရေတာများသာ အသုံးပြုပါ။"), parse_mode='html')
-    
+    # ဂဏန်းများနှင့် သင်္ချာအော်ပရေတာများ (+, -, *, /, (, ), **) သာ ပါဝင်သည့် စာသားဖြစ်မဖြစ် စစ်ဆေးသည်
+    if re.match(r'^[\d\.\s\+\-\*\/\(\)\*\*]+$', text):
+        # ရိုးရိုးဖုန်းနံပါတ် သို့မဟုတ် ရက်စွဲများနှင့် မမှားစေရန် အနည်းဆုံး Operator တစ်ခုပါမှ တွက်မည်
+        if any(op in text for op in ['+', '-', '*', '/']):
+            # Bot Hang မသွားစေရန် စာသားအရှည်ကို ကန့်သတ်သည်
+            if len(text) > 50 or (text.count('**') > 1):
+                return
+            try:
+                # Safe evaluation context
+                result = eval(text, {"__builtins__": None}, {})
+                
+                # English လို Reply အမိုက်စား ပုံစံဖြင့် ပြန်ပေးခြင်း
+                response = (
+                    f"{f('SMART MATH ENGINE')}\n"
+                    f"🦦 {f('Expression')}: `{text}`\n"
+                    f"⚡ {f('Calculated Result')}: *{result}*\n"
+                    f"HOPE is a Good Thing."
+                )
+                await event.reply(response)
+            except Exception:
+                pass # ပုံမှန်စာသားများနှင့် မှားယွင်းစစ်မိပါက ငြိမ်နေမည် (Spam မဖြစ်အောင်)
+
+@bot1.on(events.NewMessage(pattern=r'(?i)^/info'))
+async def info_handler(event):
     try:
-        calculated_result = eval(raw_expression, {"__builtins__": None}, {})
-        response_msg = (
-            f"🔢 <b><u>Mathematical Calculation Engine</u></b>\n\n"
-            f"   <b>တွက်ချက်မှုစနစ်:</b> <code>{raw_expression}</code>\n"
-            f"✨ <b>ရရှိလာသော ရလဒ်:</b> <code>{calculated_result}</code>"
-        )
-        await event.reply(bq(response_msg), parse_mode='html')
+        target_id = None
+        target_user = None
+        
+        if event.is_reply:
+            reply_msg = await event.get_reply_message()
+            target_id = reply_msg.sender_id
+            target_user = await event.client.get_entity(target_id)
+        elif len(event.text.split()) > 1:
+            arg = event.text.split()[1]
+            try:
+                target_user = await event.client.get_entity(arg)
+                target_id = target_user.id
+            except Exception:
+                await event.reply(f("⚠️ User not found! Cannot fetch information."))
+                return
+        else:
+            target_id = event.sender_id
+            target_user = await event.client.get_entity(target_id)
+
+        if target_user:
+            # Database ထဲမှ အကောင့်ဒေတာကို ရှာဖွေခြင်း
+            db_user = await db.users_catcher_data.find_one({"user_id": target_id})
+            balance = db_user.get("balance", 0) if db_user else "Not Registered"
+            
+            username = f"@{target_user.username}" if target_user.username else "None"
+            premium_status = "Yes 🌟" if getattr(target_user, 'premium', False) else "No"
+            full_name = f"{target_user.first_name or ''} {target_user.last_name or ''}".strip()
+            
+            response = (
+                f"ℹ️ {f('USER PROFILE INFORMATION')}\n"
+                f"━━━━━━━━━━━━━━━━━━━━━\n"
+                f"👤 {f('Full Name')}: {full_name}\n"
+                f"🆔 {f('Telegram ID')}: `{target_id}`\n"
+                f"🌐 {f('Username')}: {username}\n"
+                f"🌟 {f('Premium User')}: {premium_status}\n"
+                f"💰 {f('Economy Balance')}: {balance}\n"
+                f"━━━━━━━━━━━━━━━━━━━━━"
+            )
+            await event.reply(response)
     except Exception as e:
-        await event.reply(bq(f"❌ သင်္ချာတွက်ချက်မှု ပုံစံ မှားယွင်းနေပါသည်- {escape_html(str(e))}"), parse_mode='html')
+        print(f"Error in /info command: {e}")
 
 # ==========================================
 # ⚙️ CHAT ACTIONS & WELCOME MATRIX
@@ -770,14 +758,14 @@ async def welcome_goodbye(event):
                                 "╔═━━━❖━━━═╗\n"
                                 f"{safe_title} ကနေ ကြိုဆိုလိုက်ပါတယ်\n"
                                 "╚═━━━❖━━━═╝\n"
-                                f"This bot is proudly developed and maintained by 𝑷𝑨𝑹𝑨𝑫𝑶𝑿 𝑭𝒂มิܠ𝒚⌬𝑩𝑶𝑫.\n"
+                                f"This bot is proudly developed and maintained by BOD GROUP.\n"
                             )
                         
                         media_file = custom_welcome.get("media") if custom_welcome else None
                         await bot1.send_message(
                             event.chat_id, bq(welcome_text), parse_mode='html', file=media_file,
                             buttons=[
-                                [Button.url("Bot ဖြင့် Broadcasting အပ်ရန်", f"t.me/Hello_Im_DexterMorgan")],
+                                [Button.url("Bot OWNER DM", f"t.me/Hello_Im_DexterMorgan")],
                                 [Button.url("ကျွန်ုပ်တို့Groupသို့ဝင်ရန်", "https://t.me/Comeback_BoD")]
                             ]
                         )
@@ -966,32 +954,50 @@ async def add_filter(event):
 # ====================================================================================
 # 🆔 IDENTITY MATRIX SYSTEM
 # ====================================================================================
-@bot1.on(events.NewMessage(pattern=r'^/id$'))
-async def get_identity_matrix_handler(event):
-    is_cd, rem = await is_on_cooldown(event.sender_id, "id", 2)
-    if is_cd: return
-    chat_id = event.chat_id
-    is_private = event.is_private
-    reply = await event.get_reply_message()
-    if reply:
-        target_id = reply.sender_id
-        target_user = await reply.get_sender()
-        user_type = "Target Profile"
-        if target_user and getattr(target_user, 'username', None):
-            mention = f"@{target_user.username}"
+@bot1.on(events.NewMessage(pattern=r'(?i)^/id'))
+async def id_handler(event):
+    try:
+        target_id = None
+        target_user = None
+        
+        # ၁။ Reply ပြန်ထားလျှင်
+        if event.is_reply:
+            reply_msg = await event.get_reply_message()
+            target_id = reply_msg.sender_id
+            target_user = await event.client.get_entity(target_id)
+            
+        # ၂။ Mention သို့မဟုတ် User ID ရိုက်ထည့်ထားလျှင် (ဥပမာ - /id @username)
+        elif len(event.text.split()) > 1:
+            arg = event.text.split()[1]
+            try:
+                target_user = await event.client.get_entity(arg)
+                target_id = target_user.id
+            except Exception:
+                await event.reply(f("⚠️ User not found! Please check the username or ID."))
+                return
+                
+        # ၃။ ဘာမှမပါဘဲ /id ဟုပဲ ရိုက်ထားလျှင် မိမိ ID ကိုပြမည်
         else:
-            first_name = getattr(target_user, 'first_name', None)
+            target_id = event.sender_id
+            target_user = await event.client.get_entity(target_id)
 
-async def get_target_user(event, args):
-    reply = await event.get_reply_message()
-    if reply: 
-        return await reply.get_sender() # 👈 ပြင်ဆင်ချက်: .sender အစား await reply.get_sender() ကိုသုံးရပါမယ်
-    if args:
-        try:
-            target = args.strip()
-            return await bot1.get_entity(int(target) if target.lstrip('-').isdigit() else target)
-        except Exception: return None
-    return None
+        if target_user:
+            username = f"@{target_user.username}" if target_user.username else "None"
+            full_name = f"{target_user.first_name or ''} {target_user.last_name or ''}".strip()
+            
+            response = (
+                f"✨ {f('USER IDENTIFICATION MATRIX')} ✨\n"
+                f"━━━━━━━━━━━━━━━━━━━━━\n"
+                f"🦖 {f('Name')}: {full_name}\n"
+                f"🍄 {f('User ID')}: `{target_id}`\n"
+                f"🦦 {f('Username')}: {username}\n"
+                f"━━━━━━━━━━━━━━━━━━━━━\n"
+                f"🌏 {f('Chat ID')}: `{event.chat_id}`"
+            )
+            await event.reply(response)
+    except Exception as e:
+        print(f"Error in /id command: {e}")
+
 @bot1.on(events.NewMessage(pattern=r'^/mute(?:@\w+)?(?:\s+(.*))?'))
 async def mute_user(event):
     if not await check_ban_rights(event.chat_id, event.sender_id): return
