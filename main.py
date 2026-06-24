@@ -194,7 +194,9 @@ characters_base_col = db["characters_base_data"]
 users_catcher_col = db["users_catcher_data"]      
 groups_counters_col = db["groups_msg_counters"]    
 groups_config_col = db["groups_catcher_config"]   
-marketplace_col = db["marketplace_data"]          
+marketplace_col = db["marketplace_data"]
+guilds_col = db["guilds_data"]
+
 
 async def create_indexes():
     print("⚡ Creating Database Indexes for High-Speed Performance...")
