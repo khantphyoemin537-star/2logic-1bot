@@ -643,6 +643,36 @@ async def direct_help_handler(event):
         f" <code>/weather</code> - မိုးလေဝသ တိုင်းဒေသကြီးများ Dashboard။"
     )
     await event.respond(bq(help_text), parse_mode='html', buttons=[[Button.inline("⚙️ Navigation Home", data="nav_back_home")]])
+
+# ==========================================
+# 💎 PREMIUM STATUS TERMINAL (/pre)
+# ==========================================
+@bot1.on(events.NewMessage(pattern=r'^/pre(?:@\w+)?$'))
+async def premium_status_handler(event):
+    # ၁။ ဘရိုရဲ့ ကုဒ်ထဲက Cooldown စနစ်ကို သုံးပြီး Command Spam တာကို တားဆီးခြင်း
+    is_cd, rem = await is_on_cooldown(event.sender_id, "pre_command", 3)
+    if is_cd: 
+        return
+        
+    sender = await event.get_sender()
+    username = f"@{sender.username}" if getattr(sender, 'username', None) else f"User {event.sender_id}"
+    
+    # ၂။ Premium Custom Emojis များကို <tg-emoji id='...'> Tag ဖြင့် စမတ်ကျကျ တည်ဆောက်ခြင်း
+    pre_text = (
+        f"<b><tg-emoji id='6226493198013830325'>👑</tg-emoji> [ {f('BOD PREMIUM SYSTEM CORE')} ] <tg-emoji id='6226493198013830325'>👑</tg-emoji></b>\n"
+        f"🛸 ───────────────────\n\n"
+        f"👋 <b>ဟိုင်း ဘရို {username}၊ လက်ရှိ စနစ်ရဲ့ Premium အခြေအနေများ -</b>\n\n"
+        f"<b><tg-emoji id='5352727259511723136'>💓</tg-emoji> System Pulse:</b> <code>{f('ONLINE & STABLE')}</code>\n"
+        f"<b><tg-emoji id='6026367225466720832'>⚡</tg-emoji> Server Latency:</b> <code>{f('0.01s Fast Processing')}</code>\n"
+        f"<b><tg-emoji id='6025316809205446203'>🎉</tg-emoji> Premium Perk:</b> <code>{f('Gacha Luck Boost Active')}</code>\n"
+        f"<b><tg-emoji id='5253539825630843975'>💀</tg-emoji> Firewall Status:</b> <code>{f('Secured via Matrix-9')}</code>\n\n"
+        f"🛸 ───────────────────\n"
+        f"✨ <i>Premium Custom Emojis Powered by Telethon HTML Engine.</i>"
+    )
+    
+    # ⚠️ အရေးကြီးချက်: parse_mode='html' ကို မဖြစ်မနေ ထည့်ပေးရပါမည်
+    await event.respond(pre_text, parse_mode='html')
+
 # ====================================================================================
 # 🔢 ADVANCED SYSTEM LOGIC 5: SECURE ARITHMETIC CALCULATOR
 # ====================================================================================
