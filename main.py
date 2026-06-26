@@ -196,6 +196,7 @@ groups_counters_col = db["groups_msg_counters"]
 groups_config_col = db["groups_catcher_config"]   
 marketplace_col = db["marketplace_data"]
 guilds_col = db["guilds_data"]
+uno_stickers_col = db["uno_stickers"]
 
 
 async def create_indexes():
@@ -211,6 +212,7 @@ bot_ids = []
 bot_names = []
 active_group_spawns = {} 
 active_card_games = {}
+uno_setup_sessions = {}
 STEALTH_MAU_MODE = False
 spawn_locks = defaultdict(asyncio.Lock) 
 
@@ -244,6 +246,11 @@ def bq(text): return f"<blockquote><b>{text}</b></blockquote>"
 def owner_tag():
     return f"<a href='https://t.me/{OWNER_USERNAME}'>@{OWNER_USERNAME}</a>"
 
+UNO_CARD_TYPES = []
+for color in ["Red", "Blue", "Green", "Yellow"]:
+    for v in ["0", "1", "2", "3", "4", "5", "6", "7", "8", "9", "Skip", "Reverse", "+2"]:
+        UNO_CARD_TYPES.append(f"{color} {v}")
+UNO_CARD_TYPES.extend(["Wild Choose", "Wild +4"])    
 # 🎭 RARITY MAPPING MATRIX (NEON GACHA EDITION 🔥)
 # ==========================================
 RARITY_NUM_MAP = {
@@ -3281,6 +3288,645 @@ async def weather_callback_engine(event):
             response_text = f"❌ <b>ERROR:</b> Unable to retrieve data for {city_name}. / ไม่สามารถดึงข้อมูลได้"
 
         await event.edit(response_text, parse_mode='html', buttons=control_buttons)
+# ====================================================================================
+# 🃏 ADVANCED UNO STICKER SETUP ENGINE (OWNER ONLY & SPECIFIC GROUP)
+# ====================================================================================
+@bot1.on(events.NewMessage(chats=SPECIFIC_GROUP))
+async def uno_sticker_setup_handler(event):
+    if event.sender_id != OWNER_ID:
+        return
+        
+    text = event.text.strip() if event.text else ""
+    
+    if text == '/setupuno':
+        uno_setup_sessions[event.chat_id] = 0
+        first_card = UNO_CARD_TYPES[0]
+        await event.respond(bq(f"🎮 UNO Sticker Setup Engine စဖွင့်လိုက်ပြီနော်!\n\nပထမဆုံးအနေနဲ့ [{first_card}] အတွက် သတ်မှတ်မယ့် စတစ်ကာကို လှမ်းပို့ပေးဦး Chief! ✨"))
+        return
+        
+    if text == '/cancelsetup' and event.chat_id in uno_setup_sessions:
+        del uno_setup_sessions[event.chat_id]
+        await event.respond(bq("❌ UNO Sticker Setup စနစ်ကို ပယ်ဖျက်လိုက်ပြီဟေ့!"))
+        return
+
+    if event.chat_id in uno_setup_sessions:
+        current_idx = uno_setup_sessions[event.chat_id]
+        
+        # မက်ဆေ့ခ်ျထဲမှာ Sticker ပါမပါ စစ်ဆေးခြင်း
+        if event.message.document and any(isinstance(x, types.DocumentAttributeSticker) for x in event.message.document.attributes):
+            doc = event.message.document
+            card_name = UNO_CARD_TYPES[current_idx]
+            
+            # MongoDB ထဲသို့ အသေချာဆုံး InputDocument အချက်အလက် သိမ်းဆည်းခြင်း
+            await uno_stickers_col.update_one(
+                {"card_name": card_name},
+                {"$set": {
+                    "id": doc.id,
+                    "access_hash": doc.access_hash,
+                    "file_reference": doc.file_reference.hex()
+                }},
+                upsert=True
+            )
+            
+            next_idx = current_idx + 1
+            if next_idx >= len(UNO_CARD_TYPES):
+                del uno_setup_sessions[event.chat_id]
+                await event.respond(bq("🎉 ဝိုးးးး လုံးဝအလန်းပဲ! UNO ကတ် ၅၄ မျိုးစလုံးအတွက် Sticker Setup ပြီးသွားပြီ။ အခုပဲ ကြိုက်သလို ကြမ်းလို့ရပြီ Chief! 🔥"))
+            else:
+                uno_setup_sessions[event.chat_id] = next_idx
+                next_card = UNO_CARD_TYPES[next_idx]
+                await event.respond(bq(f"✅ [{card_name}] အတွက် သိမ်းပြီးပြီ။\n\nနောက်ထပ် [{next_card}] အတွက် စတစ်ကာ ဆက်ပို့ပေးဦး။ ({next_idx}/{len(UNO_CARD_TYPES)}) 🚀"))
+
+# ====================================================================================
+# 🎮 UNO LOBBY & GAME CONTROL ENGINE
+# ====================================================================================
+@bot1.on(events.NewMessage(pattern=r'^/(new|join|start|leave|skip|close|open|kill|kick|settings|notify_me|enable_translations|disable_translations)(?:@\w+)?'))
+async def uno_lobby_commands_handler(event):
+    cmd = event.pattern_match.group(1)
+    chat_id = event.chat_id
+    user_id = event.sender_id
+    
+    if event.is_private and cmd in ['new', 'join', 'start', 'leave', 'skip', 'close', 'open', 'kill', 'kick']:
+        await event.respond("❌ ဒီ Game Commands တွေက Group Chat ထဲမှာပဲ ဆော့လို့ရမှာနော် ဘရို!")
+        return
+
+    # ၁။ ဂိမ်းအသစ် ဆောက်ခြင်း (/new)
+    if cmd == 'new':
+        if chat_id in active_card_games:
+            await event.respond(bq("⚠️ ဒီ Group ထဲမှာ UNO ပွဲတစ်ခု ရှိနေတယ်လေ။ အရင်ပွဲပြီးအောင် ဆော့ဦးနော်။"))
+            return
+            
+        user_entity = await event.get_sender()
+        fullname = f"{getattr(user_entity, 'first_name', '')} {getattr(user_entity, 'last_name', '')}".strip() or "Player"
+        
+        active_card_games[chat_id] = {
+            "chat_id": chat_id,
+            "creator_id": user_id,
+            "status": "lobby",
+            "players": [user_id],
+            "player_names": {user_id: fullname},
+            "hands": {},
+            "deck": [],
+            "discard_pile": [],
+            "current_player_idx": 0,
+            "current_color": "",
+            "current_value": "",
+            "direction": 1,
+            "translations": True,
+            "turn_start_time": time.time()
+        }
+        await event.respond(bq(f"🎮 UNO ပွဲအသစ် ထောင်လိုက်ပြီဟေ့!\n\nဝင်ဆော့မယ့်သူတွေ /join နှိပ်ပြီး အမြန်စာရင်းပေးကြတော့။ အနည်းဆုံး ၂ ယောက်ပြည့်ရင် /start နဲ့ တန်းစလို့ရပြီ! 🚀"))
+        return
+
+    # ၂။ ဂိမ်းထဲ ဝင်ရောက်ခြင်း (/join)
+    elif cmd == 'join':
+        if chat_id not in active_card_games:
+            await event.respond(bq("❌ ဒီ Group မှာ UNO ပွဲမရှိသေးဘူး။ /new နဲ့ အရင်ဆောက်လိုက်ဦး ဘရို။"))
+            return
+        game = active_card_games[chat_id]
+        if game["status"] != "lobby":
+            await event.respond(bq("❌ စိတ်မကောင်းပါဘူး... ပွဲက စသွားပြီဆိုတော့ နောက်ပွဲမှပဲ ဝင်တော့နော်။"))
+            return
+        if user_id in game["players"]:
+            await event.respond(bq("⚠️ ဘရိုက Lobby ထဲ ရောက်နေပြီးသားကြီးကို!"))
+            return
+            
+        user_entity = await event.get_sender()
+        fullname = f"{getattr(user_entity, 'first_name', '')} {getattr(user_entity, 'last_name', '')}".strip() or "Player"
+        
+        game["players"].append(user_id)
+        game["player_names"][user_id] = fullname
+        await event.respond(bq(f"✅ {fullname} တစ်ယောက် စိတ်လှုပ်ရှားစွာနဲ့ ဝင်လာပြီဟေ့! (စုစုပေါင်း: {len(game['players'])} ယောက်) 🥳"))
+        return
+
+    # ၃။ ဂိမ်းစတင်ခြင်း (/start)
+    elif cmd == 'start':
+        if chat_id not in active_card_games: return
+        game = active_card_games[chat_id]
+        if game["status"] != "lobby": return
+        
+        if len(game["players"]) < 2:
+            await event.respond(bq("❌ ကစားသမား အနည်းဆုံး ၂ ယောက်ရှိမှ စလို့ရမှာပေါ့ ဘရိုရဲ့။"))
+            return
+            
+        # ကတ်ထုပ်အသစ် မွှေနှောက်တည်ဆောက်ခြင်း
+        deck = []
+        for color in ["Red", "Blue", "Green", "Yellow"]:
+            deck.append(f"{color} 0")
+            for v in ["1", "2", "3", "4", "5", "6", "7", "8", "9", "Skip", "Reverse", "+2"]:
+                deck.append(f"{color} {v}")
+                deck.append(f"{color} {v}")
+        for _ in range(4):
+            deck.append("Wild Choose")
+            deck.append("Wild +4")
+            
+        random.shuffle(deck)
+        
+        # ကစားသမားတစ်ဦးချင်းစီကို ကတ် ၇ ကတ်စီ ဝေပေးခြင်း
+        for p_id in game["players"]:
+            game["hands"][p_id] = [deck.pop() for _ in range(7)]
+            
+        # ပထမဆုံး စချမည့်ကတ်ကို Wild မဟုတ်သော ကတ်ဖြစ်အောင် ရွေးထုတ်ခြင်း
+        top_card = deck.pop()
+        while "Wild" in top_card:
+            deck.insert(0, top_card)
+            random.shuffle(deck)
+            top_card = deck.pop()
+            
+        game["deck"] = deck
+        game["discard_pile"] = [top_card]
+        
+        parts = top_card.split(" ", 1)
+        game["current_color"] = parts[0]
+        game["current_value"] = parts[1]
+        game["status"] = "playing"
+        
+        bot_me = await bot1.get_me()
+        await event.respond(bq(f"🚀 UNO ဂိမ်းပွဲကြီး စတင်လိုက်ပြီဟေ့! ကတ်တွေအကုန် ဝေပြီးပြီနော်။\n\n💬 လက်ထဲက ကတ်တွေကို ကြည့်ပြီး ချချင်ရင် Chat Box မှာ @{bot_me.username} လို့ ရိုက်၊ Space တစ်ချက်ခြားပြီး ရွေးချလိုက်တော့! ✨"))
+        await send_uno_status_update(chat_id, game)
+        return
+
+    # ၄။ ဂိမ်းထဲမှ ထွက်ခွာခြင်း (/leave)
+    elif cmd == 'leave':
+        if chat_id not in active_card_games: return
+        game = active_card_games[chat_id]
+        if user_id not in game["players"]: return
+        
+        if game["status"] == "lobby":
+            game["players"].remove(user_id)
+            p_name = game["player_names"].pop(user_id, "User")
+            await event.respond(bq(f"👋 {p_name} က Lobby ထဲက ထွက်သွားပြီ။"))
+            if not game["players"]: del active_card_games[chat_id]
+        elif game["status"] == "playing":
+            game["players"].remove(user_id)
+            p_name = game["player_names"].pop(user_id, "User")
+            if user_id in game["hands"]: del game["hands"][user_id]
+            await event.respond(bq(f"🏃 {p_name} တော့ ပွဲလယ်ကောင်ကနေ လစ်သွားပြီဟေ့!"))
+            
+            if len(game["players"]) < 2:
+                await event.respond(bq("⚠️ လူနည်းသွားလို့ ဂိမ်းပွဲကို ခဏဖျက်သိမ်းလိုက်ပြီနော်။"))
+                del active_card_games[chat_id]
+                return
+            if game["current_player_idx"] >= len(game["players"]):
+                game["current_player_idx"] = 0
+            await send_uno_status_update(chat_id, game)
+        return
+
+    # ၅။ အချိန်ကျော်သူအား ကျော်ပစ်ခြင်း (/skip - 90 စက္ကန့်)
+    elif cmd == 'skip':
+        if chat_id not in active_card_games: return
+        game = active_card_games[chat_id]
+        if game["status"] != "playing": return
+        
+        elapsed = time.time() - game.get("turn_start_time", time.time())
+        if elapsed > 90:
+            current_player_id = game["players"][game["current_player_idx"]]
+            current_player_name = game["player_names"].get(current_player_id, "User")
+            
+            # ဒဏ်ကြေးအဖြစ် ကတ်တစ်ကတ် အလိုအလျောက် ဆွဲပေးခြင်း
+            uno_draw_cards(game, current_player_id, 1)
+            await event.respond(bq(f"⏱️ စက္ကန့် ၉၀ ကျော်သွားလို့ {current_player_name} ကို Skip လိုက်ပြီ။ ဒဏ်ကြေးအနေနဲ့ ကတ်တစ်ကတ် အော်တိုဆွဲခိုင်းလိုက်တယ်နော်! 🔥"))
+            uno_advance_turn(game)
+            await send_uno_status_update(chat_id, game)
+        else:
+            await event.respond(bq(f"⚠️ လက်ရှိဆော့နေတဲ့သူက စက္ကန့် ၉၀ မပြည့်သေးဘူးလေ ဘရိုရဲ့။ ({int(elapsed)} စက္ကန့်ပဲ ရှိသေးတယ်)"))
+        return
+
+    # ၆။ Creator Commands စနစ်များ (/close, /open, /kill, /kick, /enable_translations, /disable_translations)
+    elif cmd in ['close', 'open', 'kill', 'kick', 'enable_translations', 'disable_translations']:
+        if chat_id not in active_card_games: return
+        game = active_card_games[chat_id]
+        if user_id != game["creator_id"] and user_id != OWNER_ID:
+            await event.respond(bq("❌ ဒီ Command ကို ဂိမ်းဆောက်တဲ့သူ (Creator) ပဲ သုံးလို့ရမယ်နော်။"))
+            return
+            
+        if cmd == 'close' and game["status"] == "lobby":
+            game["status"] = "closed"
+            await event.respond(bq("🔒 ဂိမ်း Lobby ကို ပိတ်လိုက်ပြီ။ လူသစ်တွေ ထပ်ဝင်လို့ မရတော့ဘူး။"))
+        elif cmd == 'open' and game["status"] == "closed":
+            game["status"] = "lobby"
+            await event.respond(bq("🔓 ဂိမ်း Lobby ကို ပြန်ဖွင့်လိုက်ပြီ။ လူသစ်တွေ /join လို့ ရပြီဟေ့။"))
+        elif cmd == 'kill':
+            del active_card_games[chat_id]
+            await event.respond(bq("💥 လက်ရှိ ဆော့နေတဲ့ UNO ပွဲကို အတင်းအဓမ္မ ဖြုတ်ချ (Terminate) လိုက်ပြီ!"))
+        elif cmd == 'enable_translations':
+            game["translations"] = True
+            await event.respond(bq("🌐 Translations စနစ်ကို [ဖွင့်] လိုက်ပြီ။ ဘာသာစကားမျိုးစုံ ပြပေးမယ်။"))
+        elif cmd == 'disable_translations':
+            game["translations"] = False
+            await event.respond(bq("🇬🇧 Translations စနစ်ကို [ပိတ်] လိုက်ပြီ။ Standard English ပဲ သုံးတော့မယ်။"))
+        elif cmd == 'kick':
+            if not event.is_reply:
+                await event.respond(bq("⚠️ ကန်ထုတ်ချင်တဲ့သူရဲ့ Message ကို Reply ပြန်ပြီး သုံးပေးဦးနော်။"))
+                return
+            reply_msg = await event.get_reply_message()
+            target_id = reply_msg.sender_id
+            if target_id in game["players"]:
+                game["players"].remove(target_id)
+                t_name = game["player_names"].pop(target_id, "User")
+                if target_id in game["hands"]: del game["hands"][target_id]
+                await event.respond(bq(f"🚷 {t_name} ကို ဂိမ်းထဲကနေ ကန်ထုတ် (Kick) လိုက်ပြီ။"))
+                if len(game["players"]) < 2 and game["status"] == "playing":
+                    await event.respond(bq("⚠️ ကစားသမား နည်းသွားလို့ ဂိမ်းပွဲကို ရပ်လိုက်ပြီ။"))
+                    del active_card_games[chat_id]
+                elif game["status"] == "playing":
+                    if game["current_player_idx"] >= len(game["players"]): game["current_player_idx"] = 0
+                    await send_uno_status_update(chat_id, game)
+        return
+
+    elif cmd == 'settings':
+        await event.respond(bq("⚙️ **UNO Game Settings Dashboard**\n\nလက်ရှိမှာ Language က မြန်မာစာဖြစ်ပြီး ကျန်ရှိတဲ့ Core Configurations တွေကို အဆင်ပြေအောင် Auto ထိန်းချုပ်ပေးထားတယ် Chief!"))
+        return
+        
+    elif cmd == 'notify_me':
+        try:
+            await bot1.send_message(user_id, bq("🔔 လုံးဝအိုကေ! အဖွဲ့ထဲမှာ UNO ပွဲအသစ် စတိုင်း ဘရို့ဆီကို သီးသန့် Notification လှမ်းပို့ပေးမယ်နော်။"))
+            await event.respond(bq("✅ ဘရို့ဆီကို သီးသန့်မက်ဆေ့ခ်ျ (DM) တစ်စောင် စမ်းသပ် ပို့လိုက်ပြီ။"))
+        except:
+            await event.respond(bq("⚠️ မက်ဆေ့ခ်ျ ပို့လို့မရဘူးဖြစ်နေတယ်။ Bot ရဲ့ Private DM ထဲမှာ /start အရင်သွားနှိပ်ပေးဦးနော်။"))
+        return
+
+# ====================================================================================
+# 🔮 INLINE QUERY ENGINE FOR UNO PRIVATE HANDS
+# ====================================================================================
+@bot1.on(events.InlineQuery)
+async def uno_inline_query_handler(event):
+    user_id = event.sender_id
+    target_chat_id, target_game = None, None
+    
+    for chat_id, game in active_card_games.items():
+        if game.get("status") == "playing" and user_id in game.get("players", []):
+            target_chat_id = chat_id
+            target_game = game
+            break
+            
+    if not target_game:
+        await event.answer([
+            types.InputBotInlineResultArticle(
+                id="no_game",
+                title="🎮 ဘရို လက်ရှိ ဘယ် UNO ပွဲထဲမှာမှ မရှိသေးဘူးဗျို့",
+                description="ဂိမ်းဆော့ဖို့ အဖွဲ့ထဲမှာ /new အရင်ရိုက်လိုက်ဦး။",
+                input_message_content=types.InputTextMessageContent("ကျွန်တော်က လက်ရှိ ဘယ် UNO ပွဲမှာမှ မရှိသေးပါဘူး။")
+            )
+        ], cache_time=0)
+        return
+
+    current_player_id = target_game["players"][target_game["current_player_idx"]]
+    is_my_turn = (current_player_id == user_id)
+    
+    user_hand = target_game["hands"].get(user_id, [])
+    results = []
+    
+    curr_color = target_game["current_color"]
+    curr_value = target_game["current_value"]
+    
+    # ၁။ မိမိအလှည့်ဖြစ်ပါက ကတ်ဆွဲရန် Option အား ပထမဆုံး ပြသခြင်း
+    if is_my_turn:
+        results.append(
+            types.InputBotInlineResultArticle(
+                id="uno_draw",
+                title="➕ ကတ်အသစ်ဆွဲမယ် (Draw Card)",
+                description="လက်ထဲမှာ ချစရာကတ်မရှိရင် ကတ်အသစ်တစ်ကတ် ဆွဲဖို့။",
+                input_message_content=types.InputTextMessageContent(f"🃏 Action: Draw Card | Chat: {target_chat_id}")
+            )
+        )
+        
+    # ၂။ လက်ထဲရှိ ကတ်များကို ချနိုင်/မချနိုင် ခွဲခြားပြသခြင်း
+    for idx, card in enumerate(user_hand):
+        playable = False
+        if is_my_turn:
+            if "Wild" in card:
+                playable = True
+            else:
+                parts = card.split(" ", 1)
+                if parts[0] == curr_color or parts[1] == curr_value:
+                    playable = True
+                    
+        color_emoji = "🔴" if "Red" in card else "🔵" if "Blue" in card else "🟢" if "Green" in card else "🟡" if "Yellow" in card else "🌈"
+        status_text = "✨ အခုအလှည့်မှာ ချလို့ရတဲ့ကတ်" if playable else "⚠️ အခု ချလို့မရသေးဘူး (ဒါမှမဟုတ် သင့်အလှည့်မဟုတ်လို့)"
+        
+        # ကတ်ချ၍မရပါက ခေါင်းစဉ်တွင် ❌ ပြပေးခြင်း
+        title_display = f"{color_emoji} {card}" if playable else f"❌ {color_emoji} {card} (Greyed out)"
+        
+        results.append(
+            types.InputBotInlineResultArticle(
+                id=f"uno_play_{idx}_{target_chat_id}",
+                title=title_display,
+                description=status_text,
+                input_message_content=types.InputTextMessageContent(f"🃏 Play Card: {card} | Index: {idx} | Chat: {target_chat_id}")
+            )
+        )
+        
+    await event.answer(results, cache_time=0)
+
+# ====================================================================================
+# 🃏 INTERCEPT PLAY ACTIONS & CORE UNO RULES ENGINE
+# ====================================================================================
+@bot1.on(events.NewMessage(pattern=r'^🃏 (Play Card|Action|Draw Card)'))
+async def uno_play_action_receiver(event):
+    text = event.text
+    user_id = event.sender_id
+    
+    match_play = re.search(r'Play Card:\s*(.+?)\s*\|\s*Index:\s*(\d+)\s*\|\s*Chat:\s*(-?\d+)', text)
+    match_draw = re.search(r'Action:\s*Draw Card\s*\|\s*Chat:\s*(-?\d+)', text)
+    
+    if match_play:
+        card_name = match_play.group(1)
+        card_idx = int(match_play.group(2))
+        chat_id = int(match_play.group(3))
+        
+        if chat_id not in active_card_games: return
+        game = active_card_games[chat_id]
+        if game["status"] != "playing": return
+        
+        if user_id != game["players"][game["current_player_idx"]]: return
+        
+        try: await event.delete() # ချက်တင် ရှင်းလင်းအောင် စာသားကို ချက်ချင်းဖျက်ခြင်း
+        except: pass
+        
+        user_hand = game["hands"].get(user_id, [])
+        if card_idx >= len(user_hand) or user_hand[card_idx] != card_name:
+            if card_name in user_hand: card_idx = user_hand.index(card_name)
+            else: return
+            
+        played_card = user_hand.pop(card_idx)
+        game["discard_pile"].append(played_card)
+        
+        # Wild Cards စနစ်အား ကိုင်တွယ်ခြင်း
+        if "Wild" in played_card:
+            game["pending_wild_card"] = played_card
+            buttons = [
+                [Button.inline("🔴 Red", data=f"uno_color_Red_{chat_id}"), Button.inline("🔵 Blue", data=f"uno_color_Blue_{chat_id}")],
+                [Button.inline("🟢 Green", data=f"uno_color_Green_{chat_id}"), Button.inline("🟡 Yellow", data=f"uno_color_Yellow_{chat_id}")]
+            ]
+            mention = await get_html_mention(event, user_id)
+            await bot1.send_message(chat_id, bq(f"🌈 {mention} က Wild Card ချလိုက်ပြီဟေ့!\n\nဘယ်အရောင်နဲ့ ဆက်သွားမလဲ ရွေးပေးဦး Chief! ✨"), parse_mode='html', buttons=buttons)
+            return
+        else:
+            parts = played_card.split(" ", 1)
+            game["current_color"] = parts[0]
+            game["current_value"] = parts[1]
+            await uno_trigger_special_effects(chat_id, game, played_card, event)
+            
+        # Win Condition (နိုင်သူပေါ်ခြင်း) စစ်ဆေးချက်
+        if len(user_hand) == 0:
+            mention = await get_html_mention(event, user_id)
+            await bot1.send_message(chat_id, bq(f"🎉 ဝိုးးးး အလန်းဆုံးပဲ! {mention} က ကတ်တွေအကုန် အရင်ချပြီး UNO ပွဲမှာ သောင်းကျန်းကာ အနိုင်ရသွားပြီဟေ့! 🏆👑"), parse_mode='html')
+            del active_card_games[chat_id]
+            return
+        elif len(user_hand) == 1:
+            mention = await get_html_mention(event, user_id)
+            await bot1.send_message(chat_id, bq(f"📣 UNO!!! {mention} မှာ ကတ် ၁ ကတ်ပဲ ကျန်တော့တယ်နော်။ ဝိုင်းစကန်ကြဦး! 🔥"))
+
+        uno_advance_turn(game)
+        await send_uno_status_update(chat_id, game)
+
+    elif match_draw:
+        chat_id = int(match_draw.group(1))
+        if chat_id not in active_card_games: return
+        game = active_card_games[chat_id]
+        if game["status"] != "playing": return
+        if user_id != game["players"][game["current_player_idx"]]: return
+        
+        try: await event.delete()
+        except: pass
+        
+        drawn_card = uno_draw_cards(game, user_id, 1)[0]
+        mention = await get_html_mention(event, user_id)
+        
+        playable = False
+        if "Wild" in drawn_card: playable = True
+        else:
+            parts = drawn_card.split(" ", 1)
+            if parts[0] == game["current_color"] or parts[1] == game["current_value"]: playable = True
+            
+        if playable:
+            buttons = [
+                [Button.inline(f"🃏 Play {drawn_card}", data=f"uno_drawplay_yes_{chat_id}"), Button.inline("⏭️ Pass Turn", data=f"uno_drawplay_no_{chat_id}")]
+            ]
+            game["pending_drawn_card"] = drawn_card
+            await bot1.send_message(chat_id, bq(f"🃏 {mention} က ကတ်တစ်ကတ် ဆွဲလိုက်ပြီ။\n\nရလာတဲ့ကတ် [{drawn_card}] ကို တန်းချမလား၊ ဒါမှမဟုတ် Pass လုပ်မလား ရွေးဦးနော်။ ✨"), parse_mode='html', buttons=buttons)
+        else:
+            await bot1.send_message(chat_id, bq(f"💤 {mention} က ကတ်တစ်ကတ် ဆွဲလိုက်ပေမယ့် ချစရာမရှိလို့ အလှည့်ကျော်သွားပြီ။"))
+            uno_advance_turn(game)
+            await send_uno_status_update(chat_id, game)
+
+# ====================================================================================
+# 🎛️ CALLBACK HANDLERS FOR WILD COLORS & DRAW-PLAYS
+# ====================================================================================
+@bot1.on(events.CallbackQuery(pattern=r'^uno_color_'))
+async def uno_wild_color_callback_handler(event):
+    data = event.data.decode('utf-8').split("_")
+    chosen_color, chat_id = data[2], int(data[3])
+    
+    if chat_id not in active_card_games: return
+    game = active_card_games[chat_id]
+    if event.sender_id != game["players"][game["current_player_idx"]]:
+        await event.answer("⚠️ သင့်အလှည့် မဟုတ်သေးဘူးလေ ဘရိုရဲ့။", alert=True)
+        return
+        
+    await event.answer(f"🎨 {chosen_color} အရောင်ကို ရွေးချယ်လိုက်ပါပြီ။")
+    game["current_color"] = chosen_color
+    played_card = game.pop("pending_wild_card", "Wild Choose")
+    game["current_value"] = "Wild"
+    
+    mention = await get_html_mention(event, event.sender_id)
+    if "+4" in played_card:
+        uno_advance_turn(game)
+        target_user = game["players"][game["current_player_idx"]]
+        target_name = game["player_names"].get(target_user, "User")
+        uno_draw_cards(game, target_user, 4)
+        uno_advance_turn(game)
+        await event.edit(bq(f"🌈 {mention} က အရောင်ကို [{chosen_color}] ပြောင်းလိုက်ပြီး 💥 {target_name} ကို ကတ် ၄ ကတ် အတင်းဆွဲခိုင်းကာ အလှည့်ပါ ကျော်ပစ်လိုက်ပြီ! 😈🔥"))
+    else:
+        await event.edit(bq(f"🌈 {mention} က ဆက်ကစားမယ့် ဂိမ်းအရောင်ကို [{chosen_color}] သို့ ပြောင်းလိုက်ပြီဟေ့။ ✨🎨"))
+        uno_advance_turn(game)
+        
+    await send_uno_status_update(chat_id, game)
+
+@bot1.on(events.CallbackQuery(pattern=r'^uno_drawplay_'))
+async def uno_drawplay_callback_handler(event):
+    data = event.data.decode('utf-8').split("_")
+    choice, chat_id = data[2], int(data[3])
+    
+    if chat_id not in active_card_games: return
+    game = active_card_games[chat_id]
+    if event.sender_id != game["players"][game["current_player_idx"]]:
+        await event.answer("⚠️ သင့်အလှည့် မဟုတ်သေးဘူးလေ ဘရိုရဲ့။", alert=True)
+        return
+        
+    drawn_card = game.pop("pending_drawn_card", None)
+    if not drawn_card: return
+    
+    mention = await get_html_mention(event, event.sender_id)
+    if choice == "yes":
+        if drawn_card in game["hands"][event.sender_id]: game["hands"][event.sender_id].remove(drawn_card)
+        game["discard_pile"].append(drawn_card)
+        
+        if "Wild" in drawn_card:
+            game["pending_wild_card"] = drawn_card
+            buttons = [
+                [Button.inline("🔴 Red", data=f"uno_color_Red_{chat_id}"), Button.inline("🔵 Blue", data=f"uno_color_Blue_{chat_id}")],
+                [Button.inline("🟢 Green", data=f"uno_color_Green_{chat_id}"), Button.inline("🟡 Yellow", data=f"uno_color_Yellow_{chat_id}")]
+            ]
+            await event.edit(bq(f"🌈 {mention} က ဆွဲလိုက်တဲ့ Wild Card ကို ချက်ချင်း ပြန်ချလိုက်ပြီဗျို့။\n\nဘယ်အရောင်နဲ့ ဆက်သွားမလဲ ရွေးပေးဦး။ ✨"), buttons=buttons)
+            return
+        else:
+            c_parts = drawn_card.split(" ", 1)
+            game["current_color"] = c_parts[0]
+            game["current_value"] = c_parts[1]
+            await event.edit(bq(f"⚡ {mention} က ဆွဲလိုက်တဲ့ကတ် [{drawn_card}] ကို တန်းချပြီး အလှည့်ကျော်လိုက်ပြီ။"))
+            await uno_trigger_special_effects(chat_id, game, drawn_card, event)
+            uno_advance_turn(game)
+    else:
+        await event.edit(bq(f"⏭️ {mention} က ဆွဲလိုက်တဲ့ကတ်ကို သိမ်းထားပြီး အလှည့်ကို ကျော် (Pass) လိုက်ပြီ။"))
+        uno_advance_turn(game)
+        
+    await send_uno_status_update(chat_id, game)
+
+# ====================================================================================
+# 🛠️ HELPER FUNCTIONS FOR UNO LOGIC ENGINE
+# ====================================================================================
+def uno_advance_turn(game):
+    num_players = len(game["players"])
+    game["current_player_idx"] = (game["current_player_idx"] + game["direction"]) % num_players
+
+def uno_draw_cards(game, user_id, count=1):
+    drawn = []
+    for _ in range(count):
+        if not game["deck"]:
+            top = game["discard_pile"].pop()
+            game["deck"] = game["discard_pile"][:]
+            game["discard_pile"] = [top]
+            random.shuffle(game["deck"])
+        if game["deck"]:
+            card = game["deck"].pop()
+            game["hands"][user_id].append(card)
+            drawn.append(card)
+    return drawn
+
+async def uno_trigger_special_effects(chat_id, game, card_name, event):
+    val = card_name.split(" ", 1)[1]
+    if val == "Skip":
+        uno_advance_turn(game)
+        skipped_name = game["player_names"].get(game["players"][game["current_player_idx"]], "User")
+        await bot1.send_message(chat_id, bq(f"🚫 နောက်တစ်ယောက် {skipped_name} ရဲ့ အလှည့်ကို ကျော် (Skip) လိုက်ပြီဟေ့။"))
+    elif val == "Reverse":
+        game["direction"] *= -1
+        if len(game["players"]) == 2:
+            uno_advance_turn(game)
+            await bot1.send_message(chat_id, bq(f"🔄 ၂ ယောက်တည်း ဆော့နေတာဆိုတော့ လမ်းကြောင်းပြောင်းပြီး အလှည့်ပါ ပြန်ရောက်လာပြီဟေ့။"))
+        else:
+            await bot1.send_message(chat_id, bq(f"🔄 သတိထားကြဦးနော်... ကစားတဲ့ လမ်းကြောင်းကို ပြောင်းပြန် (Reverse) လှန်လိုက်ပြီ။"))
+    elif val == "+2":
+        uno_advance_turn(game)
+        target_user = game["players"][game["current_player_idx"]]
+        target_name = game["player_names"].get(target_user, "User")
+        uno_draw_cards(game, target_user, 2)
+        uno_advance_turn(game)
+        await bot1.send_message(chat_id, bq(f"🔥 အားးးး {target_name} တစ်ယောက် ကတ် ၂ ကတ် အတင်းဆွဲလိုက်ရပြီး အလှည့်ပါ ကျော်သွားပြီဗျို့! 😈"))
+
+async def send_uno_status_update(chat_id, game):
+    top_card = game["discard_pile"][-1]
+    sticker_doc = await uno_stickers_col.find_one({"card_name": top_card})
+    
+    current_player_id = game["players"][game["current_player_idx"]]
+    current_player_name = game["player_names"].get(current_player_id, "User")
+    
+    status_lines = []
+    for p_id in game["players"]:
+        p_name = game["player_names"].get(p_id, "User")
+        count = len(game["hands"].get(p_id, []))
+        is_curr = " 👈 (ယခုအလှည့်)" if p_id == current_player_id else ""
+        status_lines.append(f"👤 {p_name}: ကတ် <code>{count}</code> ကတ်{is_curr}")
+        
+    color_emoji = "🔴" if "Red" in game["current_color"] else "🔵" if "Blue" in game["current_color"] else "🟢" if "Green" in game["current_color"] else "🟡" if "Yellow" in game["current_color"] else "🌈"
+    bot_me = await bot1.get_me()
+    
+    msg_text = (
+        f"🃏 <b>[ UNO GAME RUNNING TERMINAL ]</b> 🚀\n\n"
+        f"🎨 Current Color: {color_emoji} <b>{game['current_color']}</b>\n"
+        f"🔢 Top Card: <b>{top_card}</b>\n"
+        f"⏱️ Turn of: <b>{current_player_name}</b>\n\n"
+        f"📊 <b>ကစားသမားတွေရဲ့ အခြေအနေ -</b>\n"
+        f"{'\n'.join(status_lines)}\n\n"
+        f"💬 ကတ်ချချင်ရင် Chat Box မှာ <code>@{bot_me.username}</code> ရိုက်ပြီး Space တစ်ချက်ခြားလိုက်နော်။"
+    )
+    
+    if "last_status_msg_id" in game:
+        try: await bot1.delete_messages(chat_id, game["last_status_msg_id"])
+        except: pass
+        
+    # စီစဉ်ထားသော စတစ်ကာအား အဖွဲ့ထဲသို့ ထုတ်ပြခြင်း
+    if sticker_doc:
+        try:
+            from telethon.tl.types import InputDocument
+            doc_obj = InputDocument(
+                id=sticker_doc["id"],
+                access_hash=sticker_doc["access_hash"],
+                file_reference=bytes.fromhex(sticker_doc["file_reference"])
+            )
+            await bot1.send_file(chat_id, doc_obj)
+        except: pass
+        
+    sent_msg = await bot1.send_message(chat_id, msg_text, parse_mode='html')
+    game["last_status_msg_id"] = sent_msg.id
+    game["turn_start_time"] = time.time()
+# ====================================================================================
+# 📖 UNO GAME GUIDE & COMMANDS TEXT GENERATOR (SHARED TEMPLATE)
+# ====================================================================================
+async def send_uno_guide(event):
+    bot_me = await bot1.get_me()
+    guide_text = (
+        f"🎮 <b>[ UNO GAMEPLAY & COMMANDS GUIDE ]</b> 🚀\n\n"
+        f"UNO ဆော့ချင်လို့လား ဘရို! လုံးဝ အလန်းစား စနစ်တကျ ဆော့လို့ရအောင် လမ်းညွှန်ပေးမယ်။\n\n"
+        f"📋 <b>အသုံးဝင်မယ့် Commands များ -</b>\n"
+        f"• <code>/new</code> - UNO ဂိမ်းပွဲအသစ် စထောင်မယ်\n"
+        f"• <code>/join</code> - ထောင်ထားတဲ့ ပွဲထဲ ဝင်ဆော့မယ်\n"
+        f"• <code>/start</code> - လူစုံရင် (အနည်းဆုံး ၂ ယောက်) ဂိမ်းစမယ်\n"
+        f"• <code>/leave</code> - ပွဲထဲက ပြန်ထွက်မယ်\n"
+        f"• <code>/skip</code> - အချိန်ကျော်သူကို ကျော်ပစ်မယ် (၉၀ စက္ကန့်ပြည့်မှ)\n"
+        f"• <code>/cmd</code> - ဒီဆော့နည်း လမ်းညွှန်ချက်ကို ပြန်ကြည့်မယ်\n\n"
+        f"🕹️ <b>ဆော့ပုံဆော့နည်း (How to Play) :</b>\n"
+        f"၁။ ပွဲစတာနဲ့ ကစားသမားတိုင်းကို ကတ် ၇ ကတ်စီ အော်တိုဝေပေးမယ်။\n"
+        f"၂။ ကိုယ့်အလှည့်ရောက်ရင် အလယ်က <b>Top Card</b> ရဲ့ <u>အရောင်တူ</u> ဒါမှမဟုတ် <u>နံပါတ်/အမျိုးအစားတူ</u> ကတ်ကို ချရမယ်။\n"
+        f"၃။ <b>ကတ်ချနည်း-</b> Chat Box မှာ <code>@{bot_me.username}</code> လို့ ရိုက်၊ Space (ကွက်လပ်) တစ်ချက်ခြားပြီး လက်ထဲက ကတ်ကို ရွေးချလိုက်ရုံပဲ! (Inline စနစ်)\n"
+        f"၄။ ချစရာကတ်မရှိရင် <code>➕ ကတ်အသစ်ဆွဲမယ် (Draw Card)</code> ကို နှိပ်ပြီး ဆွဲရမယ်။ ချလို့ရရင် တန်းချ၊ မရရင် Pass လုပ်ပြီး အလှည့်ကျော်ရမယ်။\n\n"
+        f"✨ <b>Special Cards အာနိသင်များ :</b>\n"
+        f"• 🚫 <b>Skip:</b> နောက်လူ့အလှည့်ကို ကျော်ပစ်တာ\n"
+        f"• 🔄 <b>Reverse:</b> ကစားတဲ့ ပတ်လမ်းကြောင်းကို ပြောင်းပြန်လှန်တာ\n"
+        f"• 🔥 <b>+2:</b> နောက်လူကို ကတ် ၂ ကတ် ဆွဲခိုင်းပြီး အလှည့်ကျော်ပစ်တာ\n"
+        f"• 🌈 <b>Wild Choose:</b> မိမိကြိုက်တဲ့ အရောင်ပြောင်းတာ\n"
+        f"• 💥 <b>Wild +4:</b> အရောင်လည်းပြောင်း၊ နောက်လူကို ကတ် ၄ ကတ်လည်း ဆွဲခိုင်းပြီး အလှည့်ပါ ကျော်ပစ်တာ\n\n"
+        f"💡 <i>လက်ထဲမှာ ကတ် ၁ ကတ်ပဲ ကျန်တော့တဲ့အချိန်မှာ Bot က <b>UNO!!!</b> လို့ အော်ပေးလိမ့်မယ်။ ကတ်အားလုံး အရင်ဆုံး ကုန်အောင်ချနိုင်တဲ့သူက 🏆 <b>Winner</b> ပဲ Chief!</i>"
+    )
+    await event.reply(guide_text, parse_mode='html')
+
+# ====================================================================================
+# 1️⃣ TRIGGER BY /cmd COMMAND
+# ====================================================================================
+@bot1.on(events.NewMessage(pattern=r'^/uno(?:@\w+)?'))
+async def uno_cmd_command_handler(event):
+    await send_uno_guide(event)
+
+# ====================================================================================
+# 2️⃣ TRIGGER BY KEYWORDS (uno, Uno, UNO, အူနို) IN ANY GROUP
+# ====================================================================================
+@bot1.on(events.NewMessage())
+async def uno_keyword_trigger_handler(event):
+    if not event.text:
+        return
+        
+    text = event.text.lower().strip()
+    
+    # Command တွေရိုက်တာဆိုရင် Guide စာသားနဲ့ ထပ်မနေအောင် ကျော်ပစ်ခြင်း
+    if text.startswith('/'):
+        return
+        
+    # uno, uno-, -uno ဒါမှမဟုတ် 'အူနို' ပါမပါ စစ်ဆေးခြင်း
+    keywords = ['uno', 'အူနို']
+    if any(keyword in text for keyword in keywords):
+        await send_uno_guide(event)
 
 # ====================================================================================
 # 🚀 SYSTEM INITIALIZATION GATEWAY (HYBRID RECONNECTION ARCHITECTURE)
