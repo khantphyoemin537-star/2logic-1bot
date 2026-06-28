@@ -1,4 +1,6 @@
 import io
+import imageio
+import numpy as np
 import asyncio
 import logging
 import random
@@ -9,10 +11,11 @@ import time
 import urllib.request
 import json
 import pytz
+from collections import Counter
 from telethon.tl.functions.channels import GetParticipantsRequest
 from datetime import datetime, timedelta, date
 from flask import Flask, jsonify, render_template_string
-from PIL import Image, ImageDraw
+from PIL import Image, ImageDraw, ImageFont
 from html.parser import HTMLParser
 from motor.motor_asyncio import AsyncIOMotorClient
 from pymongo import ReturnDocument
@@ -247,6 +250,192 @@ def owner_tag():
 
 # 🎭 RARITY MAPPING MATRIX (NEON GACHA EDITION 🔥)
 # ==========================================
+# ==========================================
+# 🐉 PERMANENT DRAGON ASCII GIF GENERATOR
+# ==========================================
+def generate_permanent_dragon_gif(target_name):
+    frames_data = []
+    
+    # ရာသက်ပန် ပိတ်သိပ်ခြင်းအတွက် ၄-Frame နဂါး ကကွက်
+    frame_1 = (
+        f"[!] SYSTEM: PERMANENT MUTE INITIATED\n"
+        f"👤 Target: {target_name}\n\n"
+        f"     <>_/\_/\_/\_<>   _\n"
+        f"     <  o     o  >_//_X  *Waking Up*\n"
+        f"     <>~~\_/\_/\_<>\n\n"
+        f"[ COLD ENGINE STARTING... ]"
+    )
+    
+    frame_2 = (
+        f"[⚡] ERASING VOICE FREQUENCY...\n"
+        f"⏳ Duration: PERMANENT (ရာသက်ပန်)\n\n"
+        f"      <>_/\_/\_/\_<>   _\n"
+        f"    ==<  @     @  >_//_X  *Target Locked*\n"
+        f"      <>~~\_/\_/\_<>\n\n"
+        f"[ SPELL POWER: MAXIMIZING ]"
+    )
+    
+    frame_3 = (
+        f"[🔥] INFLICTING INFINITE SILENCE SPELL!!!\n"
+        f"💥 Status: Banishing Chat Privileges...\n\n"
+        f"      <>_/\_/\_/\_<>   _\n"
+        f"  >>>><  #     #  >_//_X =====>> 🔥🔥🔥\n"
+        f"      <>~~\_/\_/\_<>\n\n"
+        f"[ CLOSING COMMUNICATION CHANNELS ]"
+    )
+    
+    frame_4 = (
+        f"[💀] OPERATION COMPLETE: FOREVER MUTED!\n"
+        f"🛡️ Status: Permanently Restricted\n\n"
+        f"     <>_/\_/\_/\_<>   _\n"
+        f"     <  X     X  >_//_X  [GAME OVER]\n"
+        f"     <>~~\_/\_/\_<>\n\n"
+        f"[ STATUS: TARGET IS SILENCED FOREVER ]"
+    )
+
+    all_frames = [frame_1, frame_2, frame_3, frame_4]
+    
+    try:
+        font = ImageFont.truetype("Courier-Bold.ttf", 18)
+    except:
+        font = ImageFont.load_default()
+
+    for text in all_frames:
+        img = Image.new('RGB', (600, 260), color=(15, 15, 15))
+        d = ImageDraw.Draw(img)
+        d.text((25, 20), text, fill=(0, 255, 65), font=font)
+        frames_data.append(np.array(img))
+        
+    gif_buffer = io.BytesIO()
+    imageio.mimsave(gif_buffer, frames_data, format='GIF', fps=2)
+    gif_buffer.seek(0)
+    return gif_buffer
+
+def generate_mod_dragon_gif(target_name, action_type):
+    frames_data = []
+    all_frames = []
+    
+    # 🔊 ၁။ UNMUTE အီဖက်ခ်
+    if action_type == 'unmute':
+        all_frames = [
+            f"[!] SYSTEM: VOICE RESTORATION PROTOCOL\n👤 Target: {target_name}\n\n     <>_/\_/\_/\_<>   _\n     <  -     -  >_//_X  *Checking Registry*\n     <>~~\_/\_/\_<>\n\n[ DECRYPTING SPEECH CHANNELS... ]",
+            f"[⚡] UNLOCKING AUDIO FILTERS...\n👤 Target: {target_name}\n\n      <>_/\_/\_/\_<>   _\n    ==<  o     o  >_//_X  *Syncing*\n      <>~~\_/\_/\_<>\n\n[ REMOVING MUTED REGISTRY KEY ]",
+            f"[🔥] FLOODING RESTRICTIONS REMOVED!!!\n💥 Status: Restoring Audio Privileges...\n\n      <>_/\_/\_/\_<>   _\n  >>>><  O     O  >_//_X =====>> 🔊🔊🔊\n      <>~~\_/\_/\_<>\n\n[ INJECTING VOICE CODECS: 100% ]",
+            f"[🔊] OPERATION COMPLETE: VOICE RESTORED!\n⚡ Status: Restriction Cleared\n\n     <>_/\_/\_/\_<>   _\n     <  ^     ^  >_//_X  [CLEARED]\n     <>~~\_/\_/\_<>\n\n[ TARGET CAN NOW CHAT FREELY ]"
+        ]
+    # 🚫 ၂။ BAN အီဖက်ခ်
+    elif action_type == 'ban':
+        all_frames = [
+            f"[!] SYSTEM: EXILE PROTOCOL ACTIVE\n🚫 Target: {target_name}\n\n     <>_/\_/\_/\_<>   _\n     <  o     o  >_//_X  *Locating User*\n     <>~~\_/\_/\_<>\n\n[ PARSING USER SYSTEM DATA... ]",
+            f"[⚡] ERASING IDENTITY FROM REALM...\n🚫 Target: {target_name}\n\n      <>_/\_/\_/\_<>   _\n    ==<  @     @  >_//_X  *Target Locked*\n      <>~~\_/\_/\_<>\n\n[ BANISHMENT LEVEL: MAXIMUM ]",
+            f"[🔥] BANISHING OUT OF THE SERVER!!!\n💥 Status: Purging Chat Access...\n\n      <>_/\_/\_/\_<>   _\n  >>>><  #     #  >_//_X =====>> 💀💀💀\n      <>~~\_/\_/\_<>\n\n[ DESTROYING SESSION TOKENS ]",
+            f"[💀] OPERATION COMPLETE: BANISHED!\n🚫 Status: Permanently Exiled\n\n     <>_/\_/\_/\_<>   _\n     <  X     X  >_//_X  [GAME OVER]\n     <>~~\_/\_/\_<>\n\n[ STATUS: USER IS BLOCKED FOREVER ]"
+        ]
+    # ✅ ၃။ UNBAN အီဖက်ခ်
+    elif action_type == 'unban':
+        all_frames = [
+            f"[!] SYSTEM: PARDON ENGINE RUNNING\n👤 Target: {target_name}\n\n     <>_/\_/\_/\_<>   _\n     <  -     -  >_//_X  *Checking Files*\n     <>~~\_/\_/\_<>\n\n[ RE-EVALUATING ACCESS RIGHTS ]",
+            f"[⚡] GRANTING REALM ENTRY PERMIT...\n✅ Target: {target_name}\n\n      <>_/\_/\_/\_<>   _\n    ==<  o     o  >_//_X  *Lifting Block*\n      <>~~\_/\_/\_<>\n\n[ RE-ACTIVATING ACCOUNT ROUTE ]",
+            f"[🔥] SHATTERING THE BAN CHAINS!!!\n💥 Status: Clearing Restriction Logs...\n\n      <>_/\_/\_/\_<>   _\n  >>>><  .     .  >_//_X =====>> ✨✨✨\n      <>~~\_/\_/\_<>\n\n[ INJECTING RE-ENTRY LICENSES ]",
+            f"[✅] OPERATION COMPLETE: UNBANNED!\n🎉 Status: Ban Lifted Successfully\n\n     <>_/\_/\_/\_<>   _\n     <  ^     ^  >_//_X  [WELCOME BACK]\n     <>~~\_/\_/\_<>\n\n[ TARGET IS ALLOWED TO JOIN AGAIN ]"
+        ]
+    # 💨 ၄။ KICK အီဖက်ခ်
+    elif action_type == 'kick':
+        all_frames = [
+            f"[!] SYSTEM: EJECTION SEQUENCE READY\n👤 Target: {target_name}\n\n     <>_/\_/\_/\_<>   _\n     <  o     o  >_//_X  *Targeting*\n     <>~~\_/\_/\_<>\n\n[ INITIATING SOCKET FLUSH... ]",
+            f"[⚡] TERMINATING MEMBER SESSION...\n💨 Target: {target_name}\n\n      <>_/\_/\_/\_<>   _\n    ==<  @     @  >_//_X  *Disconnecting*\n      <>~~\_/\_/\_<>\n\n[ DISCONNECT FORCE: 100% ]",
+            f"[🔥] JETTISONING OUT OF CHAT ROOM!!!\n💥 Status: Force Removing User...\n\n      <>_/\_/\_/\_<>   _\n  >>>><  >     <  >_//_X =====>> 💨💨💨\n      <>~~\_/\_/\_<>\n\n[ FLUSHING PARTICIPANT DATA ]",
+            f"[💨] OPERATION COMPLETE: KICKED!\n⚡ Status: Removed From Group\n\n     <>_/\_/\_/\_<>   _\n     <  _     _  >_//_X  [EJECTED]\n     <>~~\_/\_/\_<>\n\n[ TARGET WAS EXPELLED FROM CHAT ]"
+        ]
+      # 🔍 ၅။ ID SCANNER အီဖက်ခ် (အသစ်ဖြည့်စွက်ချက်)
+    elif action_type == 'id':
+        all_frames = [
+            f"[!] SYSTEM: SCANNER PROTOCOL INITIALIZED\n🔍 Target: {target_name}\n\n     <>_/\_/\_/\_<>   _\n     <  o     o  >_//_X  *Target Found*\n     <>~~\_/\_/\_<>\n\n[ BIO-METRIC READING: 15% ]",
+            f"[⚡] ACCESSING TELEGRAM CORE DATA...\n🛰️ Realm: Chat Grid Network\n\n      <>_/\_/\_/\_<>   _\n    ==<  -     -  >_//_X  *Extracting ID*\n      <>~~\_/\_/\_<>\n\n[ PROTOCOL DECRYPTION: 55% ]",
+            f"[🔥] COMPILING DATABASE FIELDS!!!\n⚙️ Matrix: Mapping Object Entities...\n\n      <>_/\_/\_/\_<>   _\n  >>>><  O     O  >_//_X =====>> 📡📡📡\n      <>~~\_/\_/\_<>\n\n[ MATRIX EXTRACTION: 90% ]",
+            f"[✨] ANALYSIS COMPLETE: TARGET IDENTIFIED!\n🛡️ Status: Security Clearance Granted\n\n     <>_/\_/\_/\_<>   _\n     <  ^     ^  >_//_X  [DATA RETRIEVED]\n     <>~~\_/\_/\_<>\n\n[ GRID MATRIX IS FULLY LOADED ]"
+        ]
+    elif action_type == 'info':
+        all_frames = [
+            f"[!] SYSTEM: RETRIEVING USER DOSSIER\n📂 Profile: {target_name}\n\n     <>_/\_/\_/\_<>   _\n     <  o     o  >_//_X  *Syncing Cloud*\n     <>~~\_/\_/\_<>\n\n[ PINGING DATABASE SERVERS... 10% ]",
+            f"[⚡] FETCHING FINANCIAL LEDGERS...\n💰 Target: Accessing Economy Data\n\n      <>_/\_/\_/\_<>   _\n    ==<  -     -  >_//_X  *Reading Balance*\n      <>~~\_/\_/\_<>\n\n[ EXTRACTING BANK CACHE: 45% ]",
+            f"[🔥] PARSING TELEGRAM PREMIUM STATUS!!!\n🌟 Matrix: Checking Verification Badge...\n\n      <>_/\_/\_/\_<>   _\n  >>>><  O     O  >_//_X =====>> 📊📊📊\n      <>~~\_/\_/\_<>\n\n[ ASSEMBLING PROFILE BLOCKS: 85% ]",
+            f"[✨] RETRIEVAL SUCCESSFUL: PROFILE COMPILED\n🛡️ Status: Dossier Unlocked & Rendered\n\n     <>_/\_/\_/\_<>   _\n     <  ^     ^  >_//_X  [DATA MATRIX READY]\n     <>~~\_/\_/\_<>\n\n[ DISPLAYING USER DOSSIER MATRIX ]"
+        ]
+    elif action_type == 'calc':
+        all_frames = [
+            f"[!] SYSTEM: MATH ENGINE ENGAGED\n🧮 Input: {target_name}\n\n     <>_/\_/\_/\_<>   _\n     <  o     o  >_//_X  *Parsing Data*\n     <>~~\_/\_/\_<>\n\n[ LOADING QUANTUM CORES... 20% ]",
+            f"[⚡] RUNNING ARITHMETIC LOGIC...\n🧮 Matrix: Resolving Operators\n\n      <>_/\_/\_/\_<>   _\n    ==<  -     -  >_//_X  *Calculating*\n      <>~~\_/\_/\_<>\n\n[ PROCESSING EQUATION: 55% ]",
+            f"[🔥] ASSEMBLING BINARY DATA!!!\n📊 Status: Compiling Output Cache...\n\n      <>_/\_/\_/\_<>   _\n  >>>><  O     O  >_//_X =====>> 🧮🧮🧮\n      <>~~\_/\_/\_<>\n\n[ RENDERING RESULT: 90% ]",
+            f"[✨] CALCULATION COMPLETE: SOLVED!\n🛡️ Status: Memory Flushed & Ready\n\n     <>_/\_/\_/\_<>   _\n     <  ^     ^  >_//_X  [COMPUTED]\n     <>~~\_/\_/\_<>\n\n[ MATHEMATICAL MATRIX SUCCESSFUL ]"
+        ]
+    elif action_type == 'catch':
+        all_frames = [
+            f"[!] SYSTEM: CAPTURE BEAM ACTIVATED\n🃏 Target: {target_name}\n\n     <>_/\_/\_/\_<>   _\n     <  o     o  >_//_X  *Locking Matrix*\n     <>~~\_/\_/\_<>\n\n[ SCANNING MOLECULAR STRUCTURE: 25% ]",
+            f"[⚡] INJECTING QUANTUM CONTAINMENT...\n📦 Status: Drawing Entity Into Grid\n\n      <>_/\_/\_/\_<>   _\n    ==<  -     -  >_//_X  *Capturing*\n      <>~~\_/\_/\_<>\n\n[ DOWNLOADING CHARACTER ASSETS: 60% ]",
+            f"[🔥] WRITING TO PLAYER INVENTORY VAULT!!!\n📊 Database: Syncing Harem Registry...\n\n      <>_/\_/\_/\_<>   _\n  >>>><  O     O  >_//_X =====>> 🃏🃏🃏\n      <>~~\_/\_/\_<>\n\n[ SECURING BLOCKCHAIN REWARDS: 90% ]",
+            f"[✨] CAPTURE SUCCESSFUL: MISSION SECURED!\n🛡️ Status: Character Safely Vaulted\n\n     <>_/\_/\_/\_<>   _\n     <  ^     ^  >_//_X  [ASSET LOCKED]\n     <>~~\_/\_/\_<>\n\n[ HUNTER HAS SUCCESSFULLY CLAIMED ]"
+        ]
+    elif action_type == 'who':
+        all_frames = [
+            f"[!] SYSTEM: ENCRYPTED ENTITY DETECTED\n🔍 Query: Who is this character?\n\n     <>_/\_/\_/\_<>   _\n     <  -     -  >_//_X  *Analyzing Pixels*\n     <>~~\_/\_/\_<>\n\n[ DECRYPTING IMAGE METADATA: 15% ]",
+            f"[⚡] BYPASSING SECURITY SHIELDS...\n🛡️ Status: Cracking Character Code\n\n      <>_/\_/\_/\_<>   _\n    ==<  o     o  >_//_X  *Matching Data*\n      <>~~\_/\_/\_<>\n\n[ EXTRACTING IDENTITY CORES: 50% ]",
+            f"[🔥] REVEALING DESTINY MATRIX!!!\n✨ Target: Removing Cloaking Field...\n\n      <>_/\_/\_/\_<>   _\n  >>>><  O     O  >_//_X =====>> 👁️👁️👁️\n      <>~~\_/\_/\_<>\n\n[ PARSING COGNITIVE NAME: 85% ]",
+            f"[👁️] ANALYSIS COMPLETE: TARGET UNVEILED!\n🎉 Status: True Identity Exposed\n\n     <>_/\_/\_/\_<>   _\n     <  ^     ^  >_//_X  [DATA REVEALED]\n     <>~~\_/\_/\_<>\n\n[ RUN /catch COMMAND IMMEDIATELY! ]"
+        ]
+        # 🎰 ၁၀။ SLOT MACHINE ENGINE
+    elif action_type == 'slot':
+        all_frames = [
+            f"[!] SYSTEM: CASINO REELS SPINNING\n🎰 Player: {target_name}\n\n     <>_/\_/\_/\_<>   _\n     <  o     o  >_//_X  *Spinning Matrix*\n     <>~~\_/\_/\_<>\n\n[ REROLLING MOLECULAR SYMBOLS... ]",
+            f"[✨] LOCKING IN COMBINATIONS...\n📊 Status: Matching Symbol Arrays\n\n     <>_/\_/\_/\_<>   _\n     <  ^     ^  >_//_X  [RESOLVED]\n     <>~~\_/\_/\_<>\n\n[ RENDERING SLOT PAYOUT BLOCKS ]"
+        ]
+    # 🃏 ၁၁။ CARD SHOWDOWN ENGINE
+    elif action_type == 'cardgame':
+        all_frames = [
+            f"[!] SYSTEM: HIGH CARD SHOWDOWN\n🃏 Status: Dealing Quantum Decks\n\n     <>_/\_/\_/\_<>   _\n     <  -     -  >_//_X  *Shuffling*\n     <>~~\_/\_/\_<>\n\n[ COMPILING MULTIPLAYER SCORES... ]"
+        ]
+    # 🪙 ၁၂။ QUANTUM FLIP ENGINE
+    elif action_type == 'flip':
+        all_frames = [
+            f"[!] SYSTEM: COIN ROTATION ENGAGED\n🪙 Bet Side: {target_name}\n\n     <>_/\_/\_/\_<>   _\n     <  o     o  >_//_X  *Flipping*\n     <>~~\_/\_/\_<>\n\n[ CALCULATING 50/50 GRAVITY CORE... ]"
+        ]
+    # 🎁 ၁၃။ DAILY BOUNTY ENGINE
+    elif action_type == 'daily':
+        all_frames = [
+            f"[!] SYSTEM: COOLDOWN MATRIX REFRESH\n🎁 Target: {target_name}\n\n     <>_/\_/\_/\_<>   _\n     <  -     -  >_//_X  *Syncing Vault*\n     <>~~\_/\_/\_<>\n\n[ EXTRACTING DAILY BONUS BLOCK... ]"
+        ]
+    # 🏆 ၁၄။ RICHEST LEADERBOARD ENGINE
+    elif action_type == 'richest':
+        all_frames = [
+            f"[!] SYSTEM: LOADING CASINO LEADERBOARD\n📊 Scope: Top 10 Wealthiest Entities\n\n     <>_/\_/\_/\_<>   _\n     <  O     O  >_//_X  *Fetching*\n     <>~~\_/\_/\_<>\n\n[ RETRIEVING BANK LEDGER RECORDS... ]"
+        ]
+    # ♻️ ၁၅။ ASSET MELT ENGINE (SCRAP)
+    elif action_type == 'scrap':
+        all_frames = [
+            f"[!] SYSTEM: CARD DISSOLUTION CORE\n♻️ Asset ID: {target_name}\n\n     <>_/\_/\_/\_<>   _\n     <  o     o  >_//_X  *Melting*\n     <>~~\_/\_/\_<>\n\n[ CONVERTING CARD TO CASH CORES: 50% ]"
+        ]
+    # 🎲 ၁၆။ RISK VENTURE ENGINE (GAMBLE)
+    elif action_type == 'gamble':
+        all_frames = [
+            f"[!] SYSTEM: HIGH-RISK VENTURE ENGAGED\n🎲 Mode: Double Or Nothing\n\n     <>_/\_/\_/\_<>   _\n     <  -     -  >_//_X  *Risking Balance*\n     <>~~\_/\_/\_<>\n\n[ PARSING MATRIX PARADOX OUTCOME... ]",
+            f"[✨] TRANSACTION POSTED FLUENTLY\n🛡️ Status: Account Balance Flushed\n\n     <>_/\_/\_/\_<>   _\n     <  O     O  >_//_X  [COMPLETED]\n     <>~~\_/\_/\_<>\n\n[ RISK VENTURE SYSTEM CLOSED ]"
+        ]   
+    try:
+        font = ImageFont.truetype("Courier-Bold.ttf", 18)
+    except:
+        font = ImageFont.load_default()
+
+    for text in all_frames:
+        img = Image.new('RGB', (600, 260), color=(15, 15, 15))
+        d = ImageDraw.Draw(img)
+        d.text((25, 20), text, fill=(0, 255, 65), font=font)
+        frames_data.append(np.array(img))
+        
+    gif_buffer = io.BytesIO()
+    imageio.mimsave(gif_buffer, frames_data, format='GIF', fps=2)
+    gif_buffer.seek(0)
+    return gif_buffer
+    
 RARITY_NUM_MAP = {
     "1": {"name": f"🌌 {f('LEGENDARY')}", "value": 1000},  
     "2": {"name": f"🎴 {f('LIMITED')}", "value": 750},   
@@ -668,16 +857,31 @@ async def auto_calculator_handler(event):
                 # Safe evaluation context
                 result = eval(text, {"__builtins__": None}, {})
                 
-                # English လို Reply အမိုက်စား ပုံစံဖြင့် ပြန်ပေးခြင်း
+                # 🐉 Cyber Dragon Math Engine GIF ထုတ်လုပ်ခြင်း (ပုစ္ဆာအား နဂါးဆီသို့ ပေးပို့လိုက်သည်)
+                gif_file = generate_mod_dragon_gif(text, 'calc')
+                gif_file.name = "math_processing.gif"
+                
+                # မူလစာသားဒီဇိုင်းကို ပိုမိုလှပပြီး စနစ်ကျသော HTML ပုံစံသို့ ပြောင်းလဲခြင်း
                 response = (
-                    f"{f('SMART MATH ENGINE')}\n"
-                    f"🦦 {f('Expression')}: `{text}`\n"
-                    f"⚡ {f('Calculated Result')}: *{result}*\n"
-                    f"HOPE is a Good Thing."
+                    f"✨ <b>{f('SMART MATH ENGINE')}</b> ✨\n"
+                    f"━━━━━━━━━━━━━━━━━━━━━\n"
+                    f"🦦 <b>{f('Expression')}:</b> <code>{text}</code>\n"
+                    f"⚡ <b>{f('Calculated Result')}:</b> <code>{result}</code>\n"
+                    f"━━━━━━━━━━━━━━━━━━━━━\n"
+                    f"<i>HOPE is a Good Thing.</i>"
                 )
-                await event.reply(response)
+                
+                # စာသားသပ်သတ်မဟုတ်ဘဲ လှုပ်လှုပ်ရွရွ GIF နှင့်အတူ မေးခွန်းရှင်အား Reply ပြန်ပေးခြင်း 🔥
+                await event.client.send_file(
+                    event.chat_id, 
+                    gif_file, 
+                    caption=response, 
+                    reply_to=event.id, 
+                    parse_mode='html'
+                )
             except Exception:
                 pass # ပုံမှန်စာသားများနှင့် မှားယွင်းစစ်မိပါက ငြိမ်နေမည် (Spam မဖြစ်အောင်)
+
 
 @bot1.on(events.NewMessage(pattern=r'(?i)^/info'))
 async def info_handler(event):
@@ -710,6 +914,11 @@ async def info_handler(event):
             premium_status = "Yes 🌟" if getattr(target_user, 'premium', False) else "No"
             full_name = f"{target_user.first_name or ''} {target_user.last_name or ''}".strip()
             
+            # 🐉 Cyber Dragon Info Profile Scanner GIF ထုတ်လုပ်ခြင်း
+            gif_file = generate_mod_dragon_gif(full_name, 'info')
+            gif_file.name = "info_scan_operation.gif"
+            
+            # မူလ စာသားပုံစံနှင့် ဒီဇိုင်းကို ထိန်းသိမ်းခြင်း
             response = (
                 f"ℹ️ {f('USER PROFILE INFORMATION')}\n"
                 f"━━━━━━━━━━━━━━━━━━━━━\n"
@@ -720,7 +929,10 @@ async def info_handler(event):
                 f"💰 {f('Economy Balance')}: {balance}\n"
                 f"━━━━━━━━━━━━━━━━━━━━━"
             )
-            await event.reply(response)
+            
+            # စာသားသက်သက်မဟုတ်ဘဲ လှုပ်လှုပ်ရွရွ GIF ဗီဒီယိုနှင့် ကတ်ပရှင်တွဲပို့ခြင်း 🔥
+            await event.client.send_file(event.chat_id, gif_file, caption=response, parse_mode='html')
+            
     except Exception as e:
         print(f"Error in /info command: {e}")
 
@@ -990,6 +1202,11 @@ async def id_handler(event):
             username = f"@{target_user.username}" if target_user.username else "None"
             full_name = f"{target_user.first_name or ''} {target_user.last_name or ''}".strip()
             
+            # 🐉 Cyber Dragon ID Scanner GIF ထုတ်လုပ်ခြင်း
+            gif_file = generate_mod_dragon_gif(full_name, 'id')
+            gif_file.name = "id_scan_operation.gif"
+            
+            # မူလ စာသားဒီဇိုင်းအတိုင်း ပြန်လည်သတ်မှတ်ခြင်း
             response = (
                 f"✨ {f('USER IDENTIFICATION MATRIX')} ✨\n"
                 f"━━━━━━━━━━━━━━━━━━━━━\n"
@@ -999,115 +1216,79 @@ async def id_handler(event):
                 f"━━━━━━━━━━━━━━━━━━━━━\n"
                 f"🌏 {f('Chat ID')}: `{event.chat_id}`"
             )
-            await event.reply(response)
+            
+            # စာသားသတ်သတ် မဟုတ်ဘဲ လှုပ်လှုပ်ရွရွ GIF ဗီဒီယိုနှင့် ကတ်ပရှင်တွဲပို့ခြင်း 🔥
+            await event.client.send_file(event.chat_id, gif_file, caption=response, parse_mode='html')
+            
     except Exception as e:
         print(f"Error in /id command: {e}")
 
-# 🤫 PREMIUM EMOJI MUTE TEMPLATE SETTER
 # ==========================================
-@bot1.on(events.NewMessage(pattern=r'^/setmute$'))
-async def set_mute_template_handler(event):
-    # Admin သို့မဟုတ် Owner ဖြစ်မဖြစ် စစ်ဆေးခြင်း
-    if not await is_allowed(event.sender_id) and not await check_admin(event.chat_id, event.sender_id):
-        await event.reply("❌ သင်သည် ဤစနစ်ကို စီမံခန့်ခွဲခွင့် မရှိပါ။")
-        return
-
-    # Message ကို Reply ပြန်ပြီး ရိုက်ထားခြင်း ဟုတ်မဟုတ် စစ်ဆေးခြင်း
-    if not event.is_reply:
-        await event.reply("⚠️ ကျေးဇူးပြု၍ Premium Emoji များပါဝင်ပြီး <code>{fullname}</code> Placeholder ပါဝင်သော Template စာသားကို Reply ပြန်ပြီး /setmute ဟု ရိုက်ပေးပါ။")
-        return
-
-    reply_msg = await event.get_reply_message()
-    
-    try:
-        # စာသားနှင့် Premium Emoji များကို HTML Format အဖြစ် ပြောင်းလဲပစ်ခြင်း
-        # (Premium Emoji များကို <tg-emoji id="..."> Tag များအဖြစ် အလိုအလျောက် ပြောင်းပေးမည်)
-        template_html = html.unparse(reply_msg.text, reply_msg.entities)
-        
-        if "{fullname}" not in template_html:
-            await event.reply("⚠️ သင့် Template စာသားထဲမှာ <code>{fullname}</code> ဆိုတဲ့ စာလုံး မပါဝင်သေးပါဘူး။ Target User နေရာမှာ အစားထိုးဖို့ ၎င်းစာလုံး မဖြစ်မနေ ပါရပါမယ်။")
-            return
-
-        # သင့်ကုဒ်ထဲက system_col Collection ထဲမှာ သိမ်းဆည်းခြင်း
-        await system_col.update_one(
-            {"key": "template_mute"},
-            {"$set": {"html": template_html}},
-            upsert=True
-        )
-        await event.reply("✅ <b>Mute Template ကို အောင်မြင်စွာ သိမ်းဆည်းလိုက်ပါပြီ။</b>\nယခုမှစ၍ /mute သုံးသည့်အခါ ဤ Premium Emoji စတိုင်အတိုင်း ပြန်စာ ပို့ပေးပါမည်။", parse_mode='html')
-    except Exception as e:
-        await event.reply(f"❌ Template သိမ်းဆည်းစဉ် Error တက်သွားပါသည်: {str(e)}")
-# ==========================================
-# 🚫 DYNAMIC PREMIUM MUTE MODERATION ENGINE
+# 🚫 TELEGRAM PERMANENT ASCII MUTE ENGINE
 # ==========================================
 @bot1.on(events.NewMessage(pattern=r'^/mute(?:@\w+)?(?:\s+(.+))?'))
-async def dynamic_mute_handler(event):
-    # Admin Rights ရှိမရှိ စစ်ဆေးခြင်း
+async def permanent_ascii_mute_handler(event):
     if not await check_admin(event.chat_id, event.sender_id):
-        return # Admin မဟုတ်ရင် ငြိမ်နေမည်
+        return
 
     target_id = None
-    
-    # ၁။ Reply ပြန်ထားလျှင် Target ID ယူခြင်း
+    args_text = event.pattern_match.group(1)
+
+    # ၁။ Reply ဖြင့် Mute ခြင်း
     if event.is_reply:
         reply_msg = await event.get_reply_message()
         target_id = reply_msg.sender_id
-    # ၂။ Username သို့မဟုတ် ID ရိုက်ထည့်ထားလျှင် ရှာဖွေခြင်း
+    # ၂။ Username અથવા ID ဖြင့် Mute ခြင်း
     else:
-        match = event.pattern_match.group(1)
-        if match:
-            match = match.strip()
-            if match.isdigit():
-                target_id = int(match)
+        if args_text:
+            target_str = args_text.strip().split()[0]
+            if target_str.isdigit():
+                target_id = int(target_str)
             else:
                 try:
-                    user_entity = await event.client.get_entity(match)
+                    user_entity = await event.client.get_entity(target_str)
                     target_id = user_entity.id
                 except Exception:
-                    await event.reply("⚠️ ၎င်း User အား ရှာမတွေ့ပါ။ Username သို့မဟုတ် ID မှန်ကန်စွာ ရိုက်ပါ။")
+                    await event.reply("⚠️ ၎င်း User အား ရှာမတွေ့ပါ။")
                     return
         else:
-            await event.reply("⚠️ ကျေးဇူးပြု၍ Mute မည့်သူ၏ စာကို Reply ပြန်ပါ သို့မဟုတ် ID/Username ရိုက်ထည့်ပါ။\nဥပမာ - <code>/mute @username</code>")
+            await event.reply("⚠️ Usage: <code>/mute</code> (Reply ဖြင့်) သို့မဟုတ် <code>/mute [@username]</code>")
             return
 
-    if not target_id:
-        await event.reply("❌ Target User ID ကို ရှာမတွေ့ပါ။")
-        return
-
-    # Bot ကိုယ်တိုင် သို့မဟုတ် Owner ကို Mute မိခြင်းမှ ကာကွယ်ရန်
+    if not target_id: return
     bot_me = await event.client.get_me()
     if target_id == bot_me.id or target_id == OWNER_ID:
-        await event.reply("❌ Bot သို့မဟုတ် Owner ကို စကားပိတ် (Mute) လို့မရနိုင်ပါ။")
+        await event.reply("❌ Bot သို့မဟုတ် Owner ကို Mute လို့မရပါ။")
         return
 
     try:
-        # သင့်ကုဒ်ထဲက လက်ရှိ Mute စနစ်အတိုင်း Database ထဲမှတ်ပြီး ဝင်ခွင့်ပိတ်ခြင်း
-        await register_temporary_mute(event.chat_id, target_id, duration_minutes=60)
+        # until_date ကို ကုဒ်ထဲမှာ လုံးဝမထည့်ပေးဘဲ ချန်ထားခဲ့တဲ့အတွက် ရာသက်ပန် ပိတ်သွားမှာ ဖြစ်ပါတယ်
         await event.client.edit_permissions(
             event.chat_id, target_id, 
             send_messages=False, send_media=False, send_stickers=False, send_gifs=False
         )
         
-        # သင့်ကုဒ်ထဲက Function ကိုသုံးပြီး Target ရဲ့ HTML Mention Link ဖန်တီးခြင်း
-        target_mention = await get_html_mention(event, target_id)
+        # User အမည်ကို Plain Text အနေနဲ့ ဆွဲထုတ်ခြင်း
+        user_entity = await event.client.get_entity(target_id)
+        target_name = f"{user_entity.first_name} {user_entity.last_name or ''}".strip()
         
-        # Database ထဲ သိမ်းထားတဲ့ Premium Emoji Template ကို လှမ်းယူခြင်း
-        template_doc = await system_col.find_one({"key": "template_mute"})
+        # ရာသက်ပန် နဂါး GIF ထုတ်လုပ်ခြင်း
+        gif_file = generate_permanent_dragon_gif(target_name)
+        gif_file.name = "permanent_mute.gif"
         
-        if template_doc and "html" in template_doc:
-            template_html = template_doc["html"]
-            # {fullname} စာသားနေရာတွင် Mute ခံရသူ၏ နာမည်လင့်ခ်ကို အစားထိုးပစ်ခြင်း 🔥
-            final_message = template_html.replace("{fullname}", target_mention)
-            
-            # HTML parse_mode ဖြင့် ပို့လိုက်လျှင် Premium Emoji များ အသက်ဝင်သွားမည်။
-            await event.respond(final_message, parse_mode='html')
-        else:
-            # တကယ်လို့ /setmute မလုပ်ရသေးရင် ပြမယ့် Fallback စာသား
-            await event.respond(f"🤐 {target_mention} အား စကားပြောခွင့် (၁ နာရီ) ပိတ်လိုက်ပါပြီ။", parse_mode='html')
+        # ဂရုထဲသို့ ပြတ်သားတဲ့ စာသားနဲ့အတူ ပို့လိုက်ခြင်း 🔥
+        await event.client.send_file(
+            event.chat_id, 
+            gif_file, 
+            caption=f"🌌 <b>𝙈𝙐𝙏𝙀 𝙊𝙋𝙀𝙍𝘼𝙏𝙄𝙊𝙉 𝙎𝙐𝘾𝘾𝙀𝙎𝙎!</b>\n🤫 <b>{target_name}</b> has been silenced <b>Permanently</b>.", 
+            parse_mode='html'
+        )
 
     except Exception as e:
-        await event.reply(f"❌ Mute ရာတွင် Error တက်သွားပါသည်: {str(e)}")
-
+        await event.reply(f"❌ Error: {str(e)}")
+# ==========================================
+# 🔊 UNMUTE COMMAND WITH DRAGON EFFECT
+# ==========================================
 @bot1.on(events.NewMessage(pattern=r'^/unmute(?:@\w+)?(?:\s+(.*))?'))
 async def unmute_user(event):
     if not await check_ban_rights(event.chat_id, event.sender_id): return
@@ -1115,18 +1296,29 @@ async def unmute_user(event):
     if not target_user: return
 
     try:
+        # စွမ်းဆောင်ချက် မြှင့်တင်ခြင်း
         await bot1.edit_permissions(event.chat_id, target_user.id, send_messages=True)
         await muted_registry_col.delete_one({"chat_id": event.chat_id, "user_id": target_user.id})
-        mention = f"<a href='tg://user?id={target_user.id}'>{escape_html(getattr(target_user, 'first_name', 'User'))}</a>"
+        
+        target_name = f"{getattr(target_user, 'first_name', 'User')} {getattr(target_user, 'last_name', '') or ''}".strip()
+        mention = f"<a href='tg://user?id={target_user.id}'>{escape_html(target_name)}</a>"
+        
+        # နဂါး GIF ထုတ်ယူခြင်း
+        gif_file = generate_mod_dragon_gif(target_name, 'unmute')
+        gif_file.name = "unmute_operation.gif"
+        
         unmute_text = (
-            f"🌌 <b>𝙐𝙉𝘽𝘼𝙉 𝙐𝙉𝙈𝙐𝙏𝙀 𝙊𝙋𝙀𝙍𝘼𝙏𝙄𝙊𝙉</b>\n"
+            f"🌌 <b>𝙐做𝘼𝙉 𝙐𝙉𝙈𝙐𝙏𝙀 𝙊𝙋𝙀𝙍𝘼𝙏𝙄𝙊做</b>\n"
             f"🔊 <b>Target:</b> {mention}\n"
             f"🆔 <b>User ID:</b> <code>{target_user.id}</code>\n"
             f"⚡ <b>Status:</b> <code>Voice Restored / Cleared</code>"
         )
-        await event.respond(bq(unmute_text), parse_mode='html')
+        await event.client.send_file(event.chat_id, gif_file, caption=bq(unmute_text), parse_mode='html')
     except Exception as e: print(f"Unmute Error: {e}")
 
+# ==========================================
+# 🚫 BAN COMMAND WITH DRAGON EFFECT
+# ==========================================
 @bot1.on(events.NewMessage(pattern=r'^/ban(?:@\w+)?(?:\s+(.*))?'))
 async def ban_user(event):
     if not await check_ban_rights(event.chat_id, event.sender_id): return
@@ -1135,16 +1327,25 @@ async def ban_user(event):
 
     try:
         await bot1.edit_permissions(event.chat_id, target_user.id, view_messages=False)
-        mention = f"<a href='tg://user?id={target_user.id}'>{escape_html(getattr(target_user, 'first_name', 'User'))}</a>"
+        
+        target_name = f"{getattr(target_user, 'first_name', 'User')} {getattr(target_user, 'last_name', '') or ''}".strip()
+        mention = f"<a href='tg://user?id={target_user.id}'>{escape_html(target_name)}</a>"
+        
+        gif_file = generate_mod_dragon_gif(target_name, 'ban')
+        gif_file.name = "ban_operation.gif"
+        
         ban_text = (
             f"🌌 <b>𝘽𝘼𝙉 𝙊𝙋𝙀𝙍𝘼𝙏𝙄𝙊𝙉</b>\n"
             f"🚫 <b>Target:</b> {mention}\n"
             f"🆔 <b>User ID:</b> <code>{target_user.id}</code>\n"
             f"⚡ <b>Status:</b> <code>Exiled / Perm-Banned (ဘန်းပစ်လိုက်ရှုပ်တယ်)</code>"
         )
-        await event.respond(bq(ban_text), parse_mode='html')
+        await event.client.send_file(event.chat_id, gif_file, caption=bq(ban_text), parse_mode='html')
     except Exception as e: print(f"Ban Error: {e}")
 
+# ==========================================
+# ✅ UNBAN COMMAND WITH DRAGON EFFECT
+# ==========================================
 @bot1.on(events.NewMessage(pattern=r'^/unban(?:@\w+)?(?:\s+(.*))?'))
 async def unban_user(event):
     if not await check_ban_rights(event.chat_id, event.sender_id): return
@@ -1153,15 +1354,25 @@ async def unban_user(event):
 
     try:
         await bot1.edit_permissions(event.chat_id, target_user.id, view_messages=True)
-        mention = f"<a href='tg://user?id={target_user.id}'>{escape_html(getattr(target_user, 'first_name', 'User'))}</a>"
+        
+        target_name = f"{getattr(target_user, 'first_name', 'User')} {getattr(target_user, 'last_name', '') or ''}".strip()
+        mention = f"<a href='tg://user?id={target_user.id}'>{escape_html(target_name)}</a>"
+        
+        gif_file = generate_mod_dragon_gif(target_name, 'unban')
+        gif_file.name = "unban_operation.gif"
+        
         unban_text = (
             f"🌌 <b>𝙐𝙉𝘽Α𝙉 𝙊𝙋𝙀𝙍𝘼𝙏𝙄𝙊𝙉</b>\n"
             f"✅ <b>Target:</b> {mention}\n"
             f"🆔 <b>User ID:</b> <code>{target_user.id}</code>\n"
             f"⚡ <b>Status:</b> <code>Ban Lifted / Allowed to Join</code>"
         )
-        await event.respond(bq(unban_text), parse_mode='html')
+        await event.client.send_file(event.chat_id, gif_file, caption=bq(unban_text), parse_mode='html')
     except Exception as e: print(f"Unban Error: {e}")
+
+# ==========================================
+# 💨 KICK COMMAND WITH DRAGON EFFECT
+# ==========================================
 @bot1.on(events.NewMessage(pattern=r'^/kick(?:@\w+)?(?:\s+(.*))?'))
 async def kick_user(event):
     if not await check_ban_rights(event.chat_id, event.sender_id): return
@@ -1171,39 +1382,21 @@ async def kick_user(event):
     try:
         await bot1.edit_permissions(event.chat_id, target_user.id, view_messages=False)
         await bot1.edit_permissions(event.chat_id, target_user.id, view_messages=True)
-        mention = f"<a href='tg://user?id={target_user.id}'>{escape_html(getattr(target_user, 'first_name', 'User'))}</a>"
+        
+        target_name = f"{getattr(target_user, 'first_name', 'User')} {getattr(target_user, 'last_name', '') or ''}".strip()
+        mention = f"<a href='tg://user?id={target_user.id}'>{escape_html(target_name)}</a>"
+        
+        gif_file = generate_mod_dragon_gif(target_name, 'kick')
+        gif_file.name = "kick_operation.gif"
+        
         kick_text = (
             f"🌌 <b>𝙆𝙄𝘾𝙆 𝙊𝙋𝙀𝙍𝘼𝙏𝙄𝙊𝙉</b>\n"
-            f" <b>Target:</b> {mention}\n"
+            f"💨 <b>Target:</b> {mention}\n"
             f"🆔 <b>User ID:</b> <code>{target_user.id}</code>\n"
             f"⚡ <b>Status:</b> <code>Removed / Kicked from Chat</code>"
         )
-        await event.respond(bq(kick_text), parse_mode='html')
+        await event.client.send_file(event.chat_id, gif_file, caption=bq(kick_text), parse_mode='html')
     except Exception as e: print(f"Kick Error: {e}")
-
-@bot1.on(events.CallbackQuery(pattern=r'^inline_unmute_(\d+)'))
-async def inline_unmute_callback(event):
-    if not await check_ban_rights(event.chat_id, event.sender_id):
-        return await event.answer("⚠️ You are not authorized to use this console!", alert=True)
-
-    target_id = int(event.pattern_match.group(1))
-    try:
-        await bot1.edit_permissions(event.chat_id, target_id, send_messages=True)
-        await muted_registry_col.delete_one({"chat_id": event.chat_id, "user_id": target_id})
-        try:
-            target_user = await bot1.get_entity(target_id)
-            name = escape_html(getattr(target_user, 'first_name', 'User'))
-        except: name = "User"
-            
-        mention = f"<a href='tg://user?id={target_id}'>{name}</a>"
-        updated_text = (
-            f"🌌 <b>𝙈𝙐𝙏𝙀 𝙎𝙔𝙎𝙏𝙀𝙈 (UPDATED)</b>\n"
-            f"🔊 {mention} has been <b>Unmuted</b> via administrative console.\n"
-            f"⚡ <b>Status:</b> <code>Restrictions Disintegrated</code>"
-        )
-        await event.edit(bq(updated_text), parse_mode='html', buttons=None) 
-    except Exception as e: await event.answer(f"Action Failed: {e}", alert=True)
-
 
 # ==========================================
 # 📥 1. PERMANENT DATABASE ADDER
@@ -1835,9 +2028,6 @@ async def trigger_dynamic_spawn(chat_id):
     except Exception as e:
         print(f"Spawn Error Tracker: {e}")
 
-# ==========================================
-# 💡 4. IDENTITY REVEAL ENGINE (/who)
-# ==========================================
 @bot1.on(events.NewMessage(pattern=r'^/who$'))
 async def who_reveal_handler(event):
     if event.is_private: return
@@ -1854,8 +2044,30 @@ async def who_reveal_handler(event):
     if not event.is_reply or event.reply_to_msg_id != spawn_data["spawn_msg_id"]:
         return await event.reply(f"⚠️ <b>{f('ပစ်မှတ်လွဲနေတယ်! ပေါ်လာတဲ့ ပိုစ့်ကို တိုက်ရိုက် Reply ပြန်ပေးပါ')}</b>", parse_mode='html')
         
-    reveal_text = f"🌟 {spawn_data['rarity']}\n🌐 Domain: <code>{spawn_data['category']}</code>\n\n<code>/catch {spawn_data['name']}</code>"
-    await event.reply(reveal_text, parse_mode='html')
+    try:
+        # 🐉 Cyber Dragon Who Revealer GIF ထုတ်လုပ်ခြင်း
+        # (စာသားထဲမှာ နာမည်ပေါ်မသွားစေရန် ယာယီအမည် 'Unknown Entity' ဟုသာ ပေးပို့ပြီး GIF ဆောက်ခိုင်းပါသည်)
+        gif_file = generate_mod_dragon_gif('Unknown Entity', 'who')
+        gif_file.name = "identity_reveal.gif"
+        
+        # မူရင်း ဖော်ထုတ်ပြသမည့် စာသားစနစ်
+        reveal_text = (
+            f"🌟 {spawn_data['rarity']}\n"
+            f"🌐 Domain: <code>{spawn_data['category']}</code>\n\n"
+            f"<code>/catch {spawn_data['name']}</code>"
+        )
+        
+        # စာသားသပ်သတ် Reply ပြန်မည့်အစား လှုပ်လှုပ်ရွရွ အထာကျသော GIF နှင့်အတူ တွဲဖက်ပို့ပေးခြင်း 🔥
+        await event.client.send_file(
+            event.chat_id, 
+            gif_file, 
+            caption=reveal_text, 
+            reply_to=event.id, 
+            parse_mode='html'
+        )
+        
+    except Exception as e:
+        print(f"Error in /who command: {e}")
 
 # ==========================================
 # 🎯 5. CLAIM ENGINE CORE (/catch) - WITH ATOMIC LOCKS & GUILD EXP
@@ -1925,14 +2137,19 @@ async def catch_handler(event):
                 else:
                     await guilds_col.update_one({"_id": user_guild["_id"]}, {"$inc": {"xp": 10}})
             
+            # 🐉 2.5️⃣ CYBER DRAGON CATCH GIF GENERATION (အောင်မြင်မှု အီဖက်ခ် ထုတ်လုပ်ခြင်း)
+            character_name = spawn_data['name']
+            gif_file = generate_mod_dragon_gif(character_name, 'catch')
+            gif_file.name = "catch_success.gif"
+            
             # 3️⃣ Active ဖြစ်နေသော Spawn ဒေတာများအား Memory ထဲမှ ဖယ်ရှားခြင်း
             del active_group_spawns[chat_id]
             if chat_id in spawn_locks: del spawn_locks[chat_id]
             
-            # Success Message (မူရင်းကုဒ်မှ Variable Name အမှားအား ဆရာကျကျ ပြင်ဆင်ပေးထားပါသည် 😎)
+            # Success Message
             success_msg = (
-                f"👤 <b>{f('Hunter')}:</b> {mention},U r nice Catcher🦦\n"
-                f"🃏 <b>{f('Character')}:</b> <code>{escape_html(spawn_data['name'])}</code>\n"
+                f"👤 <b>{f('Hunter')}:</b> {mention}, U r nice Catcher 🦦\n"
+                f"🃏 <b>{f('Character')}:</b> <code>{escape_html(character_name)}</code>\n"
                 f"🆔 <b>{f('Asset ID')}:</b> <code>{spawn_data['char_id']}</code>\n"
                 f"🌟 <b>{f('Rarity Class')}:</b> {spawn_data['rarity']}\n"
                 f"🪙 <b>{f('Bounty Added')}:</b> <code>+{spawn_data['value']} MMK</code>\n"
@@ -1943,13 +2160,21 @@ async def catch_handler(event):
             if guild_levelup_msg:
                 success_msg += guild_levelup_msg
                 
-            await send_safe_message(bot1, event.chat_id, success_msg, parse_mode='html', reply_to=event.id)
+            # စာသားသပ်သတ် ပို့မည့်အစား လှုပ်ရှားနေသော နဂါး GIF ဗီဒီယိုနှင့် ကတ်ပရှင်တွဲ၍ ပို့ပေးခြင်း 🔥
+            await bot1.send_file(
+                event.chat_id, 
+                gif_file, 
+                caption=success_msg, 
+                reply_to=event.id, 
+                parse_mode='html'
+            )
             
         except Exception as e:
             # Error တစ်ခုခုတက်လျှင် တခြားလူ ပြန်ဖမ်းလို့ရအောင် Claimed ကို False ပြန်ပြင်ပေးခြင်း
-            active_group_spawns[chat_id]["claimed"] = False
+            if chat_id in active_group_spawns:
+                active_group_spawns[chat_id]["claimed"] = False
             await event.reply(f"❌ <b>Catch Logic Fault:</b> <code>{e}</code>", parse_mode='html')
-
+                
 # ==========================================
 # 🎒 6. INVENTORY PAGINATION ENGINE (/fav & /hai)
 # ==========================================
@@ -2553,6 +2778,15 @@ async def trade_proposal_handler(event):
 # ==========================================
 # 🎰 15. CASINO SYSTEMS MATRIX (🎰 /slot & 🃏 /cardgame & More)
 # ==========================================
+import random
+import asyncio
+from html import escape as escape_html
+from collections import Counter
+from datetime import timedelta
+
+# ==========================================
+# ၁။ SLOT GAME HANDLER (RATE LIMIT FREE DETECTED)
+# ==========================================
 @bot1.on(events.NewMessage(pattern=r'^/slot\s+(\d+)$'))
 async def slot_game_handler(event):
     user_id = event.sender_id
@@ -2566,22 +2800,14 @@ async def slot_game_handler(event):
     await users_catcher_col.update_one({"user_id": user_id}, {"$inc": {"wallet_balance": -bet}})
     mention = await get_html_mention(event, user_id)
     
-    anim_msg = await event.reply(
-        f"🎰 {mention} <b>{f('SPINNING THE QUANTUM REELS')}... ⚡</b>\n\n<b>[ 🎰 | 🎰 | 🎰 | 🎰 | 🎰 | 🎰 | 🎰 ]</b>\n\n<i>Rerolling Matrix Clusters... ⏳</i>", parse_mode='html'
-    )
+    # Cyber Dragon Generator
+    gif_file = generate_mod_dragon_gif(getattr(event.sender, 'first_name', 'Player'), 'slot')
+    gif_file.name = "slot_spinning.gif"
+    
     symbols = ["​🐯", "​🦁", "​🐃", "​🦓", "🦀", "🐄", "🦅"]
-    await asyncio.sleep(0.6)
-    mid_syms = random.choices(symbols, k=7)
-    mid_str = " | ".join(mid_syms)
-    await bot1.edit_message(
-        event.chat_id, anim_msg.id, 
-        f"🎰 {mention} <b>{f('REELS ARE LOCKING IN')}... 🔥</b>\n\n<b>[ {mid_str} ]</b>\n\n<i>Decelerating Matrix Engine... ⚡</i>", parse_mode='html'
-    )
-    await asyncio.sleep(0.9)
     res_syms = random.choices(symbols, k=7)
     res_str = " | ".join(res_syms)
     
-    from collections import Counter
     counts = Counter(res_syms)
     most_common_sym, max_count = counts.most_common(1)[0]
     win_amount = 0
@@ -2612,8 +2838,12 @@ async def slot_game_handler(event):
         f"🎰 <b>{f('BOD အပေးကြမ်း 7ခုတန်း စလော့')}</b>\n⚡ PARADOX Family: BOD ⚡\n"
         f"👤 <b>Player:</b> {mention}\n💵 <b>Bet Amount:</b> <code>{bet:,} MMK</code>\n\n🎰 <b>[ {res_str} ]</b>\n\n{status_text}"
     )
-    await bot1.edit_message(event.chat_id, anim_msg.id, final_text, parse_mode='html')
+    # Edit အစား GIF ဖြင့် တိုက်ရိုက်ပို့ခြင်းကြောင့် မြန်ဆန်ပြီး အန္တရာယ်ကင်းပါသည် 🔥
+    await event.client.send_file(event.chat_id, gif_file, caption=final_text, reply_to=event.id, parse_mode='html')
 
+# ==========================================
+# ၂။ MULTIPLAYER CARD GAME SUITE
+# ==========================================
 @bot1.on(events.NewMessage(pattern=r'^/cardgame\s+(\d+)$'))
 async def create_cardgame_lobby(event):
     if event.is_private: return
@@ -2639,7 +2869,7 @@ async def create_cardgame_lobby(event):
     lobby_text = (
         f"🃏 <b>CARD နံပါတ်ကြီးသူနိုင်မယ့် - MULTIPLAYER CASINO</b> 🃏\n⚡PARADOX Family:BOD⚡\n"
         f"👑 <b>Host:</b> {host_mention}\n💵 <b>Bet Stake:</b> <code>{bet} MMK</code>\n\n👥 <b>Joined Players (1):</b>\n 1. {host_mention} (Host)\n\n"
-        f"📌 <i>အနည်းဆုံး ၂ ယောက်ပြည့်လျှင် Host က <code>/startgame</code> (ထိလိုက်ရုံ​နဲ့COPYယူနိုင်) ဟုရိုက်၍ စတင်နိုင်ပါသည်။</i>"
+        f"📌 <i>အနည်းဆုံး ၂ ယောက်ပြည့်လျှင် Host က <code>/startgame</code> ဟုရိုက်၍ စတင်နိုင်ပါသည်။</i>"
     )
     buttons = [[Button.inline("🃏ပါမယ့်သူဆိုနှိပ်လိုက်", data=f"cardjoin_{chat_id}")]]
     msg = await event.reply(lobby_text, parse_mode='html', buttons=buttons)
@@ -2670,6 +2900,9 @@ async def start_cardgame_handler(event):
     split_prize = pool // len(winners)
     for w_id in winners: await users_catcher_col.update_one({"user_id": w_id}, {"$inc": {"wallet_balance": split_prize}})
         
+    gif_file = generate_mod_dragon_gif("Casino Matrix", 'cardgame')
+    gif_file.name = "card_showdown.gif"
+
     result_text = f"🃏 <b>HIGH CARD CASINO RESULTS / ဖဲချပ်ဆွဲပွဲ ရလဒ်</b> 🃏\n💰 <b>Total Prize Pool:</b> <code>{pool} MMK</code>\n⚡ ━━━━━━━━━━━━━━━━━━━━ ⚡\n\n"
     for pid, data in results.items():
         p_mention = f"<a href='tg://user?id={pid}'><b>{escape_html(data['name'])}</b></a>"
@@ -2682,7 +2915,7 @@ async def start_cardgame_handler(event):
         result_text += f"🎉 <b>{winner_mention} ကံထူးပြီး စုစုပေါင်းဆုကြေး <code>{pool} MMK</code> အားလုံးကို သိမ်းပိုက်သွားပါပြီ!</b>"
         
     del active_card_games[chat_id]
-    await event.respond(result_text, parse_mode='html')
+    await event.client.send_file(event.chat_id, gif_file, caption=result_text, parse_mode='html')
 
 @bot1.on(events.NewMessage(pattern=r'^/cancelgame(?:@\w+)?$'))
 async def cancel_cardgame_handler(event):
@@ -2701,6 +2934,9 @@ async def cancel_cardgame_handler(event):
         f"<blockquote><b>Refund Successful</b>! ကစားသမားများထံ လောင်းကြေးငွေ <code>{bet_amount} MMK</code> စီကို ပြန်လည် ထည့်သွင်းပေးပြီးပါပြီ။ ✨🤝</blockquote>", parse_mode='html'
     )
 
+# ==========================================
+# ၃။ COIN FLIP HANDLER
+# ==========================================
 @bot1.on(events.NewMessage(pattern=r'^/flip\s+(ခေါင်း|ပန်း)\s+(\d+)$'))
 async def coin_flip_handler(event):
     user_id = event.sender_id
@@ -2710,18 +2946,24 @@ async def coin_flip_handler(event):
     user_data = await users_catcher_col.find_one({"user_id": user_id})
     if not user_data or user_data.get("wallet_balance", 0) < bet_amount: return await event.reply("❌ <b>လောင်းကြေးမလောက်ပါဘူး Boss!</b>", parse_mode='html')
     
-    animation_msg = await event.reply("🪙 <b>ဒင်္ဂါးပြားကို လေထဲမြှောက်လိုက်ပါပြီ...</b>\n[ 🔄 လည်နေသည် ]", parse_mode='html')
-    await asyncio.sleep(3)
+    gif_file = generate_mod_dragon_gif(choice, 'flip')
+    gif_file.name = "coin_flip.gif"
     
     result = random.choice(["ခေါင်း", "ပန်း"])
     mention = await get_html_mention(event, user_id)
+    
     if choice == result:
         await users_catcher_col.update_one({"user_id": user_id}, {"$inc": {"wallet_balance": bet_amount}})
-        await bot1.edit_message(event.chat_id, animation_msg.id, f"🪙 {mention} <b>{f('COIN FLIP SUCCESS')}!!</b>\n✨ ရလဒ်က [ <b>{result}</b> ] ဖြစ်ပါတယ်!\n🎉 Boss မှန်သွားလို့ ပွဲနိုင်ပါတယ်။ <code>+{bet_amount} MMK</code>", parse_mode='html')
+        caption_text = f"🪙 {mention} <b>{f('COIN FLIP SUCCESS')}!!</b>\n✨ ရလဒ်က [ <b>{result}</b> ] ဖြစ်ပါတယ်!\n🎉 Boss မှန်သွားလို့ ပွဲနိုင်ပါတယ်။ <code>+{bet_amount} MMK</code>"
     else:
         await users_catcher_col.update_one({"user_id": user_id}, {"$inc": {"wallet_balance": -bet_amount}})
-        await bot1.edit_message(event.chat_id, animation_msg.id, f"🪙 {mention} <b>{f('COIN FLIP FAILED')}..</b>\n💨 ရလဒ်က [ <b>{result}</b> ] ဖြစ်ပါတယ်!\n💸 မှားသွားတဲ့အတွက် လောင်းကြေးရှုံးသွားပါပြီ။ <code>-{bet_amount} MMK</code>", parse_mode='html')
+        caption_text = f"🪙 {mention} <b>{f('COIN FLIP FAILED')}..</b>\n💨 ရလဒ်က [ <b>{result}</b> ] ဖြစ်ပါတယ်!\n💸 မှားသွားတဲ့အတွက် လောင်းကြေးရှုံးသွားပါပြီ။ <code>-{bet_amount} MMK</code>"
+        
+    await event.client.send_file(event.chat_id, gif_file, caption=caption_text, reply_to=event.id, parse_mode='html')
 
+# ==========================================
+# ၄။ DICE HANDLER
+# ==========================================
 @bot1.on(events.NewMessage(pattern=r'^/dice\s+(\d+)$'))
 async def dice_game_handler(event):
     user_id = event.sender_id
@@ -2731,17 +2973,21 @@ async def dice_game_handler(event):
     user_data = await users_catcher_col.find_one({"user_id": user_id})
     if not user_data or user_data.get("wallet_balance", 0) < bet_amount: return await event.reply("❌ <b>လောင်းကြေးမလောက်ပါဘူး Boss!</b>", parse_mode='html')
 
+    # Telegram Animation အစစ်ကို ထိန်းသိမ်းထားပါသည်
     dice_msg = await bot1.send_message(chat_id, file=types.InputMediaDice(emoticon="🎲"))
     await asyncio.sleep(2)
     dice_value = dice_msg.media.value
     
     if dice_value >= 4:  
         await users_catcher_col.update_one({"user_id": user_id}, {"$inc": {"wallet_balance": bet_amount}})
-        await event.reply(f"🎉 <b>အမှတ် {dice_value} ကျလို့ နိုင်သွားပါပြီ!</b>\n🪙 Bounty Added: <code>+{bet_amount} MMK</code>", parse_mode='html')
+        await event.reply(f"🎉 <b>{f('MATRIX WINNER')}! အမှတ် {dice_value} ကျလို့ နိုင်သွားပါပြီ!</b>\n🪙 Bounty Added: <code>+{bet_amount} MMK</code>", parse_mode='html')
     else: 
         await users_catcher_col.update_one({"user_id": user_id}, {"$inc": {"wallet_balance": -bet_amount}})
-        await event.reply(f"💸 <b>အမှတ် {dice_value} ပဲကျလို့ ရှုံးသွားပါပြီဗျာ!</b>\n🪙 Balance Deducted: <code>-{bet_amount} MMK</code>", parse_mode='html')
+        await event.reply(f"💸 <b>{f('MATRIX LOSE')}! အမှတ် {dice_value} ပဲကျလို့ ရှုံးသွားပါပြီဗျာ!</b>\n🪙 Balance Deducted: <code>-{bet_amount} MMK</code>", parse_mode='html')
 
+# ==========================================
+# ၅။ HI-LO INTERACTIVE HANDLER
+# ==========================================
 @bot1.on(events.NewMessage(pattern=r'^/hilo\s+(\d+)$'))
 async def hilo_game_handler(event):
     user_id = event.sender_id
@@ -2767,12 +3013,10 @@ async def hilo_game_handler(event):
     )
 
 # ==========================================
-# 🔥 AI FULL POWER OPTIMIZATION: 12+ EXTRA AI FEATURES & COMMANDS MATRIX
+# ၆။ DAILY BOUNTY COOLDOWN SYSTEM
 # ==========================================
-
 @bot1.on(events.NewMessage(pattern=r'^/daily(?:@\w+)?$'))
 async def daily_bounty_handler(event):
-    """[CMD 3] Cooldown Engine ပါဝင်သော နေ့စဉ် Rewards စနစ် (Dynamic Streak Multiplier)"""
     user_id = event.sender_id
     mention = await get_html_mention(event, user_id)
     await ensure_user_registered(user_id, mention)
@@ -2790,27 +3034,40 @@ async def daily_bounty_handler(event):
         {"user_id": user_id},
         {"$inc": {"wallet_balance": bonus}, "$set": {"daily_cooldown": current_time, "fullname": mention}}
     )
-    await event.reply(f"🎁 {mention} <b>{f('နေ့စဉ်ထောက်ပံ့ကြေး')} <code>+{bonus} MMK</code> {f('ကို သင့် Vault ထဲသို့ ထည့်သွင်းပေးလိုက်ပါပြီ Boss!')}</b>", parse_mode='html')
+    
+    gif_file = generate_mod_dragon_gif(getattr(event.sender, 'first_name', 'Hunter'), 'daily')
+    gif_file.name = "daily_bounty.gif"
+    
+    success_text = f"🎁 {mention} <b>{f('နေ့စဉ်ထောက်ပံ့ကြေး')} <code>+{bonus} MMK</code> {f('ကို သင့် Vault ထဲသို့ ထည့်သွင်းပေးလိုက်ပါပြီ Boss!')}</b>"
+    await event.client.send_file(event.chat_id, gif_file, caption=success_text, reply_to=event.id, parse_mode='html')
 
+# ==========================================
+# ၇။ SYSTEM RICHEST LEADERBOARD
+# ==========================================
 @bot1.on(events.NewMessage(pattern=r'^/richest(?:@\w+)?$'))
 async def system_richest_leaderboard(event):
-    """[CMD 4] BODကာစီနိုလောကအတွင်း ငွေအများဆုံး ပိုင်ဆိုင်ထားသော သူဌေး 10 ဦး စာရင်း"""
     cursor = users_catcher_col.find({"wallet_balance": {"$gt": 0}}).sort("wallet_balance", -1).limit(10)
     richest_users = await cursor.to_list(length=10)
     
     if not richest_users: return await event.reply(f"🏆 <b>{f('Leaderboard matrix data clear ဖြစ်နေပါတယ် Bro!')}</b>", parse_mode='html')
         
+    gif_file = generate_mod_dragon_gif("Global Grid", 'richest')
+    gif_file.name = "leaderboard.gif"
+
     msg = f"💰 <b>{f('BODကာစီနိုနဲ့Cardဖမ်းလောကရဲ့ - TOP 10 RICHEST players')}</b>\n⚡ ━━━━━⚡\n"
     for i, u in enumerate(richest_users):
         bal = u.get("wallet_balance", 0)
         user_display = u.get('fullname') or f"User {u['user_id']}"
         msg += f"<b>{i+1}.</b> {user_display} — <code>{bal:,} MMK</code> 🪙\n"
     msg += f"\nFamily Cluster: <b>Brotherhood of Dexter</b>"
-    await event.reply(msg, parse_mode='html')
+    
+    await event.client.send_file(event.chat_id, gif_file, caption=msg, parse_mode='html')
 
+# ==========================================
+# ၈။ CARD SCRAP MELT ENGINE
+# ==========================================
 @bot1.on(events.NewMessage(pattern=r'^/scrap\s+([a-zA-Z0-9_]+)$'))
 async def scrap_card_handler(event):
-    """[CMD 5] မလိုချင်သော ပိုနေသည့်ကတ်များအား ဖျက်စီးပြီး ငွေသားအဖြစ် ပြန်လည်လဲလှယ်ခြင်း (Melt Engine)"""
     user_id = event.sender_id
     char_id = event.pattern_match.group(1).upper()
     mention = await get_html_mention(event, user_id)
@@ -2824,7 +3081,6 @@ async def scrap_card_handler(event):
     char_data = await characters_base_col.find_one({"char_id": char_id})
     if not char_data: return await event.reply("❌ <b>{f('Character ID database ထဲမှာ ရှာမတွေ့ပါ!')}</b>", parse_mode='html')
     
-    # ရောင်းတန်ဖိုး၏ 50% အား သတ်မှတ်ချက်အတိုင်း ပြန်အမ်းပေးခြင်း
     melt_value = int(char_data.get("currency_value", 100) * 0.5)
     
     user_harem.remove(char_item)
@@ -2832,11 +3088,18 @@ async def scrap_card_handler(event):
         {"user_id": user_id},
         {"$set": {"harem": user_harem}, "$inc": {"wallet_balance": melt_value}}
     )
-    await event.reply(f"♻️ {mention} <b>{f('မှ ကတ်ပြား')} <code>{char_data['name']}</code> {f('အား ဖျက်စီးပြီး စနစ်ထံ ရောင်းချခဲ့သည်။')} (+<code>{melt_value} MMK</code>)</b>", parse_mode='html')
+    
+    gif_file = generate_mod_dragon_gif(char_id, 'scrap')
+    gif_file.name = "melt_engine.gif"
+    
+    response = f"♻️ {mention} <b>မှ ကတ်ပြား</b> <code>{char_data['name']}</code> <b>{f('အား ဖျက်စီးပြီး စနစ်ထံ ရောင်းချခဲ့သည်။')} (+<code>{melt_value} MMK</code>)</b>"
+    await event.client.send_file(event.chat_id, gif_file, caption=response, reply_to=event.id, parse_mode='html')
 
+# ==========================================
+# ၉။ HIGH RISK GAMBLE ENGINE (DOUBLE OR NOTHING)
+# ==========================================
 @bot1.on(events.NewMessage(pattern=r'^/gamble\s+(\d+)$'))
 async def high_risk_gamble_handler(event):
-    """[CMD 6] Double or Nothing စနစ်သုံး ရင်ခုန်စရာ အမြန်လောင်းကစားနည်း"""
     user_id = event.sender_id
     bet = int(event.pattern_match.group(1))
     mention = await get_html_mention(event, user_id)
@@ -2846,13 +3109,18 @@ async def high_risk_gamble_handler(event):
     balance = user_doc.get("wallet_balance", 0) if user_doc else 0
     if balance < bet: return await event.reply(f"❌ <b>သင့်ထံတွင် ငွေမလုံလောက်ပါ! လက်ကျန်: {balance} MMK</b>", parse_mode='html')
     
+    gif_file = generate_mod_dragon_gif(getattr(event.sender, 'first_name', 'Gambler'), 'gamble')
+    gif_file.name = "gamble_risk.gif"
+    
     if random.choice([True, False]):
         await users_catcher_col.update_one({"user_id": user_id}, {"$inc": {"wallet_balance": bet}})
-        await event.reply(f"🔥 {mention} <b>{f('RISK VENTURE SUCCESS')}! အနိုင်ရရှိသဖြင့် လောင်းကြေးနှစ်ဆ ရရှိသည်။ (+<code>{bet} MMK</code>)</b>", parse_mode='html')
+        response = f"🔥 {mention} <b>{f('RISK VENTURE SUCCESS')}! အနိုင်ရရှိသဖြင့် လောင်းကြေးနှစ်ဆ ရရှိသည်။ (+<code>{bet} MMK</code>)</b>"
     else:
         await users_catcher_col.update_one({"user_id": user_id}, {"$inc": {"wallet_balance": -bet}})
-        await event.reply(f"💸 {mention} <b>{f('RISK VENTURE FAILED')}! ကံမကောင်းစွာဖြင့် လောင်းကြေးအားလုံး ဆုံးရှုံးသွားသည်။ (-<code>{bet} MMK</code>)</b>", parse_mode='html')
-
+        response = f"💸 {mention} <b>{f('RISK VENTURE FAILED')}! ကံမကောင်းစွာဖြင့် လောင်းကြေးအားလုံး ဆုံးရှုံးသွားသည်။ (-<code>{bet} MMK</code>)</b>"
+        
+    await event.client.send_file(event.chat_id, gif_file, caption=response, reply_to=event.id, parse_mode='html')
+        
 @bot1.on(events.NewMessage(pattern=r'^/pay\s+(\d+)$'))
 async def peer_to_peer_payment(event):
     """[CMD 7] Player အချင်းချင်း Reply ပြန်ရုံဖြင့် လုံခြုံစွာ ငွေလွှဲနိုင်သော Banking စနစ်"""
