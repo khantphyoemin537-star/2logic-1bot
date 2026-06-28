@@ -21,6 +21,7 @@ from telethon.errors import FloodWaitError
 from telethon import TelegramClient, events, types, Button, errors
 from collections import defaultdict
 from telethon.tl.types import ChannelParticipantsAdmins
+from telethon.extensions import html
 # ==========================================
 # ⚡ PREMIUM MATHEMATICAL BOLD SERIF FONT CONVERTER
 # ==========================================
@@ -644,34 +645,6 @@ async def direct_help_handler(event):
     )
     await event.respond(bq(help_text), parse_mode='html', buttons=[[Button.inline("⚙️ Navigation Home", data="nav_back_home")]])
 
-# ==========================================
-# 💎 PREMIUM STATUS TERMINAL (/pre)
-# ==========================================
-@bot1.on(events.NewMessage(pattern=r'^/pre(?:@\w+)?$'))
-async def premium_status_handler(event):
-    # ၁။ ဘရိုရဲ့ ကုဒ်ထဲက Cooldown စနစ်ကို သုံးပြီး Command Spam တာကို တားဆီးခြင်း
-    is_cd, rem = await is_on_cooldown(event.sender_id, "pre_command", 3)
-    if is_cd: 
-        return
-        
-    sender = await event.get_sender()
-    username = f"@{sender.username}" if getattr(sender, 'username', None) else f"User {event.sender_id}"
-    
-    # ၂။ Premium Custom Emojis များကို <tg-emoji id='...'> Tag ဖြင့် စမတ်ကျကျ တည်ဆောက်ခြင်း
-    pre_text = (
-        f"<b><tg-emoji id='6226493198013830325'>👑</tg-emoji> [ {f('BOD PREMIUM SYSTEM CORE')} ] <tg-emoji id='6226493198013830325'>👑</tg-emoji></b>\n"
-        f"🛸 ───────────────────\n\n"
-        f"👋 <b>ဟိုင်း ဘရို {username}၊ လက်ရှိ စနစ်ရဲ့ Premium အခြေအနေများ -</b>\n\n"
-        f"<b><tg-emoji id='5352727259511723136'>💓</tg-emoji> System Pulse:</b> <code>{f('ONLINE & STABLE')}</code>\n"
-        f"<b><tg-emoji id='6026367225466720832'>⚡</tg-emoji> Server Latency:</b> <code>{f('0.01s Fast Processing')}</code>\n"
-        f"<b><tg-emoji id='6025316809205446203'>🎉</tg-emoji> Premium Perk:</b> <code>{f('Gacha Luck Boost Active')}</code>\n"
-        f"<b><tg-emoji id='5253539825630843975'>💀</tg-emoji> Firewall Status:</b> <code>{f('Secured via Matrix-9')}</code>\n\n"
-        f"🛸 ───────────────────\n"
-        f"✨ <i>Premium Custom Emojis Powered by Telethon HTML Engine.</i>"
-    )
-    
-    # ⚠️ အရေးကြီးချက်: parse_mode='html' ကို မဖြစ်မနေ ထည့်ပေးရပါမည်
-    await event.respond(pre_text, parse_mode='html')
 
 # ====================================================================================
 # 🔢 ADVANCED SYSTEM LOGIC 5: SECURE ARITHMETIC CALCULATOR
@@ -1030,25 +1003,110 @@ async def id_handler(event):
     except Exception as e:
         print(f"Error in /id command: {e}")
 
-@bot1.on(events.NewMessage(pattern=r'^/mute(?:@\w+)?(?:\s+(.*))?'))
-async def mute_user(event):
-    if not await check_ban_rights(event.chat_id, event.sender_id): return
-    target_user = await get_target_user(event, event.pattern_match.group(1))
-    if not target_user: return
+# 🤫 PREMIUM EMOJI MUTE TEMPLATE SETTER
+# ==========================================
+@bot1.on(events.NewMessage(pattern=r'^/setmute$'))
+async def set_mute_template_handler(event):
+    # Admin သို့မဟုတ် Owner ဖြစ်မဖြစ် စစ်ဆေးခြင်း
+    if not await is_allowed(event.sender_id) and not await check_admin(event.chat_id, event.sender_id):
+        await event.reply("❌ သင်သည် ဤစနစ်ကို စီမံခန့်ခွဲခွင့် မရှိပါ။")
+        return
+
+    # Message ကို Reply ပြန်ပြီး ရိုက်ထားခြင်း ဟုတ်မဟုတ် စစ်ဆေးခြင်း
+    if not event.is_reply:
+        await event.reply("⚠️ ကျေးဇူးပြု၍ Premium Emoji များပါဝင်ပြီး <code>{fullname}</code> Placeholder ပါဝင်သော Template စာသားကို Reply ပြန်ပြီး /setmute ဟု ရိုက်ပေးပါ။")
+        return
+
+    reply_msg = await event.get_reply_message()
+    
+    try:
+        # စာသားနှင့် Premium Emoji များကို HTML Format အဖြစ် ပြောင်းလဲပစ်ခြင်း
+        # (Premium Emoji များကို <tg-emoji id="..."> Tag များအဖြစ် အလိုအလျောက် ပြောင်းပေးမည်)
+        template_html = html.unparse(reply_msg.text, reply_msg.entities)
+        
+        if "{fullname}" not in template_html:
+            await event.reply("⚠️ သင့် Template စာသားထဲမှာ <code>{fullname}</code> ဆိုတဲ့ စာလုံး မပါဝင်သေးပါဘူး။ Target User နေရာမှာ အစားထိုးဖို့ ၎င်းစာလုံး မဖြစ်မနေ ပါရပါမယ်။")
+            return
+
+        # သင့်ကုဒ်ထဲက system_col Collection ထဲမှာ သိမ်းဆည်းခြင်း
+        await system_col.update_one(
+            {"key": "template_mute"},
+            {"$set": {"html": template_html}},
+            upsert=True
+        )
+        await event.reply("✅ <b>Mute Template ကို အောင်မြင်စွာ သိမ်းဆည်းလိုက်ပါပြီ။</b>\nယခုမှစ၍ /mute သုံးသည့်အခါ ဤ Premium Emoji စတိုင်အတိုင်း ပြန်စာ ပို့ပေးပါမည်။", parse_mode='html')
+    except Exception as e:
+        await event.reply(f"❌ Template သိမ်းဆည်းစဉ် Error တက်သွားပါသည်: {str(e)}")
+# ==========================================
+# 🚫 DYNAMIC PREMIUM MUTE MODERATION ENGINE
+# ==========================================
+@bot1.on(events.NewMessage(pattern=r'^/mute(?:@\w+)?(?:\s+(.+))?'))
+async def dynamic_mute_handler(event):
+    # Admin Rights ရှိမရှိ စစ်ဆေးခြင်း
+    if not await check_admin(event.chat_id, event.sender_id):
+        return # Admin မဟုတ်ရင် ငြိမ်နေမည်
+
+    target_id = None
+    
+    # ၁။ Reply ပြန်ထားလျှင် Target ID ယူခြင်း
+    if event.is_reply:
+        reply_msg = await event.get_reply_message()
+        target_id = reply_msg.sender_id
+    # ၂။ Username သို့မဟုတ် ID ရိုက်ထည့်ထားလျှင် ရှာဖွေခြင်း
+    else:
+        match = event.pattern_match.group(1)
+        if match:
+            match = match.strip()
+            if match.isdigit():
+                target_id = int(match)
+            else:
+                try:
+                    user_entity = await event.client.get_entity(match)
+                    target_id = user_entity.id
+                except Exception:
+                    await event.reply("⚠️ ၎င်း User အား ရှာမတွေ့ပါ။ Username သို့မဟုတ် ID မှန်ကန်စွာ ရိုက်ပါ။")
+                    return
+        else:
+            await event.reply("⚠️ ကျေးဇူးပြု၍ Mute မည့်သူ၏ စာကို Reply ပြန်ပါ သို့မဟုတ် ID/Username ရိုက်ထည့်ပါ။\nဥပမာ - <code>/mute @username</code>")
+            return
+
+    if not target_id:
+        await event.reply("❌ Target User ID ကို ရှာမတွေ့ပါ။")
+        return
+
+    # Bot ကိုယ်တိုင် သို့မဟုတ် Owner ကို Mute မိခြင်းမှ ကာကွယ်ရန်
+    bot_me = await event.client.get_me()
+    if target_id == bot_me.id or target_id == OWNER_ID:
+        await event.reply("❌ Bot သို့မဟုတ် Owner ကို စကားပိတ် (Mute) လို့မရနိုင်ပါ။")
+        return
 
     try:
-        await bot1.edit_permissions(event.chat_id, target_user.id, send_messages=False)
-        await register_temporary_mute(event.chat_id, target_user.id, duration_minutes=60)
-        mention = f"<a href='tg://user?id={target_user.id}'>{escape_html(getattr(target_user, 'first_name', 'User'))}</a>"
-        mute_text = (
-            f"🌌 <b>𝙈𝙐𝙏𝙀 𝙊𝙋𝙀𝙍𝘼𝙏𝙄𝙊𝙉</b>\n"
-            f"🔇 <b>Target:</b> {mention}\n"
-            f"🆔 <b>User ID:</b> <code>{target_user.id}</code>\n"
-            f"⚡ <b>Status:</b> <code>Muted (မြုပြီး)</code>"
+        # သင့်ကုဒ်ထဲက လက်ရှိ Mute စနစ်အတိုင်း Database ထဲမှတ်ပြီး ဝင်ခွင့်ပိတ်ခြင်း
+        await register_temporary_mute(event.chat_id, target_id, duration_minutes=60)
+        await event.client.edit_permissions(
+            event.chat_id, target_id, 
+            send_messages=False, send_media=False, send_stickers=False, send_gifs=False
         )
-        inline_buttons = [[Button.inline("Unmute? 🔊", data=f"inline_unmute_{target_user.id}")]]
-        await event.respond(bq(mute_text), parse_mode='html', buttons=inline_buttons)
-    except Exception as e: print(f"Mute Error: {e}")
+        
+        # သင့်ကုဒ်ထဲက Function ကိုသုံးပြီး Target ရဲ့ HTML Mention Link ဖန်တီးခြင်း
+        target_mention = await get_html_mention(event, target_id)
+        
+        # Database ထဲ သိမ်းထားတဲ့ Premium Emoji Template ကို လှမ်းယူခြင်း
+        template_doc = await system_col.find_one({"key": "template_mute"})
+        
+        if template_doc and "html" in template_doc:
+            template_html = template_doc["html"]
+            # {fullname} စာသားနေရာတွင် Mute ခံရသူ၏ နာမည်လင့်ခ်ကို အစားထိုးပစ်ခြင်း 🔥
+            final_message = template_html.replace("{fullname}", target_mention)
+            
+            # HTML parse_mode ဖြင့် ပို့လိုက်လျှင် Premium Emoji များ အသက်ဝင်သွားမည်။
+            await event.respond(final_message, parse_mode='html')
+        else:
+            # တကယ်လို့ /setmute မလုပ်ရသေးရင် ပြမယ့် Fallback စာသား
+            await event.respond(f"🤐 {target_mention} အား စကားပြောခွင့် (၁ နာရီ) ပိတ်လိုက်ပါပြီ။", parse_mode='html')
+
+    except Exception as e:
+        await event.reply(f"❌ Mute ရာတွင် Error တက်သွားပါသည်: {str(e)}")
 
 @bot1.on(events.NewMessage(pattern=r'^/unmute(?:@\w+)?(?:\s+(.*))?'))
 async def unmute_user(event):
