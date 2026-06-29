@@ -505,46 +505,6 @@ def generate_clean_calc_gif(calc_text):
     imageio.mimsave(gif_buffer, frames_data, format='GIF', fps=1)
     gif_buffer.seek(0)
     return gif_buffer
-def generate_clean_info_gif(info_text):
-    font_path = "matrix_font.ttf"
-    if not os.path.exists(font_path):
-        try:
-            font_url = "https://github.com/google/fonts/raw/main/ofl/courierprime/CourierPrime-Bold.ttf"
-            urllib.request.urlretrieve(font_url, font_path)
-        except:
-            font_path = None
-
-    try:
-        if font_path:
-            # စာကြောင်းရေ များတဲ့အတွက် အချိုးကျအောင် Size ကို 22 ထားပါတယ်
-            font = ImageFont.truetype(font_path, 22) 
-        else:
-            font = ImageFont.load_default(size=22)
-    except:
-        font = ImageFont.load_default()
-
-    # စာသားတွေ အပေါ်အောက် မပြတ်စေရန် အမြင့်ကို 360 အထိ တိုးမြှင့်ထားပါတယ်
-    img_w, img_h = 600, 360
-    img = Image.new('RGB', (img_w, img_h), color=(15, 15, 15))
-    d = ImageDraw.Draw(img)
-
-    # စာသားတစ်ခုလုံးရဲ့ အကျယ်အဝန်းကို တွက်ချက်ခြင်း
-    left, top, right, bottom = d.textbbox((0, 0), info_text, font=font)
-    text_w = right - left
-    text_h = bottom - top
-
-    # အလယ်ဗဟိုနေရာ ရှာဖွေခြင်း
-    x = (img_w - text_w) / 2
-    y = (img_h - text_h) / 2
-
-    # align="left" က စာသားတွေကို Terminal ပုံစံ ဘယ်ဘက်ညီညာစေပြီး (x,y) က တစ်တုံးလုံးကို အလယ်ပို့ပေးပါတယ်
-    d.text((x, y), info_text, fill=(0, 255, 65), font=font, align="left", spacing=8)
-    
-    frames_data = [np.array(img)]
-    gif_buffer = io.BytesIO()
-    imageio.mimsave(gif_buffer, frames_data, format='GIF', fps=1)
-    gif_buffer.seek(0)
-    return gif_buffer
 
 def generate_clean_event_gif(event_text, img_h=280):
     font_path = "matrix_font.ttf"
@@ -582,8 +542,7 @@ def generate_clean_event_gif(event_text, img_h=280):
     imageio.mimsave(gif_buffer, frames_data, format='GIF', fps=1)
     gif_buffer.seek(0)
     return gif_buffer
-
-def generate_clean_id_gif(id_text):
+def generate_clean_matrix_gif(text_to_draw):
     font_path = "matrix_font.ttf"
     if not os.path.exists(font_path):
         try:
@@ -600,22 +559,19 @@ def generate_clean_id_gif(id_text):
     except:
         font = ImageFont.load_default()
 
-    # ID အချက်အလက် စာကြောင်းရေနှင့် ကွက်တိဖြစ်အောင် အမြင့်ကို ၃၈၀ ထားပေးထားပါတယ်
     img_w, img_h = 600, 380
     img = Image.new('RGB', (img_w, img_h), color=(15, 15, 15))
     d = ImageDraw.Draw(img)
 
-    # စာသားတစ်ခုလုံး၏ အကျယ်အဝန်းကို တွက်ချက်ခြင်း
-    left, top, right, bottom = d.textbbox((0, 0), id_text, font=font)
+    left, top, right, bottom = d.textbbox((0, 0), text_to_draw, font=font)
     text_w = right - left
     text_h = bottom - top
 
-    # အလယ်ဗဟိုနေရာ ရှာဖွေခြင်း
     x = (img_w - text_w) / 2
     y = (img_h - text_h) / 2
 
-    # ဘရို သတ်မှတ်ထားသည့် နီယွန်စာလုံးစိမ်းအရောင်ဖြင့် ဆွဲခြင်း
-    d.text((x, y), id_text, fill=(0, 255, 65), font=font, align="left", spacing=8)
+    # Matrix နီယွန်စာလုံးစိမ်းဖြင့် ပုံထဲတွင်ဆွဲခြင်း
+    d.text((x, y), text_to_draw, fill=(0, 255, 65), font=font, align="left", spacing=8)
     
     frames_data = [np.array(img)]
     gif_buffer = io.BytesIO()
@@ -1148,47 +1104,47 @@ async def info_handler(event):
                 target_user = await event.client.get_entity(arg)
                 target_id = target_user.id
             except Exception:
-                await event.reply("⚠️ User not found! Cannot fetch information.")
-                return
+                return await event.reply("⚠️ User not found!")
         else:
             target_id = event.sender_id
             target_user = await event.client.get_entity(target_id)
 
         if target_user:
-            # Database ထဲမှ အကောင့်ဒေတာကို ရှာဖွေခြင်း
-            db_user = await db.users_catcher_data.find_one({"user_id": target_id})
-            balance = db_user.get("balance", 0) if db_user else "Not Registered"
-            
             username = f"@{target_user.username}" if target_user.username else "None"
-            premium_status = "Yes" if getattr(target_user, 'premium', False) else "No"
             full_name = f"{target_user.first_name or ''} {target_user.last_name or ''}".strip()
             
-            # GIF ထဲမှာ Font ကြောင့် Icon တွေမစောင်းသွားအောင် Text Character များဖြင့် လှပစွာ ပုံဖော်ထားပါတယ်
-            gif_display_text = (
-                f"       USER PROFILE INFO\n"
-                f"==============================\n"
-                f" NAME    : {full_name}\n"
-                f" ID      : {target_id}\n"
-                f" USERNAME: {username}\n"
-                f" PREMIUM : {premium_status}\n"
-                f" BALANCE : {balance}\n"
-                f"==============================\n"
-                f"    [ PRODUCED BY MORGAN ]"
+            # GIF ပုံထဲမှာ ပေါ်မယ့် အချက်အလက်စာသား
+            matrix_display = (
+                f"✨ TARGET PROFILE MATRIX ✨\n"
+                f"🦖 Name: {full_name}\n"
+                f"🍄 User ID: {target_id}\n"
+                f"🦦 User: {username}\n"
+                f"     [ DATA RESOLVED ]"
+            )
+            gif_file = generate_clean_matrix_gif(matrix_display)
+            gif_file.name = "user_info.gif"
+            
+            # အောက်က ကတ်ပရှင်စာသား (တို့ပြီး Copy ယူနိုင်ရန် <code> သုံးထားသည်)
+            info_caption = (
+                f"✨ <b>USER INFO MATRIX</b> ✨\n"
+                f"───────────\n"
+                f"🦖 <b>Full Name:</b> {full_name}\n"
+                f"🍄 <b>User ID:</b> <code>{target_id}</code>\n"
+                f"🦦 <b>Username:</b> {username}\n"
+                f"🌏 <b>Chat ID:</b> <code>{event.chat_id}</code>\n"
+                f"───────────\n"
+                f"<i>Click to copy</i>"
             )
             
-            # Clean Static GIF ထုတ်လုပ်ခြင်း
-            gif_file = generate_clean_info_gif(gif_display_text)
-            gif_file.name = "info_scan.gif"
-            
-            # Caption စာသားများလုံးဝမပါဘဲ GIF သီးသန့်သာ Reply ပြန်ခြင်း 🔥
             await event.client.send_file(
                 event.chat_id, 
                 gif_file, 
-                reply_to=event.id
+                caption=info_caption, 
+                reply_to=event.id, 
+                parse_mode='html'
             )
-            
     except Exception as e:
-        print(f"Error in /info command: {e}")
+        print(f"Error in /info: {e}")
 
 # ==========================================
 # ⚙️ CHAT ACTIONS & WELCOME MATRIX
@@ -1501,50 +1457,45 @@ async def id_handler(event):
         target_id = None
         target_user = None
         
-        # ၁။ Reply ပြန်ထားလျှင်
         if event.is_reply:
             reply_msg = await event.get_reply_message()
             target_id = reply_msg.sender_id
             target_user = await event.client.get_entity(target_id)
-            
-        # ၂။ Mention သို့မဟုတ် User ID ရိုက်ထည့်ထားလျှင် (ဥပမာ - /id @username)
         elif len(event.text.split()) > 1:
             arg = event.text.split()[1]
             try:
                 target_user = await event.client.get_entity(arg)
                 target_id = target_user.id
             except Exception:
-                await event.reply("⚠️ User not found! Please check the username or ID.")
-                return
-                
-        # ၃။ ဘာမှမပါဘဲ /id ဟုပဲ ရိုက်ထားလျှင် မိမိ ID ကိုပြမည်
+                return await event.reply("⚠️ User not found!")
         else:
             target_id = event.sender_id
             target_user = await event.client.get_entity(target_id)
 
         if target_user:
-            username = f"@{target_user.username}" if target_user.username else "None"
-            full_name = f"{target_user.first_name or ''} {target_user.last_name or ''}".strip()
+            # GIF ပုံထဲမှာ ပေါ်မယ့်စာသား
+            matrix_display = f"⚡ PROTOCOL: GET ID ⚡\n───────────────────\n🌐 Target ID Locked.\n───────────────────\n[ RESOLVED SUCCESS ]"
+            gif_file = generate_clean_matrix_gif(matrix_display)
+            gif_file.name = "id_status.gif"
             
-            # 🖼️ GIF ပုံထဲတွင် ပေါ်မည့် စာသားပုံစံကို တည်ဆောက်ခြင်း
-            id_details = (
-                f"✨ USER IDENTIFICATION MATRIX ✨\n"
-                f"🦖 Name: {full_name}\n"
-                f"🍄 User ID: {target_id}\n"
-                f"🦦 Username: {username}\n"
-                f"🌏 Chat ID: {event.chat_id}\n"
-                f"   [ RECON DATA RESOLVED ]"
+            # ⚡ အောက်က စာသားမှာ <code> tags သုံးထားလို့ ID နံပါတ်ကို တို့လိုက်တာနဲ့ တန်းပြီး Copy ရမှာပါ
+            username = f"@{target_user.username}" if target_user.username else "None"
+            id_caption = (
+                f"👤 <b>Name:</b> {target_user.first_name or ''}\n"
+                f"🆔 <b>User ID:</b> <code>{target_id}</code> (တို့ပြီး Copy ယူပါ)\n"
+                f"🦦 <b>Username:</b> {username}\n"
+                f"🌏 <b>Chat ID:</b> <code>{event.chat_id}</code> (တို့ပြီး Copy ယူပါ)"
             )
             
-            # အပေါ်က Generator ထံ စာသားလှမ်းပို့ပြီး စာလုံးစိမ်း GIF ထုတ်ယူခြင်း
-            gif_file = generate_clean_id_gif(id_details)
-            gif_file.name = "id_matrix_scan.gif"
-            
-            # Telegram ပေါ်သို့ စာလုံးစိမ်းကတ်ပြားပုံစံဖြင့် လှမ်းပို့ပေးခြင်း 🔥
-            await event.client.send_file(event.chat_id, gif_file)
-            
+            await event.client.send_file(
+                event.chat_id, 
+                gif_file, 
+                caption=id_caption, 
+                reply_to=event.id, 
+                parse_mode='html'
+            )
     except Exception as e:
-        print(f"Error in /id command: {e}")
+        print(f"Error in /id: {e}")
 
 # ==========================================
 # 🚫 TELEGRAM PERMANENT ASCII MUTE ENGINE
@@ -2330,7 +2281,7 @@ async def trigger_dynamic_spawn(chat_id):
         
         spawn_msg = await bot1.send_message(
             chat_id, 
-            f"🐸 <b>{f('Hey,Charater appeared!')}</b>\n"
+            f"🎃 <b>{f('Hey,Charater appeared!')}</b>\n"
             f"<blockquote><b>{f('Hey Collocter')}!</b> သူက ဘယ်သူဖြစ်မလဲ?ဒီပိုစ့်ကို <code>/who</code> နဲ့ အမြန်ဆုံး Reply ပြန်ပြီး စစ်ဆေးလိုက်ပါ!</blockquote>\n"
             f"If u still don't know how to use, Reply it to /help",
             parse_mode='html',
@@ -2370,10 +2321,10 @@ async def who_reveal_handler(event):
     try:
         # 🖼️ GIF ပုံရိပ်ထဲတွင် ပြသမည့် စာလုံးစိမ်း Matrix စာသားများ
         matrix_display = (
-            f"⚡ CHARACTER: IDENTITY REVEAL ⚡\n"
+            f"⚡ Character: IDENTITY REVEAL ⚡\n"
+            f"──────────\n"
             f"🌟 Rarity: {spawn_data['rarity']}\n"
             f"🌐 Domain: {spawn_data['category']}\n"
-            f"─────────────────────────────\n"
             f"   [ STATUS: TARGET LOCKED ]"
         )
         
@@ -2381,15 +2332,11 @@ async def who_reveal_handler(event):
         gif_file = generate_clean_who_gif(matrix_display)
         gif_file.name = "identity_reveal.gif"
         
-        # 🔗 မီးခိုးရောင်ဘောင် လုံးဝမပါဘဲ တစ်ချက်နှိပ်ရုံဖြင့် ကော်ပီကူးနိုင်ရန် URL အဖြစ် ပြောင်းလဲခြင်း
-        catch_command = f"/catch {spawn_data['name']}"
-        encoded_command = urllib.parse.quote(catch_command)
-        
-        # ကတ်ပရှင်စာသားစနစ် (ဘောင်ကွက်များ လုံးဝမပါဝင်ပါ)
+        # ⚡ တို့လိုက်ရုံနဲ့ တစ်ခါတည်း အလွယ်တကူ Copy ကူးသွားမည့် <code> စနစ်
         reveal_text = (
             f"🌟 <b>Rarity:</b> {spawn_data['rarity']}\n"
             f"🌐 <b>Domain:</b> {spawn_data['category']}\n\n"
-            f"🎩 <a href='https://t.me/share/url?url={encoded_command}'><b>{catch_command} (ကလစ်နှိပ်ပြီး Copy ယူပါ)</b></a>"
+            f"👉 <code>/catch {spawn_data['name']}</code>"
         )
         
         # ဖိုင်အား ကတ်ပရှင်နှင့်တကွ တွဲဖက်ပို့ပေးခြင်း
@@ -2403,6 +2350,7 @@ async def who_reveal_handler(event):
         
     except Exception as e:
         print(f"Error in /who command: {e}")
+
 
 # ==========================================
 @bot1.on(events.NewMessage(pattern=r'^/catch\s+(.*)$'))
@@ -2418,7 +2366,7 @@ async def catch_handler(event):
     spawn_data = active_group_spawns[chat_id]
     if spawn_data["claimed"]: return
 
-    if time.time() - spawn_data["spawn_time"] > 180:
+    if time.time() - spawn_data["spawn_time"] > 300:
         if chat_id in active_group_spawns: del active_group_spawns[chat_id]
         return await event.reply(f"⏱️ <b>TARGET GHOSTED / အချိန်ကုန်သွားလို့ ထွက်ပြေးသွားပြီ!😅</b>", parse_mode='html')
 
@@ -2479,7 +2427,7 @@ async def catch_handler(event):
                 f"🃏 Character : {character_name}\n"
                 f"🌟 Rarity    : {spawn_data['rarity']}\n"
                 f"🪙 Bounty    : +{spawn_data['value']} MMK\n"
-                f" [ ADDED TO HUNTER INVENTORY ]"
+                f" [ ADDED TO CATCHER INVENTORY ]"
             )
             
             gif_file = generate_clean_catch_gif(matrix_display)
