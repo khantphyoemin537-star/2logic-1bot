@@ -420,21 +420,50 @@ def generate_mod_dragon_gif(target_name, action_type):
             f"[!] SYSTEM: HIGH-RISK VENTURE ENGAGED\n🎲 Mode: Double Or Nothing\n\n     <>_/\_/\_/\_<>   _\n     <  -     -  >_//_X  *Risking Balance*\n     <>~~\_/\_/\_<>\n\n[ PARSING MATRIX PARADOX OUTCOME... ]",
             f"[✨] TRANSACTION POSTED FLUENTLY\n🛡️ Status: Account Balance Flushed\n\n     <>_/\_/\_/\_<>   _\n     <  O     O  >_//_X  [COMPLETED]\n     <>~~\_/\_/\_<>\n\n[ RISK VENTURE SYSTEM CLOSED ]"
         ]   
+    # ၁။ Font ဖိုင်ကို အင်တာနက်ကနေ အလိုအလျောက် ဒေါင်းလုဒ်ဆွဲခိုင်းခြင်း
+    font_path = "matrix_font.ttf"
+    if not os.path.exists(font_path):
+        try:
+            # Google Fonts ရဲ့ Monospace (Courier Prime) Font ကို လှမ်းယူတာပါ
+            font_url = "https://github.com/google/fonts/raw/main/ofl/courierprime/CourierPrime-Bold.ttf"
+            urllib.request.urlretrieve(font_url, font_path)
+        except:
+            font_path = None # ဒေါင်းမရရင် Default သုံးဖို့ သတ်မှတ်မယ်
+
+    # ၂။ ဒေါင်းလုဒ်ရလာတဲ့ Font ကို တန်ဖိုး 30 နဲ့ စနစ်ထဲ ထည့်သွင်းခြင်း
     try:
-        font = ImageFont.truetype("Courier-Bold.ttf", 18)
+        if font_path:
+            font = ImageFont.truetype(font_path, 30)
+        else:
+            font = ImageFont.load_default(size=30)
     except:
         font = ImageFont.load_default()
 
+    # Canvas Size ကို 600x320 သတ်မှတ်ထားပါတယ်
+    img_w, img_h = 600, 320
+
     for text in all_frames:
-        img = Image.new('RGB', (600, 260), color=(15, 15, 15))
+        img = Image.new('RGB', (img_w, img_h), color=(15, 15, 15))
         d = ImageDraw.Draw(img)
-        d.text((25, 20), text, fill=(0, 255, 65), font=font)
+        
+        # စာသားရဲ့ အကျယ်အဝန်းကို တွက်ချက်ခြင်း
+        left, top, right, bottom = d.textbbox((0, 0), text, font=font)
+        text_w = right - left
+        text_h = bottom - top
+        
+        # အလယ်ဗဟို နေရာရှာခြင်း
+        x = (img_w - text_w) / 2
+        y = (img_h - text_h) / 2
+        
+        # စာသားကို အလယ်တည့်တည့်မှာ ထင်ထင်ရှားရှား ရေးဆွဲခြင်း
+        d.text((x, y), text, fill=(0, 255, 65), font=font, align="center", spacing=6)
         frames_data.append(np.array(img))
         
     gif_buffer = io.BytesIO()
     imageio.mimsave(gif_buffer, frames_data, format='GIF', fps=2)
     gif_buffer.seek(0)
     return gif_buffer
+
     
 RARITY_NUM_MAP = {
     "1": {"name": f"🌌 {f('LEGENDARY')}", "value": 1000},  
