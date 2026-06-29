@@ -440,7 +440,7 @@ def generate_mod_dragon_gif(target_name, action_type):
         font = ImageFont.load_default()
 
     # Canvas Size ကို 600x320 သတ်မှတ်ထားပါတယ်
-    img_w, img_h = 600, 320
+    img_w, img_h = 500, 320
 
     for text in all_frames:
         img = Image.new('RGB', (img_w, img_h), color=(15, 15, 15))
@@ -464,7 +464,125 @@ def generate_mod_dragon_gif(target_name, action_type):
     gif_buffer.seek(0)
     return gif_buffer
 
+def generate_clean_calc_gif(calc_text):
+    # Font အလိုအလျောက် ဒေါင်းလုဒ်ဆွဲခြင်း (စာလုံးထင်ရှားစေရန်)
+    font_path = "matrix_font.ttf"
+    if not os.path.exists(font_path):
+        try:
+            font_url = "https://github.com/google/fonts/raw/main/ofl/courierprime/CourierPrime-Bold.ttf"
+            urllib.request.urlretrieve(font_url, font_path)
+        except:
+            font_path = None
+
+    try:
+        if font_path:
+            font = ImageFont.truetype(font_path, 32) # စာလုံးကြီးကြီး 32 ထားထားပါတယ်
+        else:
+            font = ImageFont.load_default(size=32)
+    except:
+        font = ImageFont.load_default()
+
+    # GIF Canvas Size (အကျယ် ၆၀၀၊ အမြင့် ၂၆၀)
+    img_w, img_h = 600, 260
+    img = Image.new('RGB', (img_w, img_h), color=(15, 15, 15))
+    d = ImageDraw.Draw(img)
+
+    # စာသား အလယ်ဗဟို ကျအောင် တွက်ချက်ခြင်း
+    left, top, right, bottom = d.textbbox((0, 0), calc_text, font=font)
+    text_w = right - left
+    text_h = bottom - top
+
+    x = (img_w - text_w) / 2
+    y = (img_h - text_h) / 2
+
+    # Matrix အစိမ်းရောင်ဖြင့် စာသားရေးဆွဲခြင်း
+    d.text((x, y), calc_text, fill=(0, 255, 65), font=font, align="center", spacing=10)
     
+    # မလှုပ်ရှားစေရန် Frame တစ်ခုတည်းသာ ထည့်သွင်းခြင်း
+    frames_data = [np.array(img)]
+    
+    gif_buffer = io.BytesIO()
+    imageio.mimsave(gif_buffer, frames_data, format='GIF', fps=1)
+    gif_buffer.seek(0)
+    return gif_buffer
+def generate_clean_info_gif(info_text):
+    font_path = "matrix_font.ttf"
+    if not os.path.exists(font_path):
+        try:
+            font_url = "https://github.com/google/fonts/raw/main/ofl/courierprime/CourierPrime-Bold.ttf"
+            urllib.request.urlretrieve(font_url, font_path)
+        except:
+            font_path = None
+
+    try:
+        if font_path:
+            # စာကြောင်းရေ များတဲ့အတွက် အချိုးကျအောင် Size ကို 22 ထားပါတယ်
+            font = ImageFont.truetype(font_path, 22) 
+        else:
+            font = ImageFont.load_default(size=22)
+    except:
+        font = ImageFont.load_default()
+
+    # စာသားတွေ အပေါ်အောက် မပြတ်စေရန် အမြင့်ကို 360 အထိ တိုးမြှင့်ထားပါတယ်
+    img_w, img_h = 600, 360
+    img = Image.new('RGB', (img_w, img_h), color=(15, 15, 15))
+    d = ImageDraw.Draw(img)
+
+    # စာသားတစ်ခုလုံးရဲ့ အကျယ်အဝန်းကို တွက်ချက်ခြင်း
+    left, top, right, bottom = d.textbbox((0, 0), info_text, font=font)
+    text_w = right - left
+    text_h = bottom - top
+
+    # အလယ်ဗဟိုနေရာ ရှာဖွေခြင်း
+    x = (img_w - text_w) / 2
+    y = (img_h - text_h) / 2
+
+    # align="left" က စာသားတွေကို Terminal ပုံစံ ဘယ်ဘက်ညီညာစေပြီး (x,y) က တစ်တုံးလုံးကို အလယ်ပို့ပေးပါတယ်
+    d.text((x, y), info_text, fill=(0, 255, 65), font=font, align="left", spacing=8)
+    
+    frames_data = [np.array(img)]
+    gif_buffer = io.BytesIO()
+    imageio.mimsave(gif_buffer, frames_data, format='GIF', fps=1)
+    gif_buffer.seek(0)
+    return gif_buffer
+
+def generate_clean_event_gif(event_text, img_h=280):
+    font_path = "matrix_font.ttf"
+    if not os.path.exists(font_path):
+        try:
+            font_url = "https://github.com/google/fonts/raw/main/ofl/courierprime/CourierPrime-Bold.ttf"
+            urllib.request.urlretrieve(font_url, font_path)
+        except:
+            font_path = None
+
+    try:
+        if font_path:
+            font = ImageFont.truetype(font_path, 22)
+        else:
+            font = ImageFont.load_default(size=22)
+    except:
+        font = ImageFont.load_default()
+
+    img_w = 600
+    img = Image.new('RGB', (img_w, img_h), color=(15, 15, 15))
+    d = ImageDraw.Draw(img)
+
+    # စာသား အလယ်ဗဟိုကျအောင် တွက်ချက်ခြင်း
+    left, top, right, bottom = d.textbbox((0, 0), event_text, font=font)
+    text_w = right - left
+    text_h = bottom - top
+
+    x = (img_w - text_w) / 2
+    y = (img_h - text_h) / 2
+
+    d.text((x, y), event_text, fill=(0, 255, 65), font=font, align="left", spacing=8)
+    
+    frames_data = [np.array(img)]
+    gif_buffer = io.BytesIO()
+    imageio.mimsave(gif_buffer, frames_data, format='GIF', fps=1)
+    gif_buffer.seek(0)
+    return gif_buffer
+
 RARITY_NUM_MAP = {
     "1": {"name": f"🌌 {f('LEGENDARY')}", "value": 1000},  
     "2": {"name": f"🎴 {f('LIMITED')}", "value": 750},   
@@ -867,49 +985,38 @@ async def direct_help_handler(event):
 # ====================================================================================
 # 🔢 ADVANCED SYSTEM LOGIC 5: SECURE ARITHMETIC CALCULATOR
 # ====================================================================================
+# ====================================================================================
 @bot1.on(events.NewMessage)
 async def auto_calculator_handler(event):
-    # Command တွေရိုက်ရင် ဒီအတိုင်း ကျော်သွားမည်
     if event.text.startswith('/'):
         return
         
     text = event.text.strip()
     
-    # ဂဏန်းများနှင့် သင်္ချာအော်ပရေတာများ (+, -, *, /, (, ), **) သာ ပါဝင်သည့် စာသားဖြစ်မဖြစ် စစ်ဆေးသည်
     if re.match(r'^[\d\.\s\+\-\*\/\(\)\*\*]+$', text):
-        # ရိုးရိုးဖုန်းနံပါတ် သို့မဟုတ် ရက်စွဲများနှင့် မမှားစေရန် အနည်းဆုံး Operator တစ်ခုပါမှ တွက်မည်
         if any(op in text for op in ['+', '-', '*', '/']):
-            # Bot Hang မသွားစေရန် စာသားအရှည်ကို ကန့်သတ်သည်
             if len(text) > 50 or (text.count('**') > 1):
                 return
             try:
                 # Safe evaluation context
                 result = eval(text, {"__builtins__": None}, {})
                 
-                # 🐉 Cyber Dragon Math Engine GIF ထုတ်လုပ်ခြင်း (ပုစ္ဆာအား နဂါးဆီသို့ ပေးပို့လိုက်သည်)
-                gif_file = generate_mod_dragon_gif(text, 'calc')
+                # GIF ထဲမှာ ပြသမယ့် စာသားပုံစံ
+                gif_display_text = f"{text} = {result}\n\n[ PRODUCED BY MORGAN ]"
+                
+                # Static GIF ထုတ်ယူခြင်း
+                gif_file = generate_clean_calc_gif(gif_display_text)
                 gif_file.name = "math_processing.gif"
                 
-                # မူလစာသားဒီဇိုင်းကို ပိုမိုလှပပြီး စနစ်ကျသော HTML ပုံစံသို့ ပြောင်းလဲခြင်း
-                response = (
-                    f"✨ <b>{f('SMART MATH ENGINE')}</b> ✨\n"
-                    f"━━━━━━━━━━━━━━━━━━━━━\n"
-                    f"🦦 <b>{f('Expression')}:</b> <code>{text}</code>\n"
-                    f"⚡ <b>{f('Calculated Result')}:</b> <code>{result}</code>\n"
-                    f"━━━━━━━━━━━━━━━━━━━━━\n"
-                    f"<i>HOPE is a Good Thing.</i>"
-                )
-                
-                # စာသားသပ်သတ်မဟုတ်ဘဲ လှုပ်လှုပ်ရွရွ GIF နှင့်အတူ မေးခွန်းရှင်အား Reply ပြန်ပေးခြင်း 🔥
+                # Caption မပါဘဲ GIF သီးသန့်သာ မေးခွန်းရှင်ထံ Reply ပြန်ခြင်း 
                 await event.client.send_file(
                     event.chat_id, 
                     gif_file, 
-                    caption=response, 
-                    reply_to=event.id, 
-                    parse_mode='html'
+                    reply_to=event.id
                 )
             except Exception:
-                pass # ပုံမှန်စာသားများနှင့် မှားယွင်းစစ်မိပါက ငြိမ်နေမည် (Spam မဖြစ်အောင်)
+                pass
+
 
 
 @bot1.on(events.NewMessage(pattern=r'(?i)^/info'))
@@ -928,7 +1035,7 @@ async def info_handler(event):
                 target_user = await event.client.get_entity(arg)
                 target_id = target_user.id
             except Exception:
-                await event.reply(f("⚠️ User not found! Cannot fetch information."))
+                await event.reply("⚠️ User not found! Cannot fetch information.")
                 return
         else:
             target_id = event.sender_id
@@ -940,27 +1047,32 @@ async def info_handler(event):
             balance = db_user.get("balance", 0) if db_user else "Not Registered"
             
             username = f"@{target_user.username}" if target_user.username else "None"
-            premium_status = "Yes 🌟" if getattr(target_user, 'premium', False) else "No"
+            premium_status = "Yes" if getattr(target_user, 'premium', False) else "No"
             full_name = f"{target_user.first_name or ''} {target_user.last_name or ''}".strip()
             
-            # 🐉 Cyber Dragon Info Profile Scanner GIF ထုတ်လုပ်ခြင်း
-            gif_file = generate_mod_dragon_gif(full_name, 'info')
-            gif_file.name = "info_scan_operation.gif"
-            
-            # မူလ စာသားပုံစံနှင့် ဒီဇိုင်းကို ထိန်းသိမ်းခြင်း
-            response = (
-                f"ℹ️ {f('USER PROFILE INFORMATION')}\n"
-                f"━━━━━━━━━━━━━━━━━━━━━\n"
-                f"👤 {f('Full Name')}: {full_name}\n"
-                f"🆔 {f('Telegram ID')}: `{target_id}`\n"
-                f"🌐 {f('Username')}: {username}\n"
-                f"🌟 {f('Premium User')}: {premium_status}\n"
-                f"💰 {f('Economy Balance')}: {balance}\n"
-                f"━━━━━━━━━━━━━━━━━━━━━"
+            # GIF ထဲမှာ Font ကြောင့် Icon တွေမစောင်းသွားအောင် Text Character များဖြင့် လှပစွာ ပုံဖော်ထားပါတယ်
+            gif_display_text = (
+                f"       USER PROFILE INFO\n"
+                f"==============================\n"
+                f" NAME    : {full_name}\n"
+                f" ID      : {target_id}\n"
+                f" USERNAME: {username}\n"
+                f" PREMIUM : {premium_status}\n"
+                f" BALANCE : {balance}\n"
+                f"==============================\n"
+                f"    [ PRODUCED BY MORGAN ]"
             )
             
-            # စာသားသက်သက်မဟုတ်ဘဲ လှုပ်လှုပ်ရွရွ GIF ဗီဒီယိုနှင့် ကတ်ပရှင်တွဲပို့ခြင်း 🔥
-            await event.client.send_file(event.chat_id, gif_file, caption=response, parse_mode='html')
+            # Clean Static GIF ထုတ်လုပ်ခြင်း
+            gif_file = generate_clean_info_gif(gif_display_text)
+            gif_file.name = "info_scan.gif"
+            
+            # Caption စာသားများလုံးဝမပါဘဲ GIF သီးသန့်သာ Reply ပြန်ခြင်း 🔥
+            await event.client.send_file(
+                event.chat_id, 
+                gif_file, 
+                reply_to=event.id
+            )
             
     except Exception as e:
         print(f"Error in /info command: {e}")
@@ -968,65 +1080,135 @@ async def info_handler(event):
 # ==========================================
 # ⚙️ CHAT ACTIONS & WELCOME MATRIX
 # ==========================================
+# ==========================================
 @bot1.on(events.ChatAction)
 async def welcome_goodbye(event):
     try:
         chat = await event.get_chat()
         bot_me = await bot1.get_me()
-        bot_mention = f"<a href='tg://user?id={bot_me.id}'>{escape_html(bot_me.first_name)}</a>"
-        safe_title = escape_html(chat.title)
+        
+        group_name = chat.title 
         target_ids = event.user_ids or [event.user_id]
 
+        # ၁။ Member အရေအတွက်ကို အသေအချာဆွဲထုတ်ခြင်း
+        try:
+            members_cnt = getattr(chat, 'participants_count', None)
+            if not members_cnt:
+                full_chat = await event.client.get_full_chat(chat.id)
+                members_cnt = full_chat.full_chat.participants_count
+            member_count = f"{members_cnt:,}" if members_cnt else "Unknown"
+        except:
+            member_count = "Unknown"
+
+        # ၂။ Group သက်တမ်း (Group Age) ကို တွက်ချက်ခြင်း
+        group_age = "Unknown"
+        if hasattr(chat, 'date') and chat.date:
+            try:
+                # လက်ရှိအချိန်နှင့် Group စတင်တည်ထောင်ချိန် ခြားနားချက်ကို ရှာသည်
+                now_time = datetime.now(chat.date.tzinfo)
+                delta = now_time - chat.date
+                days = delta.days
+                
+                if days >= 365:
+                    years = days // 365
+                    months = (days % 365) // 30
+                    group_age = f"{years}y {months}m" if months else f"{years}y"
+                elif days >= 30:
+                    months = days // 30
+                    remaining_days = days % 30
+                    group_age = f"{months}m {remaining_days}d" if remaining_days else f"{months}m"
+                else:
+                    group_age = f"{days}d" if days > 0 else "Today Created"
+            except:
+                group_age = "Unknown"
+
         if event.user_added or event.user_joined:
+            # Bot ကိုယ်တိုင် Group ထဲ ရောက်သွားချိန်
             if any(uid == bot_me.id for uid in target_ids if uid):
                 await groups_col.update_one({"chat_id": chat.id}, {"$set": {"title": chat.title, "joined_at": datetime.now(TZ)}}, upsert=True)
-                msg1 = f"ဟိတ် OWNER နဲ့ Admins တို့ မင်းတို့ရဲ့ ဒီ {safe_title} ထဲကို ထည့်သုံးပေးလို့ ကျေးဇူးတင်ပါတယ်! အသုံးလိုကောင်းလိုနိုင်တဲ့ command များယူထားမယ်ဆိုရင် {bot_mention} ရဲ့ Creator {owner_tag()} ရဲ့ Dm (သို့မဟုတ်) @Comeback_BoD ကိုလာရောက်ပါ!!!"
-                await bot1.send_message(chat.id, bq(msg1), parse_mode='html')
                 
-                try: members = getattr(chat, 'participants_count', 'Unknown')
-                except: members = "Unknown"
-                msg2 = f"မင်္ဂလာပါ {safe_title}က \n{bot_mention}ထည့်သုံးထားပါသေးတယ်\n\nGroup Name - {safe_title}\nGroup ID - <code>{chat.id}</code>\nMembers အရေအတွက် - {members}\nBot Creator - {owner_tag()}"
+                bot_join_text = (
+                    f"       SYSTEM: BOT ACTIVATED\n"
+                    f"==================================\n"
+                    f" THANK YOU FOR ADDING ME!\n"
+                    f" GROUP  : {group_name}\n"
+                    f" MEMBERS: {member_count}\n"
+                    f" AGE    : {group_age}\n"
+                    f"==================================\n"
+                    f"      [ PRODUCED BY MORGAN ]"
+                )
+                # စာကြောင်းများလာသဖြင့် img_h ကို 340 သို့ တိုးမြှင့်ထားပါသည်
+                gif_file = generate_clean_event_gif(bot_join_text, img_h=340)
+                gif_file.name = "bot_joined.gif"
+                await bot1.send_file(chat.id, gif_file)
+                
+                # Admin Log Group သို့ စာသားလှမ်းပို့ခြင်း
+                bot_mention = f"<a href='tg://user?id={bot_me.id}'>{escape_html(bot_me.first_name)}</a>"
+                msg2 = f"မင်္ဂလာပါ {escape_html(group_name)}က \n{bot_mention}ထည့်သုံးထားပါသေးတယ်\n\nGroup Name - {escape_html(group_name)}\nGroup ID - <code>{chat.id}</code>\nMembers အရေအတွက် - {member_count}\nGroup သက်တမ်း - {group_age}\nBot Creator - {owner_tag()}"
                 await bot1.send_message(SPECIFIC_GROUP, bq(msg2), parse_mode='html')
+            
+            # Member အသစ်များ ဝင်လာချိန်
             else:
-                custom_welcome = await welcome_col.find_one({"chat_id": chat.id})
                 for uid in target_ids:
                     if uid and uid != bot_me.id:
                         try: u = await bot1.get_entity(uid)
                         except: continue
                         track_user_metrics(u.id, u.username, u.first_name) 
-                        u_mention = f"<a href='tg://user?id={u.id}'>{escape_html(u.first_name)}</a>"
                         
-                        if custom_welcome and custom_welcome.get("text"):
-                            welcome_text = custom_welcome["text"].replace("{mention}", u_mention).replace("{group}", safe_title)
-                        else:
-                            welcome_text = (
-                                f"ဟယ်လို🦦 {u_mention}\n"
-                                "╔═━━━❖━━━═╗\n"
-                                f"{safe_title} ကနေ ကြိုဆိုလိုက်ပါတယ်\n"
-                                "╚═━━━❖━━━═╝\n"
-                                f"This bot is proudly developed and maintained by BOD GROUP.\n"
-                            )
+                        user_first_name = u.first_name or "User"
                         
-                        media_file = custom_welcome.get("media") if custom_welcome else None
-                        await bot1.send_message(
-                            event.chat_id, bq(welcome_text), parse_mode='html', file=media_file,
+                        # Welcome GIF (Member Count နှင့် Group Age ပါဝင်သည်)
+                        welcome_text = (
+                            f"        WELCOME TO GROUP\n"
+                            f"==================================\n"
+                            f" MEMBER : {user_first_name}\n"
+                            f" GROUP  : {group_name}\n"
+                            f" MEMBERS: {member_count}\n"
+                            f" AGE    : {group_age}\n"
+                            f"==================================\n"
+                            f"      [ PRODUCED BY MORGAN ]"
+                        )
+                        
+                        gif_file = generate_clean_event_gif(welcome_text, img_h=340)
+                        gif_file.name = "welcome.gif"
+                        
+                        await bot1.send_file(
+                            event.chat_id, 
+                            gif_file,
                             buttons=[
-                                [Button.url("Bot OWNER DM", f"t.me/Hello_Im_DexterMorgan")],
+                                [Button.url("Bot OWNER DM", "t.me/Hello_Im_DexterMorgan")],
                                 [Button.url("ကျွန်ုပ်တို့Groupသို့ဝင်ရန်", "https://t.me/Comeback_BoD")]
                             ]
                         )
                         
+        # Member များ ထွက်သွားချိန် / Kicked ဖြစ်ချိန်
         elif event.user_kicked or event.user_left:
             if event.user_id == bot_me.id:
                 await groups_col.delete_one({"chat_id": chat.id})
             else:
                 try:
                     u = await bot1.get_entity(event.user_id)
-                    u_mention = f"<a href='tg://user?id={u.id}'>{escape_html(u.first_name)}</a>"
-                    await bot1.send_message(event.chat_id, bq(f"ထွက်သွားလိုက်ပါသေးတယ်.. {u_mention} !!"), parse_mode='html')
+                    user_first_name = u.first_name or "User"
+                    
+                    # Goodbye GIF
+                    goodbye_text = (
+                        f"         GOODBYE MEMBER\n"
+                        f"==================================\n"
+                        f" MEMBER : {user_first_name}\n"
+                        f" STATUS : LEFT THE GROUP\n"
+                        f" MEMBERS: {member_count}\n"
+                        f"==================================\n"
+                        f"      [ PRODUCED BY MORGAN ]"
+                    )
+                    
+                    gif_file = generate_clean_event_gif(goodbye_text, img_h=310)
+                    gif_file.name = "goodbye.gif"
+                    
+                    await bot1.send_file(event.chat_id, gif_file)
                 except: pass
     except Exception as e:
         await report_system_error("Welcome Goodbye Event Tracker", e)
+
 
 # 💬 AUTOMATIC CHAT RESPONDER & DYNAMIC TRAFFIC INTERCEPTOR
 @bot1.on(events.NewMessage(incoming=True))
