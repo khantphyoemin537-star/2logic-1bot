@@ -623,6 +623,79 @@ def generate_clean_id_gif(id_text):
     gif_buffer.seek(0)
     return gif_buffer
 
+def generate_clean_who_gif(who_text):
+    font_path = "matrix_font.ttf"
+    if not os.path.exists(font_path):
+        try:
+            font_url = "https://github.com/google/fonts/raw/main/ofl/courierprime/CourierPrime-Bold.ttf"
+            urllib.request.urlretrieve(font_url, font_path)
+        except:
+            font_path = None
+
+    try:
+        if font_path:
+            font = ImageFont.truetype(font_path, 22) 
+        else:
+            font = ImageFont.load_default(size=22)
+    except:
+        font = ImageFont.load_default()
+
+    img_w, img_h = 600, 360
+    img = Image.new('RGB', (img_w, img_h), color=(15, 15, 15))
+    d = ImageDraw.Draw(img)
+
+    left, top, right, bottom = d.textbbox((0, 0), who_text, font=font)
+    text_w = right - left
+    text_h = bottom - top
+
+    x = (img_w - text_w) / 2
+    y = (img_h - text_h) / 2
+
+    # နီယွန်စာလုံးစိမ်းဖြင့် ဆွဲခြင်း
+    d.text((x, y), who_text, fill=(0, 255, 65), font=font, align="left", spacing=8)
+    
+    frames_data = [np.array(img)]
+    gif_buffer = io.BytesIO()
+    imageio.mimsave(gif_buffer, frames_data, format='GIF', fps=1)
+    gif_buffer.seek(0)
+    return gif_buffer
+def generate_clean_catch_gif(catch_text):
+    font_path = "matrix_font.ttf"
+    if not os.path.exists(font_path):
+        try:
+            font_url = "https://github.com/google/fonts/raw/main/ofl/courierprime/CourierPrime-Bold.ttf"
+            urllib.request.urlretrieve(font_url, font_path)
+        except:
+            font_path = None
+
+    try:
+        if font_path:
+            font = ImageFont.truetype(font_path, 22) 
+        else:
+            font = ImageFont.load_default(size=22)
+    except:
+        font = ImageFont.load_default()
+
+    img_w, img_h = 600, 380
+    img = Image.new('RGB', (img_w, img_h), color=(15, 15, 15))
+    d = ImageDraw.Draw(img)
+
+    left, top, right, bottom = d.textbbox((0, 0), catch_text, font=font)
+    text_w = right - left
+    text_h = bottom - top
+
+    x = (img_w - text_w) / 2
+    y = (img_h - text_h) / 2
+
+    # နီယွန်စာလုံးစိမ်းဖြင့် ပုံဖော်ခြင်း
+    d.text((x, y), catch_text, fill=(0, 255, 65), font=font, align="left", spacing=8)
+    
+    frames_data = [np.array(img)]
+    gif_buffer = io.BytesIO()
+    imageio.mimsave(gif_buffer, frames_data, format='GIF', fps=1)
+    gif_buffer.seek(0)
+    return gif_buffer
+
 RARITY_NUM_MAP = {
     "1": {"name": f"🌌 {f('LEGENDARY')}", "value": 1000},  
     "2": {"name": f"🎴 {f('LIMITED')}", "value": 750},   
@@ -2058,7 +2131,7 @@ async def global_traffic_processing_matrix(event):
                 await event.delete()
                 sender = await event.get_sender()
                 mention = f"<a href='tg://user?id={sender_id}'>{escape_html(sender.first_name if sender else 'User')}</a>"
-                warn_msg = f"🚫 <b>CHANNEL FORWARD NOT ALLOWED!</b>\n\nHey {mention} Channel ကနေ Forward လာတဲ့ Post တွေ ပို့ခွင့်မရှိပါဘူးရှင့်🌬️<b>[Erased]</b>"
+                warn_msg = f"🚫 <b>CHANNEL FORWARD NOT ALLOWED!</b>\n\n{mention} <b>[Erased]</b>"
                 return await event.respond(bq(warn_msg), parse_mode='html')
             except Exception: pass
 
@@ -2284,30 +2357,42 @@ async def who_reveal_handler(event):
     chat_id = event.chat_id
     
     if chat_id not in active_group_spawns:
-        return await event.reply(f"❌ <b>{f('လက်ရှိ Spawnတဲ့ Hai မရှိသေးပါဘူး သူငယ်ချင်း')}</b>", parse_mode='html')
+        return await event.reply(f"❌ <b>လက်ရှိ Spawnတဲ့ Hai မရှိသေးပါဘူး သူငယ်ချင်း</b>", parse_mode='html')
         
     spawn_data = active_group_spawns[chat_id]
     if time.time() - spawn_data["spawn_time"] > 60:
         if chat_id in active_group_spawns: del active_group_spawns[chat_id]
-        return await event.reply(f"⏱️ <b>{f('TARGET GHOSTED / နောက်မှထပ်ကောက်ပါတော့')}😅</b>", parse_mode='html')
+        return await event.reply(f"⏱️ <b>TARGET GHOSTED / နောက်မှထပ်ကောက်ပါတော့😅</b>", parse_mode='html')
         
     if not event.is_reply or event.reply_to_msg_id != spawn_data["spawn_msg_id"]:
-        return await event.reply(f"⚠️ <b>{f('ပစ်မှတ်လွဲနေတယ်! ပေါ်လာတဲ့ ပိုစ့်ကို တိုက်ရိုက် Reply ပြန်ပေးပါ')}</b>", parse_mode='html')
+        return await event.reply(f"⚠️ <b>ပစ်မှတ်လွဲနေတယ်! ပေါ်လာတဲ့ ပိုစ့်ကို တိုက်ရိုက် Reply ပြန်ပေးပါ</b>", parse_mode='html')
         
     try:
-        # 🐉 Cyber Dragon Who Revealer GIF ထုတ်လုပ်ခြင်း
-        # (စာသားထဲမှာ နာမည်ပေါ်မသွားစေရန် ယာယီအမည် 'Unknown Entity' ဟုသာ ပေးပို့ပြီး GIF ဆောက်ခိုင်းပါသည်)
-        gif_file = generate_mod_dragon_gif('Unknown Entity', 'who')
-        gif_file.name = "identity_reveal.gif"
-        
-        # မူရင်း ဖော်ထုတ်ပြသမည့် စာသားစနစ်
-        reveal_text = (
-            f"🌟 {spawn_data['rarity']}\n"
-            f"🌐 Domain: <code>{spawn_data['category']}</code>\n\n"
-            f"<code>/catch {spawn_data['name']}</code>"
+        # 🖼️ GIF ပုံရိပ်ထဲတွင် ပြသမည့် စာလုံးစိမ်း Matrix စာသားများ
+        matrix_display = (
+            f"⚡ CHARACTER: IDENTITY REVEAL ⚡\n"
+            f"🌟 Rarity: {spawn_data['rarity']}\n"
+            f"🌐 Domain: {spawn_data['category']}\n"
+            f"─────────────────────────────\n"
+            f"   [ STATUS: TARGET LOCKED ]"
         )
         
-        # စာသားသပ်သတ် Reply ပြန်မည့်အစား လှုပ်လှုပ်ရွရွ အထာကျသော GIF နှင့်အတူ တွဲဖက်ပို့ပေးခြင်း 🔥
+        # စာသားအငြိမ် GIF ထုတ်လုပ်ခြင်း
+        gif_file = generate_clean_who_gif(matrix_display)
+        gif_file.name = "identity_reveal.gif"
+        
+        # 🔗 မီးခိုးရောင်ဘောင် လုံးဝမပါဘဲ တစ်ချက်နှိပ်ရုံဖြင့် ကော်ပီကူးနိုင်ရန် URL အဖြစ် ပြောင်းလဲခြင်း
+        catch_command = f"/catch {spawn_data['name']}"
+        encoded_command = urllib.parse.quote(catch_command)
+        
+        # ကတ်ပရှင်စာသားစနစ် (ဘောင်ကွက်များ လုံးဝမပါဝင်ပါ)
+        reveal_text = (
+            f"🌟 <b>Rarity:</b> {spawn_data['rarity']}\n"
+            f"🌐 <b>Domain:</b> {spawn_data['category']}\n\n"
+            f"🎩 <a href='https://t.me/share/url?url={encoded_command}'><b>{catch_command} (ကလစ်နှိပ်ပြီး Copy ယူပါ)</b></a>"
+        )
+        
+        # ဖိုင်အား ကတ်ပရှင်နှင့်တကွ တွဲဖက်ပို့ပေးခြင်း
         await event.client.send_file(
             event.chat_id, 
             gif_file, 
@@ -2320,8 +2405,6 @@ async def who_reveal_handler(event):
         print(f"Error in /who command: {e}")
 
 # ==========================================
-# 🎯 5. CLAIM ENGINE CORE (/catch) - WITH ATOMIC LOCKS & GUILD EXP
-# ==========================================
 @bot1.on(events.NewMessage(pattern=r'^/catch\s+(.*)$'))
 async def catch_handler(event):
     if event.is_private: return
@@ -2330,17 +2413,17 @@ async def catch_handler(event):
     catch_name = event.pattern_match.group(1).strip()
     
     if chat_id not in active_group_spawns:
-        return await event.reply(f"🛸 <b>{f('ဒီ Dimension မှာ ဖမ်းစရာ ဘယ်သူမှ မရှိတော့ဘူး')}</b>", parse_mode='html')
+        return await event.reply(f"🛸 <b>ဒီ Dimension မှာ ဖမ်းစရာ ဘယ်သူမှ မရှိတော့ဘူး</b>", parse_mode='html')
         
     spawn_data = active_group_spawns[chat_id]
     if spawn_data["claimed"]: return
 
     if time.time() - spawn_data["spawn_time"] > 180:
         if chat_id in active_group_spawns: del active_group_spawns[chat_id]
-        return await event.reply(f"⏱️ <b>{f('TARGET GHOSTED / အချိန်ကုန်သွားလို့ ထွက်ပြေးသွားပြီ!')}😅</b>", parse_mode='html')
+        return await event.reply(f"⏱️ <b>TARGET GHOSTED / အချိန်ကုန်သွားလို့ ထွက်ပြေးသွားပြီ!😅</b>", parse_mode='html')
 
     if normalize_name(catch_name) != normalize_name(spawn_data["name"]): 
-        return await event.reply(f"❌ <b>{f('နာမည်မှားနေတယ် Boss! သေချာပြန်စစ်ပြီး /catch')}</b>", parse_mode='html')
+        return await event.reply(f"❌ <b>နာမည်မှားနေတယ် Boss! သေချာပြန်စစ်ပြီး /catch</b>", parse_mode='html')
 
     # [AI Optimization] Distributed Async Lock to absolutely block double-claim race conditions     
     async with spawn_locks[chat_id]:
@@ -2387,30 +2470,40 @@ async def catch_handler(event):
                 else:
                     await guilds_col.update_one({"_id": user_guild["_id"]}, {"$inc": {"xp": 10}})
             
-            # 🐉 2.5️⃣ CYBER DRAGON CATCH GIF GENERATION (အောင်မြင်မှု အီဖက်ခ် ထုတ်လုပ်ခြင်း)
+            # 🐉 2.5️⃣ CYBER MATRIX CATCH GIF GENERATION (စာသားအငြိမ် ပြောင်းလဲခြင်း)
             character_name = spawn_data['name']
-            gif_file = generate_mod_dragon_gif(character_name, 'catch')
+            
+            matrix_display = (
+                f"⚡ MISSION: TARGET SECURED ⚡\n"
+                f"─────────\n"
+                f"🃏 Character : {character_name}\n"
+                f"🌟 Rarity    : {spawn_data['rarity']}\n"
+                f"🪙 Bounty    : +{spawn_data['value']} MMK\n"
+                f" [ ADDED TO HUNTER INVENTORY ]"
+            )
+            
+            gif_file = generate_clean_catch_gif(matrix_display)
             gif_file.name = "catch_success.gif"
             
             # 3️⃣ Active ဖြစ်နေသော Spawn ဒေတာများအား Memory ထဲမှ ဖယ်ရှားခြင်း
             del active_group_spawns[chat_id]
             if chat_id in spawn_locks: del spawn_locks[chat_id]
             
-            # Success Message
+            # Success Message (မီးခိုးရောင် <code> နှင့် <blockquote> များ လုံးဝဖယ်ရှားထားသည်)
             success_msg = (
-                f"👤 <b>{f('Hunter')}:</b> {mention}, U r nice Catcher 🦦\n"
-                f"🃏 <b>{f('Character')}:</b> <code>{escape_html(character_name)}</code>\n"
-                f"🆔 <b>{f('Asset ID')}:</b> <code>{spawn_data['char_id']}</code>\n"
-                f"🌟 <b>{f('Rarity Class')}:</b> {spawn_data['rarity']}\n"
-                f"🪙 <b>{f('Bounty Added')}:</b> <code>+{spawn_data['value']} MMK</code>\n"
-                f"<blockquote><b>{f('Mission Secured')}!</b> ဒီ Character ကို သင့်ရဲ့ စုဆောင်းမှုထဲထည့်လိုက်ပြီ စစ်ဆေးရန် /hai လို့ရိုက်</blockquote>"
+                f"👤 <b>Hunter:</b> {mention}, U r nice Catcher 🦦\n"
+                f"🃏 <b>Character:</b> <b>{escape_html(character_name)}</b>\n"
+                f"🆔 <b>Asset ID:</b> <b>{spawn_data['char_id']}</b>\n"
+                f"🌟 <b>Rarity Class:</b> {spawn_data['rarity']}\n"
+                f"🪙 <b>Bounty Added:</b> <b>+{spawn_data['value']} MMK</b>\n\n"
+                f"🎉 <b>Mission Secured!</b> ဒီ Character ကို သင့်ရဲ့ စုဆောင်းမှုထဲထည့်လိုက်ပြီ စစ်ဆေးရန် /hai လို့ရိုက်"
             )
             
             # အကယ်၍ Guild Level တက်ခဲ့ပါက ကတ်မိတဲ့စာသားအောက်မှာ တစ်ခါတည်း Message ချိတ်ပြပေးမည့်စနစ်
             if guild_levelup_msg:
                 success_msg += guild_levelup_msg
                 
-            # စာသားသပ်သတ် ပို့မည့်အစား လှုပ်ရှားနေသော နဂါး GIF ဗီဒီယိုနှင့် ကတ်ပရှင်တွဲ၍ ပို့ပေးခြင်း 🔥
+            # စာသားသန့်သန့် ကတ်ပရှင်နှင့်အတူ စာလုံးစိမ်း GIF အား တွဲဖက်ပို့ပေးခြင်း 🔥
             await bot1.send_file(
                 event.chat_id, 
                 gif_file, 
@@ -2423,8 +2516,8 @@ async def catch_handler(event):
             # Error တစ်ခုခုတက်လျှင် တခြားလူ ပြန်ဖမ်းလို့ရအောင် Claimed ကို False ပြန်ပြင်ပေးခြင်း
             if chat_id in active_group_spawns:
                 active_group_spawns[chat_id]["claimed"] = False
-            await event.reply(f"❌ <b>Catch Logic Fault:</b> <code>{e}</code>", parse_mode='html')
-                
+            await event.reply(f"❌ <b>Catch Logic Fault:</b> {e}", parse_mode='html')
+
 # ==========================================
 # 🎒 6. INVENTORY PAGINATION ENGINE (/fav & /hai)
 # ==========================================
