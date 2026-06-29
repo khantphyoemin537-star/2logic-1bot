@@ -583,6 +583,46 @@ def generate_clean_event_gif(event_text, img_h=280):
     gif_buffer.seek(0)
     return gif_buffer
 
+def generate_clean_id_gif(id_text):
+    font_path = "matrix_font.ttf"
+    if not os.path.exists(font_path):
+        try:
+            font_url = "https://github.com/google/fonts/raw/main/ofl/courierprime/CourierPrime-Bold.ttf"
+            urllib.request.urlretrieve(font_url, font_path)
+        except:
+            font_path = None
+
+    try:
+        if font_path:
+            font = ImageFont.truetype(font_path, 22) 
+        else:
+            font = ImageFont.load_default(size=22)
+    except:
+        font = ImageFont.load_default()
+
+    # ID အချက်အလက် စာကြောင်းရေနှင့် ကွက်တိဖြစ်အောင် အမြင့်ကို ၃၈၀ ထားပေးထားပါတယ်
+    img_w, img_h = 600, 380
+    img = Image.new('RGB', (img_w, img_h), color=(15, 15, 15))
+    d = ImageDraw.Draw(img)
+
+    # စာသားတစ်ခုလုံး၏ အကျယ်အဝန်းကို တွက်ချက်ခြင်း
+    left, top, right, bottom = d.textbbox((0, 0), id_text, font=font)
+    text_w = right - left
+    text_h = bottom - top
+
+    # အလယ်ဗဟိုနေရာ ရှာဖွေခြင်း
+    x = (img_w - text_w) / 2
+    y = (img_h - text_h) / 2
+
+    # ဘရို သတ်မှတ်ထားသည့် နီယွန်စာလုံးစိမ်းအရောင်ဖြင့် ဆွဲခြင်း
+    d.text((x, y), id_text, fill=(0, 255, 65), font=font, align="left", spacing=8)
+    
+    frames_data = [np.array(img)]
+    gif_buffer = io.BytesIO()
+    imageio.mimsave(gif_buffer, frames_data, format='GIF', fps=1)
+    gif_buffer.seek(0)
+    return gif_buffer
+
 RARITY_NUM_MAP = {
     "1": {"name": f"🌌 {f('LEGENDARY')}", "value": 1000},  
     "2": {"name": f"🎴 {f('LIMITED')}", "value": 750},   
@@ -1401,7 +1441,7 @@ async def id_handler(event):
                 target_user = await event.client.get_entity(arg)
                 target_id = target_user.id
             except Exception:
-                await event.reply(f("⚠️ User not found! Please check the username or ID."))
+                await event.reply("⚠️ User not found! Please check the username or ID.")
                 return
                 
         # ၃။ ဘာမှမပါဘဲ /id ဟုပဲ ရိုက်ထားလျှင် မိမိ ID ကိုပြမည်
@@ -1413,23 +1453,22 @@ async def id_handler(event):
             username = f"@{target_user.username}" if target_user.username else "None"
             full_name = f"{target_user.first_name or ''} {target_user.last_name or ''}".strip()
             
-            # 🐉 Cyber Dragon ID Scanner GIF ထုတ်လုပ်ခြင်း
-            gif_file = generate_mod_dragon_gif(full_name, 'id')
-            gif_file.name = "id_scan_operation.gif"
-            
-            # မူလ စာသားဒီဇိုင်းအတိုင်း ပြန်လည်သတ်မှတ်ခြင်း
-            response = (
-                f"✨ {f('USER IDENTIFICATION MATRIX')} ✨\n"
-                f"━━━━━━━━━━━━━━━━━━━━━\n"
-                f"🦖 {f('Name')}: {full_name}\n"
-                f"🍄 {f('User ID')}: `{target_id}`\n"
-                f"🦦 {f('Username')}: {username}\n"
-                f"━━━━━━━━━━━━━━━━━━━━━\n"
-                f"🌏 {f('Chat ID')}: `{event.chat_id}`"
+            # 🖼️ GIF ပုံထဲတွင် ပေါ်မည့် စာသားပုံစံကို တည်ဆောက်ခြင်း
+            id_details = (
+                f"✨ USER IDENTIFICATION MATRIX ✨\n"
+                f"🦖 Name: {full_name}\n"
+                f"🍄 User ID: {target_id}\n"
+                f"🦦 Username: {username}\n"
+                f"🌏 Chat ID: {event.chat_id}\n"
+                f"   [ RECON DATA RESOLVED ]"
             )
             
-            # စာသားသတ်သတ် မဟုတ်ဘဲ လှုပ်လှုပ်ရွရွ GIF ဗီဒီယိုနှင့် ကတ်ပရှင်တွဲပို့ခြင်း 🔥
-            await event.client.send_file(event.chat_id, gif_file, caption=response, parse_mode='html')
+            # အပေါ်က Generator ထံ စာသားလှမ်းပို့ပြီး စာလုံးစိမ်း GIF ထုတ်ယူခြင်း
+            gif_file = generate_clean_id_gif(id_details)
+            gif_file.name = "id_matrix_scan.gif"
+            
+            # Telegram ပေါ်သို့ စာလုံးစိမ်းကတ်ပြားပုံစံဖြင့် လှမ်းပို့ပေးခြင်း 🔥
+            await event.client.send_file(event.chat_id, gif_file)
             
     except Exception as e:
         print(f"Error in /id command: {e}")
