@@ -292,115 +292,54 @@ RARITY_NUM_MAP = {
 # ==========================================
 # 🖼️ STATIC CALM GIF GENERATOR
 # ==========================================
-def generate_matrix_animated_gif(title, lines, width=650, height=450, fps=12, total_frames=24):
+def generate_static_golden_image(title, lines, width=650, height=450):
     """
-    Generate an animated GIF with Matrix rain background and animated text.
-    title: main heading (e.g., "🎉 WELCOME")
-    lines: list of strings to display
-    width, height: image size (increased for better quality)
-    fps: frames per second (increased to 12 for smooth animation)
-    total_frames: number of frames in animation (increased for longer animation)
+    Generate a static (single-frame) image with golden text on dark background.
+    No animation, no matrix rain – just clean, elegant text.
     """
     try:
-        # Try to load bold fonts (larger size for title)
-        font_title = ImageFont.truetype("DejaVuSans-Bold.ttf", 42)
+        # Bold fonts with anti-aliasing (PIL handles this)
+        font_title = ImageFont.truetype("DejaVuSans-Bold.ttf", 44)
         font_body = ImageFont.truetype("DejaVuSans-Bold.ttf", 28)
     except:
-        # Fallback to default (will be small but works)
+        # Fallback – may be less pretty but still works
         font_title = ImageFont.load_default()
         font_body = ImageFont.load_default()
 
-    # Matrix rain setup
-    cols = width // 18  # number of columns (adjusted for width)
-    rain = []
-    for c in range(cols):
-        rain.append({
-            'x': c * 18 + random.randint(0, 10),
-            'y': random.randint(-height, 0),
-            'speed': random.randint(5, 18),
-            'char': random.choice(['0', '1', ' ', '░', '▒', '▓', '█'])
-        })
+    # Dark background (very dark blue-black)
+    img = Image.new('RGB', (width, height), color=(8, 8, 20))
+    draw = ImageDraw.Draw(img)
 
-    # Text animation parameters
-    title_chars = list(title)
-    total_title_chars = len(title_chars)
-    reveal_end = int(total_frames * 0.5)  # Title reveals in first 50% of frames
+    # Golden border (subtle)
+    draw.rectangle([(10, 10), (width-10, height-10)], outline=(255, 215, 0), width=2)
 
-    # Lines appear one by one
-    line_appear_frames = []
-    if lines:
-        step = (total_frames - reveal_end) // len(lines)
-        for i in range(len(lines)):
-            line_appear_frames.append(reveal_end + i * step)
+    # ---- Title (centered) ----
+    try:
+        bbox = draw.textbbox((0, 0), title, font=font_title)
+        tw = bbox[2] - bbox[0]
+    except AttributeError:
+        tw, _ = draw.textsize(title, font=font_title)
+    x_title = (width - tw) // 2
+    y_title = 50
 
-    frames = []
+    # Glow effect – draw shadow then main text
+    draw.text((x_title+3, y_title+3), title, fill=(100, 80, 0), font=font_title)  # dark shadow
+    draw.text((x_title, y_title), title, fill=(255, 215, 0), font=font_title)    # bright gold
 
-    for frame_idx in range(total_frames):
-        # Create black background
-        img = Image.new('RGB', (width, height), color=(0, 0, 0))
-        draw = ImageDraw.Draw(img)
+    # ---- Body lines (left-aligned) ----
+    y = 130
+    for line in lines:
+        draw.text((25, y), line, fill=(255, 235, 150), font=font_body)  # soft golden
+        y += 50
 
-        # ---- Draw Matrix rain ----
-        for col in rain:
-            # Draw the character in green (slightly brighter green for quality)
-            draw.text((col['x'], col['y']), col['char'], fill=(0, 255, 80), font=font_body)
-            col['y'] += col['speed']
-            if col['y'] > height:
-                col['y'] = random.randint(-height, -10)
-                col['char'] = random.choice(['0', '1', ' ', '░', '▒', '▓', '█'])
-                col['speed'] = random.randint(5, 18)
+    # Small decorative dot at bottom-right
+    draw.ellipse([(width-40, height-40), (width-20, height-20)], fill=(255, 215, 0))
 
-        # ---- Draw title with typewriter effect ----
-        if frame_idx < reveal_end:
-            show_len = int((frame_idx / reveal_end) * total_title_chars)
-        else:
-            show_len = total_title_chars
-
-        title_to_show = title[:show_len]
-        
-        # Glow effect: multiple layers for better visual quality
-        # Shadow
-        draw.text((24, 24), title_to_show, fill=(0, 255, 100), font=font_title)
-        # Main bright text
-        draw.text((20, 20), title_to_show, fill=(0, 255, 220), font=font_title)
-
-        # ---- Draw lines with smooth fade-in ----
-        y = 100
-        for idx, line in enumerate(lines):
-            if frame_idx < line_appear_frames[idx]:
-                continue
-            appear_frame = line_appear_frames[idx]
-            if frame_idx - appear_frame < 5:
-                # Smoother fade-in over 5 frames
-                brightness = int(120 + (frame_idx - appear_frame) * 27)
-                color = (brightness, brightness + 60, 255)
-            else:
-                color = (210, 235, 255)  # full bright
-            draw.text((25, y), line, fill=color, font=font_body)
-            y += 45
-
-        # ---- Blinking cursor (at the end of title) ----
-        if frame_idx % 2 == 0 and show_len == total_title_chars:
-            bbox = draw.textbbox((0,0), title_to_show, font=font_title)
-            cursor_x = bbox[2] + 5
-            cursor_y = bbox[1] + 5
-            draw.rectangle([(cursor_x, cursor_y), (cursor_x+5, cursor_y+35)], fill=(0, 255, 220))
-
-        frames.append(np.array(img))
-
-    # Save as animated GIF with HIGHEST quality settings
+    # Save as single‑frame GIF (fps=1, so it appears static)
     gif_buffer = io.BytesIO()
-    imageio.mimsave(
-        gif_buffer, 
-        frames, 
-        format='GIF', 
-        fps=fps, 
-        loop=0,
-        palettesize=256,      # အရောင် ၂၅၆ လုံး အပြည့်သုံး (GIF ရဲ့ အများဆုံး)
-        quantizer='nq'        # NeuQuant – အရည်အသွေးအကောင်းဆုံး Color Quantization
-    )
+    imageio.mimsave(gif_buffer, [np.array(img)], format='GIF', fps=1)
     gif_buffer.seek(0)
-    return gif_buffer
+    return gif_buffer 
 # ==========================================
 # (Old generator functions are kept but no longer used; we replace their calls with the new one)
 # ==========================================
@@ -880,7 +819,6 @@ async def info_handler(event):
         print(f"Error in /info: {e}")
 # ==========================================
 # ⚙️ CHAT ACTIONS & WELCOME MATRIX
-# ==========================================
 @bot1.on(events.ChatAction)
 async def welcome_goodbye(event):
     try:
@@ -889,20 +827,29 @@ async def welcome_goodbye(event):
         group_name = chat.title
         target_ids = event.user_ids or [event.user_id]
 
-        # Accurate member count
+        # ---- Member count ကို ပိုတိကျအောင် ဆွဲယူခြင်း ----
+        member_count = "N/A"
         try:
+            # ပထမ ကြိုးစား – chat object ကနေ တိုက်ရိုက်ယူ
             if hasattr(chat, 'participants_count') and chat.participants_count:
                 members_cnt = chat.participants_count
             else:
+                # get_full_chat ကို သုံးပြီး သေချာဆွဲယူ
                 full_chat = await event.client.get_full_chat(chat.id)
-                members_cnt = full_chat.full_chat.participants_count
-            member_count = f"{members_cnt:,}" if members_cnt else "N/A"
-        except:
+                # full_chat မှာ participants_count ရှိတယ်
+                if hasattr(full_chat, 'participants_count'):
+                    members_cnt = full_chat.participants_count
+                else:
+                    members_cnt = None
+            if members_cnt:
+                member_count = f"{members_cnt:,}"
+        except Exception as e:
+            # ဘာမှမရရင် "N/A" ပဲထား
             member_count = "N/A"
 
         if event.user_added or event.user_joined:
+            # Bot ကိုယ်တိုင် ထည့်ခံရရင်
             if any(uid == bot_me.id for uid in target_ids if uid):
-                # Bot joined
                 await groups_col.update_one({"chat_id": chat.id}, {"$set": {"title": chat.title, "joined_at": datetime.now(TZ)}}, upsert=True)
 
                 lines = [
@@ -910,7 +857,7 @@ async def welcome_goodbye(event):
                     f"Members: {member_count}",
                     "Doraemon is online!"
                 ]
-                gif_file = await run_blocking(generate_matrix_animated_gif, "🤖 BOT ACTIVATED", lines, 550, 350, 3, 12)
+                gif_file = await run_blocking(generate_matrix_animated_gif, "🤖 BOT ACTIVATED", lines, 550, 350, 12, 24)
                 gif_file.name = "bot_joined.gif"
                 await bot1.send_file(chat.id, gif_file, caption="🐱 I'm ready to help!")
 
@@ -919,6 +866,7 @@ async def welcome_goodbye(event):
                 await bot1.send_message(SPECIFIC_GROUP, bq(msg2), parse_mode='html')
 
             else:
+                # အသုံးပြုသူအသစ် ဝင်လာ
                 for uid in target_ids:
                     if uid and uid != bot_me.id:
                         try:
@@ -930,27 +878,30 @@ async def welcome_goodbye(event):
                         user_first_name = u.first_name or "User"
                         mention = f"<a href='tg://user?id={uid}'><b>{escape_html(user_first_name)}</b></a>"
 
+                        # GIF အတွက် စာကြောင်းများ
                         lines = [
                             f"{user_first_name}",
                             f"joined {escape_html(group_name)}!",
                             f"👥 Members: {member_count}"
                         ]
-                        gif_file = await run_blocking(generate_matrix_animated_gif, "🎉 WELCOME", lines, 550, 350, 3, 12)
+                        gif_file = await run_blocking(generate_static_golden_image, "🎉 WELCOME", lines, 550, 350)
                         gif_file.name = "welcome.gif"
 
+                        # 🌟 ပိုလှအောင် Blockquote နဲ့ Bold သုံးထားတဲ့ Caption
                         caption = (
-                            f" Welcome {mention} to {escape_html(group_name)}!\n"
-                            f" Members: {member_count}\n"
-                            f"🐱 Doraemon is happy to see you!"
+                            f"<b>🎉 Welcome {mention} to {escape_html(group_name)}!</b>\n"
+                            f"👥 <b>Members:</b> <code>{member_count}</code>\n"
+                            f"🐱 <i>Doraemon is happy to see you!</i>"
                         )
                         await bot1.send_file(
                             event.chat_id,
                             gif_file,
-                            caption=caption,
+                            caption=bq(caption),  # Blockquote wrapper
                             buttons=[
                                 [Button.url("Bot OWNER DM", "t.me/Hello_Im_DexterMorgan")],
                                 [Button.url("Join our Community", "https://t.me/Comeback_BoD")]
-                            ]
+                            ],
+                            parse_mode='html'
                         )
 
         elif event.user_kicked or event.user_left:
@@ -962,21 +913,16 @@ async def welcome_goodbye(event):
                     user_first_name = u.first_name or "User"
                     mention = f"<a href='tg://user?id={event.user_id}'><b>{escape_html(user_first_name)}</b></a>"
 
-                    lines = [
-                        f"{user_first_name}",
-                        "has left the group.",
-                        f"👥 Members: {member_count}"
-                    ]
-                    gif_file = await run_blocking(generate_matrix_animated_gif, "👋 GOODBYE", lines, 500, 300, 3, 10)
-                    gif_file.name = "goodbye.gif"
-
-                    caption = f"👋 ထွက်သွားလိုက်ပါသေးတယ် {mention}!\nWe'll miss you.\n👥 Members: {member_count}"
-                    await bot1.send_file(event.chat_id, gif_file, caption=caption)
+                    caption = (
+                        f"<b>👋 Goodbye {mention}!</b>\n"
+                        f"We'll miss you.\n"
+                        f"👥 <b>Members:</b> <code>{member_count}</code>"
+                    )
+                    await bot1.send_file(event.chat_id, gif_file, caption=bq(caption), parse_mode='html')
                 except:
                     pass
     except Exception as e:
-        await report_system_error("Welcome Goodbye Event", e)
-                        
+        await report_system_error("Welcome Goodbye Event", e)                      
 
 
 # 💬 AUTOMATIC CHAT RESPONDER & DYNAMIC TRAFFIC INTERCEPTOR
@@ -2125,11 +2071,7 @@ async def who_reveal_handler(event):
             f"Rarity: {spawn_data['rarity']}",
             f"Category: {spawn_data['category']}"
         ]
-        gif_file = await run_blocking(
-            generate_matrix_animated_gif,
-            "🕵️ IDENTITY REVEAL",
-            gif_lines,
-            500, 320, 3, 12
+        gif_file = await run_blocking(generate_static_golden_image, "🕵️ IDENTITY REVEAL", gif_lines, 500, 320)
         )
         gif_file.name = "identity_reveal.gif"
         
