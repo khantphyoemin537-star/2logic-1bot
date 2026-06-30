@@ -293,31 +293,119 @@ RARITY_NUM_MAP = {
 # ==========================================
 # 🖼️ STATIC CALM GIF GENERATOR
 # ==========================================
-def generate_simple_static_gif(text, width=500, height=250, bg_color=(10,10,10), text_color=(0,255,65)):
-    """Generates a single-frame static GIF with centered text."""
+
+def generate_matrix_animated_gif(title, lines, width=600, height=400, fps=3, total_frames=15):
+    """
+    Generate an animated GIF with Matrix rain background and animated text.
+    title: main heading (e.g., "🎉 WELCOME")
+    lines: list of strings to display
+    width, height: image size
+    fps: frames per second
+    total_frames: number of frames in animation
+    """
     try:
-        # Try to load a bold mono font (fallback to default)
-        font = ImageFont.truetype("Courier-Bold.ttf", 28)
+        # Try to load bold fonts (larger size for title)
+        font_title = ImageFont.truetype("DejaVuSans-Bold.ttf", 38)
+        font_body = ImageFont.truetype("DejaVuSans-Bold.ttf", 24)
     except:
-        font = ImageFont.load_default()
-    img = Image.new('RGB', (width, height), color=bg_color)
-    d = ImageDraw.Draw(img)
-    # Draw a neat border
-    d.rectangle([(15,15),(width-15,height-15)], outline=text_color, width=3)
-    # Center the text
-    try:
-        bbox = d.textbbox((0,0), text, font=font)
-        tw = bbox[2]-bbox[0]
-        th = bbox[3]-bbox[1]
-    except AttributeError:
-        # fallback for older PIL
-        tw, th = d.textsize(text, font=font)
-    x = (width - tw)//2
-    y = (height - th)//2
-    d.text((x,y), text, fill=text_color, font=font)
-    # Save as single-frame GIF
+        # Fallback to default (will be small but works)
+        font_title = ImageFont.load_default()
+        font_body = ImageFont.load_default()
+
+    # Matrix rain setup
+    cols = width // 20  # number of columns
+    # Each column: current y position, speed, character
+    rain = []
+    for c in range(cols):
+        rain.append({
+            'x': c * 20 + random.randint(0, 10),
+            'y': random.randint(-height, 0),
+            'speed': random.randint(5, 15),
+            'char': random.choice(['0', '1', ' ', '░', '▒', '▓', '█'])
+        })
+
+    # Text animation parameters
+    title_chars = list(title)
+    total_title_chars = len(title_chars)
+    # We'll reveal title gradually over first 60% of frames
+    reveal_end = int(total_frames * 0.6)
+    # Lines appear one by one: each line appears at a certain frame
+    line_appear_frames = []
+    if lines:
+        step = (total_frames - reveal_end) // len(lines)
+        for i in range(len(lines)):
+            line_appear_frames.append(reveal_end + i * step)
+
+    frames = []
+
+    for frame_idx in range(total_frames):
+        # Create black background
+        img = Image.new('RGB', (width, height), color=(0, 0, 0))
+        draw = ImageDraw.Draw(img)
+
+        # ---- Draw Matrix rain ----
+        for col in rain:
+            # Draw the character in green
+            draw.text((col['x'], col['y']), col['char'], fill=(0, 255, 65), font=font_body)
+            # Move down
+            col['y'] += col['speed']
+            # Reset when off screen
+            if col['y'] > height:
+                col['y'] = random.randint(-height, -10)
+                col['char'] = random.choice(['0', '1', ' ', '░', '▒', '▓', '█'])
+                col['speed'] = random.randint(5, 15)
+
+        # ---- Draw title with typewriter effect ----
+        # Calculate how many characters to show
+        if frame_idx < reveal_end:
+            show_len = int((frame_idx / reveal_end) * total_title_chars)
+        else:
+            show_len = total_title_chars
+
+        title_to_show = title[:show_len]
+        # Glow effect: draw multiple times with slight offset and transparency
+        for dx, dy, alpha in [(-2,-2,50), (2,2,50), (-2,2,50), (2,-2,50), (0,0,255)]:
+            color = (0, 255, 200) if alpha == 255 else (0, 255, 200)
+            # For simplicity, we just draw once with full opacity, but we can add shadow
+            pass
+        # Actually draw the title with a slight shadow for glow
+        # Draw shadow
+        draw.text((22, 22), title_to_show, fill=(0, 255, 100), font=font_title)
+        # Draw main text
+        draw.text((20, 20), title_to_show, fill=(0, 255, 200), font=font_title)
+
+        # ---- Draw lines with fade-in ----
+        y = 90
+        for idx, line in enumerate(lines):
+            # Determine opacity based on frame
+            if frame_idx < line_appear_frames[idx]:
+                # Not yet appeared
+                continue
+            # Fade in: full opacity after 3 frames
+            appear_frame = line_appear_frames[idx]
+            if frame_idx - appear_frame < 3:
+                # Gradually increase brightness
+                brightness = int(150 + (frame_idx - appear_frame) * 35)
+                color = (brightness, brightness + 50, 255)
+            else:
+                color = (200, 230, 255)  # full bright
+            draw.text((25, y), line, fill=color, font=font_body)
+            y += 40
+
+        # ---- Blinking cursor (at the end of title) ----
+        if frame_idx % 2 == 0 and show_len == total_title_chars:
+            # Draw cursor after title
+            # Measure title width to place cursor
+            bbox = draw.textbbox((0,0), title_to_show, font=font_title)
+            cursor_x = bbox[2] + 5
+            cursor_y = bbox[1] + 5
+            draw.rectangle([(cursor_x, cursor_y), (cursor_x+4, cursor_y+30)], fill=(0, 255, 200))
+
+        frames.append(np.array(img))
+
+    # Save as animated GIF
     gif_buffer = io.BytesIO()
-    imageio.mimsave(gif_buffer, [np.array(img)], format='GIF', fps=1)
+    imageio.mimsave(gif_buffer, frames, format='GIF', fps=fps, loop=0)
     gif_buffer.seek(0)
     return gif_buffer
 
@@ -760,20 +848,31 @@ async def info_handler(event):
             target_user = await event.client.get_entity(target_id)
 
         if target_user:
+            full_name = f"{target_user.first_name or ''} {target_user.last_name or ''}".strip() or "User"
             username = f"@{target_user.username}" if target_user.username else "None"
-            full_name = f"{target_user.first_name or ''} {target_user.last_name or ''}".strip()
             
-            matrix_display = f"INFO for {full_name}\nID: {target_id}"
-            gif_file = await run_blocking(generate_simple_static_gif, matrix_display, width=500, height=200)
-            gif_file.name = "user_info.gif"
+            # Animated Matrix GIF
+            gif_lines = [
+                f"Name: {full_name}",
+                f"ID: {target_id}",
+                f"User: {username}"
+            ]
+            gif_file = await run_blocking(
+                generate_matrix_animated_gif, 
+                "ℹ️ INFO MATRIX", 
+                gif_lines, 
+                500, 320, 3, 12
+            )
+            gif_file.name = "info_matrix.gif"
             
+            # Caption with full details
             info_caption = (
                 f"✨ <b>USER INFO</b> ✨\n"
                 f"───────────\n"
                 f"🦖 <b>Full Name:</b> {full_name}\n"
-                f"🍄 <b>User ID:</b> <code>{target_id}</code>\n"
+                f"🍄 <b>User ID:</b> <code>{target_id}</code> (tap to copy)\n"
                 f"🦦 <b>Username:</b> {username}\n"
-                f"🌏 <b>Chat ID:</b> <code>{event.chat_id}</code>\n"
+                f"🌏 <b>Chat ID:</b> <code>{event.chat_id}</code> (tap to copy)\n"
                 f"───────────\n"
                 f"<i>Click to copy</i>"
             )
@@ -787,7 +886,6 @@ async def info_handler(event):
             )
     except Exception as e:
         print(f"Error in /info: {e}")
-
 # ==========================================
 # ⚙️ CHAT ACTIONS & WELCOME MATRIX
 # ==========================================
@@ -796,78 +894,73 @@ async def welcome_goodbye(event):
     try:
         chat = await event.get_chat()
         bot_me = await bot1.get_me()
-        
-        group_name = chat.title 
+        group_name = chat.title
         target_ids = event.user_ids or [event.user_id]
 
+        # Accurate member count
         try:
-            members_cnt = getattr(chat, 'participants_count', None)
-            if not members_cnt:
+            if hasattr(chat, 'participants_count') and chat.participants_count:
+                members_cnt = chat.participants_count
+            else:
                 full_chat = await event.client.get_full_chat(chat.id)
                 members_cnt = full_chat.full_chat.participants_count
-            member_count = f"{members_cnt:,}" if members_cnt else "Unknown"
+            member_count = f"{members_cnt:,}" if members_cnt else "N/A"
         except:
-            member_count = "Unknown"
-
-        group_age = "Unknown"
-        if hasattr(chat, 'date') and chat.date:
-            try:
-                now_time = datetime.now(chat.date.tzinfo)
-                delta = now_time - chat.date
-                days = delta.days
-                
-                if days >= 365:
-                    years = days // 365
-                    months = (days % 365) // 30
-                    group_age = f"{years}y {months}m" if months else f"{years}y"
-                elif days >= 30:
-                    months = days // 30
-                    remaining_days = days % 30
-                    group_age = f"{months}m {remaining_days}d" if remaining_days else f"{months}m"
-                else:
-                    group_age = f"{days}d" if days > 0 else "Today Created"
-            except:
-                group_age = "Unknown"
+            member_count = "N/A"
 
         if event.user_added or event.user_joined:
             if any(uid == bot_me.id for uid in target_ids if uid):
+                # Bot joined
                 await groups_col.update_one({"chat_id": chat.id}, {"$set": {"title": chat.title, "joined_at": datetime.now(TZ)}}, upsert=True)
-                
-                # Send a calm static GIF for bot join
-                gif_file = await run_blocking(generate_simple_static_gif, "Doraemon is online!", width=500, height=200)
+
+                lines = [
+                    f"Group: {group_name}",
+                    f"Members: {member_count}",
+                    "Doraemon is online!"
+                ]
+                gif_file = await run_blocking(generate_matrix_animated_gif, "🤖 BOT ACTIVATED", lines, 550, 350, 3, 12)
                 gif_file.name = "bot_joined.gif"
-                await bot1.send_file(chat.id, gif_file, caption="🐱 I'm here! Let's have fun together.")
-                
+                await bot1.send_file(chat.id, gif_file, caption="🐱 I'm ready to help!")
+
                 bot_mention = f"<a href='tg://user?id={bot_me.id}'>{escape_html(bot_me.first_name)}</a>"
-                msg2 = f"Hello {escape_html(group_name)}!\n{bot_mention} has been added to your group.\n\nGroup Name - {escape_html(group_name)}\nGroup ID - <code>{chat.id}</code>\nMembers - {member_count}\nGroup Age - {group_age}\nBot Creator - {owner_tag()}"
+                msg2 = f"Hello {escape_html(group_name)}!\n{bot_mention} added.\nGroup ID: <code>{chat.id}</code>\nMembers: {member_count}"
                 await bot1.send_message(SPECIFIC_GROUP, bq(msg2), parse_mode='html')
-            
+
             else:
                 for uid in target_ids:
                     if uid and uid != bot_me.id:
-                        try: u = await bot1.get_entity(uid)
-                        except: continue
-                        track_user_metrics(u.id, u.username, u.first_name) 
-                        
+                        try:
+                            u = await bot1.get_entity(uid)
+                        except:
+                            continue
+                        track_user_metrics(u.id, u.username, u.first_name)
+
                         user_first_name = u.first_name or "User"
                         mention = f"<a href='tg://user?id={uid}'><b>{escape_html(user_first_name)}</b></a>"
-                        
-                        # Send calm static GIF for new member
-                        gif_file = await run_blocking(generate_simple_static_gif, "Welcome!", width=400, height=200)
+
+                        lines = [
+                            f"{user_first_name}",
+                            f"joined {escape_html(group_name)}!",
+                            f"👥 Members: {member_count}"
+                        ]
+                        gif_file = await run_blocking(generate_matrix_animated_gif, "🎉 WELCOME", lines, 550, 350, 3, 12)
                         gif_file.name = "welcome.gif"
-                        
+
+                        caption = (
+                            f" Welcome {mention} to {escape_html(group_name)}!\n"
+                            f" Members: {member_count}\n"
+                            f"🐱 Doraemon is happy to see you!"
+                        )
                         await bot1.send_file(
-                            event.chat_id, 
+                            event.chat_id,
                             gif_file,
-                            caption=f"🎉 Welcome {mention} to {escape_html(group_name)}!\n"
-                                    f"👥 Members: {member_count}\n"
-                                    f"📅 Group age: {group_age}",
+                            caption=caption,
                             buttons=[
                                 [Button.url("Bot OWNER DM", "t.me/Hello_Im_DexterMorgan")],
                                 [Button.url("Join our Community", "https://t.me/Comeback_BoD")]
                             ]
                         )
-                        
+
         elif event.user_kicked or event.user_left:
             if event.user_id == bot_me.id:
                 await groups_col.delete_one({"chat_id": chat.id})
@@ -876,18 +969,22 @@ async def welcome_goodbye(event):
                     u = await bot1.get_entity(event.user_id)
                     user_first_name = u.first_name or "User"
                     mention = f"<a href='tg://user?id={event.user_id}'><b>{escape_html(user_first_name)}</b></a>"
-                    
-                    gif_file = await run_blocking(generate_simple_static_gif, "Goodbye!", width=400, height=200)
+
+                    lines = [
+                        f"{user_first_name}",
+                        "has left the group.",
+                        f"👥 Members: {member_count}"
+                    ]
+                    gif_file = await run_blocking(generate_matrix_animated_gif, "👋 GOODBYE", lines, 500, 300, 3, 10)
                     gif_file.name = "goodbye.gif"
-                    
-                    await bot1.send_file(
-                        event.chat_id, 
-                        gif_file,
-                        caption=f"👋 Goodbye {mention}!\nWe'll miss you."
-                    )
-                except: pass
+
+                    caption = f"👋 ထွက်သွားလိုက်ပါသေးတယ် {mention}!\nWe'll miss you.\n👥 Members: {member_count}"
+                    await bot1.send_file(event.chat_id, gif_file, caption=caption)
+                except:
+                    pass
     except Exception as e:
         await report_system_error("Welcome Goodbye Event", e)
+                        
 
 
 # 💬 AUTOMATIC CHAT RESPONDER & DYNAMIC TRAFFIC INTERCEPTOR
@@ -1142,13 +1239,25 @@ async def id_handler(event):
             target_user = await event.client.get_entity(target_id)
 
         if target_user:
-            matrix_display = f"ID: {target_id}"
-            gif_file = await run_blocking(generate_simple_static_gif, matrix_display, width=400, height=150)
-            gif_file.name = "id_status.gif"
-            
+            first_name = target_user.first_name or "User"
             username = f"@{target_user.username}" if target_user.username else "None"
+            
+            # Animated Matrix GIF
+            gif_lines = [
+                f"User: {first_name}",
+                f"ID: {target_id}"
+            ]
+            gif_file = await run_blocking(
+                generate_matrix_animated_gif, 
+                "🆔 ID MATRIX", 
+                gif_lines, 
+                500, 300, 3, 10
+            )
+            gif_file.name = "id_matrix.gif"
+            
+            # Caption with full details (tap to copy)
             id_caption = (
-                f"👤 <b>Name:</b> {target_user.first_name or ''}\n"
+                f"👤 <b>Name:</b> {first_name}\n"
                 f"🆔 <b>User ID:</b> <code>{target_id}</code> (tap to copy)\n"
                 f"🦦 <b>Username:</b> {username}\n"
                 f"🌏 <b>Chat ID:</b> <code>{event.chat_id}</code> (tap to copy)"
@@ -1163,6 +1272,7 @@ async def id_handler(event):
             )
     except Exception as e:
         print(f"Error in /id: {e}")
+
 
 # ==========================================
 # 🚫 TELEGRAM PERMANENT ASCII MUTE ENGINE (now using calm GIF)
@@ -1968,58 +2078,75 @@ async def who_reveal_handler(event):
         return await event.reply(f"⚠️ <b>Reply directly to the spawn message to reveal!</b>", parse_mode='html')
         
     try:
-        matrix_display = f"Character: {spawn_data['name']}\nRarity: {spawn_data['rarity']}"
-        gif_file = await run_blocking(generate_simple_static_gif, matrix_display, width=500, height=200)
+        # Animated Matrix GIF
+        gif_lines = [
+            f"Name: {spawn_data['name']}",
+            f"Rarity: {spawn_data['rarity']}",
+            f"Category: {spawn_data['category']}"
+        ]
+        gif_file = await run_blocking(
+            generate_matrix_animated_gif,
+            "🕵️ IDENTITY REVEAL",
+            gif_lines,
+            500, 320, 3, 12
+        )
         gif_file.name = "identity_reveal.gif"
         
         reveal_text = (
             f"🌟 <b>Name:</b> {spawn_data['name']}\n"
             f"🌟 <b>Rarity:</b> {spawn_data['rarity']}\n"
             f"🌐 <b>Category:</b> {spawn_data['category']}\n\n"
-            f"👉 <code>/catch {spawn_data['name']}</code>"
+            f" Click the button below to catch it instantly!"
         )
         
+        # Inline button to catch
+        buttons = [
+            [Button.inline("⚡Catch this Charater!", data=f"catch_now_{chat_id}")]
+        ]
+        
         await event.client.send_file(
-            event.chat_id, 
-            gif_file, 
-            caption=reveal_text, 
-            reply_to=event.id, 
-            parse_mode='html'
+            event.chat_id,
+            gif_file,
+            caption=reveal_text,
+            reply_to=event.id,
+            parse_mode='html',
+            buttons=buttons
         )
         
     except Exception as e:
         print(f"Error in /who command: {e}")
 
 
-# ==========================================
-@bot1.on(events.NewMessage(pattern=r'^/catch\s+(.*)$'))
-async def catch_handler(event):
-    if event.is_private: return
-    chat_id = event.chat_id
-    user_id = event.sender_id
-    catch_name = event.pattern_match.group(1).strip()
-    
+# ===========
+async def perform_catch(chat_id, user_id, spawn_data, event, reply_to_msg=None):
+    """
+    Shared catch logic for both /catch command and inline button.
+    Returns True if successful, False otherwise.
+    """
     if chat_id not in active_group_spawns:
-        return await event.reply(f"🛸 <b>Nothing to catch here!</b>", parse_mode='html')
+        await event.respond("🛸 <b>Nothing to catch here!</b>", parse_mode='html')
+        return False
         
-    spawn_data = active_group_spawns[chat_id]
-    if spawn_data["claimed"]: return
+    if spawn_data["claimed"]:
+        await event.respond("❌ <b>This gadget has already been caught!</b>", parse_mode='html')
+        return False
 
     if time.time() - spawn_data["spawn_time"] > 300:
         if chat_id in active_group_spawns: del active_group_spawns[chat_id]
-        return await event.reply(f"⏱️ <b>Too late! The gadget ran away.</b>", parse_mode='html')
-
-    if normalize_name(catch_name) != normalize_name(spawn_data["name"]): 
-        return await event.reply(f"❌ <b>Wrong name! Try again with the correct name.</b>", parse_mode='html')
+        await event.respond("⏱️ <b>Too late! The gadget ran away.</b>", parse_mode='html')
+        return False
 
     async with spawn_locks[chat_id]:
-        if active_group_spawns.get(chat_id, {}).get("claimed", True): return
+        if active_group_spawns.get(chat_id, {}).get("claimed", True):
+            await event.respond("❌ <b>Already caught by someone else!</b>", parse_mode='html')
+            return False
         active_group_spawns[chat_id]["claimed"] = True
 
         mention = await get_html_mention(event, user_id)
         await ensure_user_registered(user_id, mention)
         
         try:
+            # Update user's inventory
             await users_catcher_col.update_one(
                 {"user_id": user_id},
                 {
@@ -2035,18 +2162,18 @@ async def catch_handler(event):
                         "total_caught": 1, 
                         "wallet_balance": spawn_data["value"],
                         f"group_catches.{str(chat_id)}": 1
-                     },
-                     "$set": {"fullname": mention}
+                    },
+                    "$set": {"fullname": mention}
                 },
                 upsert=True
             )
             
+            # Guild XP
             guild_levelup_msg = ""
             user_guild = await guilds_col.find_one({"members": user_id})
             if user_guild:
                 new_xp = user_guild["xp"] + 10
                 current_level = user_guild["level"]
-                
                 if new_xp >= (current_level * 500):
                     await guilds_col.update_one({"_id": user_guild["_id"]}, {"$set": {"xp": 0}, "$inc": {"level": 1}})
                     guild_levelup_msg = f"\n\n🏰 <b>Guild Level Up!</b> 👑\nYour guild <b>[{escape_html(user_guild['name'])}]</b> is now Level <b>{current_level + 1}</b>! 🎉"
@@ -2055,16 +2182,18 @@ async def catch_handler(event):
             
             character_name = spawn_data['name']
             
-            matrix_display = (
-                f"⚡ MISSION: TARGET SECURED ⚡\n"
-                f"─────────\n"
-                f"🃏 Character : {character_name}\n"
-                f"🌟 Rarity    : {spawn_data['rarity']}\n"
-                f"🪙 Bounty    : +{spawn_data['value']} MMK\n"
-                f" [ ADDED TO INVENTORY ]"
+            # Animated Matrix GIF
+            gif_lines = [
+                f"Character: {character_name}",
+                f"Rarity: {spawn_data['rarity']}",
+                f"Bounty: +{spawn_data['value']} MMK"
+            ]
+            gif_file = await run_blocking(
+                generate_matrix_animated_gif,
+                "⚡ CATCH SUCCESS",
+                gif_lines,
+                550, 350, 3, 12
             )
-            
-            gif_file = await run_blocking(generate_simple_static_gif, matrix_display, width=500, height=250)
             gif_file.name = "catch_success.gif"
             
             del active_group_spawns[chat_id]
@@ -2078,23 +2207,74 @@ async def catch_handler(event):
                 f"🪙 <b>Bounty Added:</b> <b>+{spawn_data['value']} MMK</b>\n\n"
                 f"🎉 <b>Mission Secured!</b> Check your collection with <code>/hai</code>."
             )
-            
             if guild_levelup_msg:
                 success_msg += guild_levelup_msg
                 
             await bot1.send_file(
-                event.chat_id, 
-                gif_file, 
-                caption=success_msg, 
-                reply_to=event.id, 
+                chat_id,
+                gif_file,
+                caption=success_msg,
+                reply_to=reply_to_msg or event.id,
                 parse_mode='html'
             )
+            return True
             
         except Exception as e:
             if chat_id in active_group_spawns:
                 active_group_spawns[chat_id]["claimed"] = False
-            await event.reply(f"❌ <b>Catch Logic Fault:</b> {e}", parse_mode='html')
+            await event.respond(f"❌ <b>Catch Logic Fault:</b> {e}", parse_mode='html')
+            return False
 
+@bot1.on(events.CallbackQuery(pattern=r'^catch_now_(\d+)$'))
+async def catch_button_callback(event):
+    chat_id = int(event.pattern_match.group(1))
+    user_id = event.sender_id
+    
+    if chat_id not in active_group_spawns:
+        await event.answer("❌ No gadget available!", alert=True)
+        return
+        
+    spawn_data = active_group_spawns[chat_id]
+    if spawn_data["claimed"]:
+        await event.answer("❌ Already caught!", alert=True)
+        return
+        
+    # Use the shared catch logic
+    success = await perform_catch(chat_id, user_id, spawn_data, event, reply_to_msg=event.message_id)
+    if success:
+        await event.answer("🎉 Caught successfully!", alert=True)
+        # The perform_catch already sent the result message, so we just need to delete the button message or edit it?
+        # We can edit the original /who message to say "Caught!" to avoid confusion
+        try:
+            await event.edit("✅ This gadget has been caught! Check your inventory with /hai")
+        except:
+            pass
+    else:
+        await event.answer("❌ Failed to catch!", alert=True)
+
+@bot1.on(events.NewMessage(pattern=r'^/catch\s+(.*)$'))
+async def catch_handler(event):
+    if event.is_private: return
+    chat_id = event.chat_id
+    user_id = event.sender_id
+    catch_name = event.pattern_match.group(1).strip()
+    
+    if chat_id not in active_group_spawns:
+        return await event.reply(f"🛸 <b>Nothing to catch here!</b>", parse_mode='html')
+        
+    spawn_data = active_group_spawns[chat_id]
+    if spawn_data["claimed"]:
+        return await event.reply(f"❌ <b>Already caught!</b>", parse_mode='html')
+        
+    if time.time() - spawn_data["spawn_time"] > 300:
+        if chat_id in active_group_spawns: del active_group_spawns[chat_id]
+        return await event.reply(f"⏱️ <b>Too late! The gadget ran away.</b>", parse_mode='html')
+
+    if normalize_name(catch_name) != normalize_name(spawn_data["name"]):
+        return await event.reply(f"❌ <b>Wrong name! Use the exact name shown in /who.</b>", parse_mode='html')
+    
+    # Use shared helper
+    await perform_catch(chat_id, user_id, spawn_data, event)
 # ==========================================
 # 🎒 6. INVENTORY PAGINATION ENGINE (/fav & /hai)
 # ==========================================
