@@ -936,6 +936,64 @@ async def system_analytics_matrix(event):
     except Exception as e:
         await loading.edit(bq(f"❌ Analytics Error: {e}"), parse_mode='html')
 
+@bot1.on(events.NewMessage(pattern=r'^/migrate_rarity$'))
+async def migrate_rarity_handler(event):
+    if event.sender_id != OWNER_ID:
+        return await event.reply("❌ Owner only command.")
+    
+    status_msg = await event.reply("⏳ Migrating rarity emojis... Please wait.")
+    
+    # Old -> New mapping (ခင်ဗျားတို့ ပြောင်းလိုက်တဲ့အတိုင်း)
+    rarity_mapping = {
+        "🌌 LEGENDARY": "👑 LEGENDARY",
+        "🎴 LIMITED": "💎 LIMITED",
+        "🌀 MYTHIC": "🌟 MYTHIC",
+        "🔥 EPIC": "⚡ EPIC",
+        "💠 RARE": "🍀 RARE",
+        "🃏 COMMON": "🃏 COMMON"  # ဒီဟာက အတူတူပဲ၊ ထည့်ထားပေမယ့် ဘာမှမပြောင်းပါဘူး။
+    }
+    
+    updated_base = 0
+    updated_users = 0
+    
+    # ၁။ characters_base_data ထဲက Rarity တွေကို အသစ်ပြောင်းခြင်း
+    for old_rarity, new_rarity in rarity_mapping.items():
+        if old_rarity != new_rarity:
+            result = await characters_base_col.update_many(
+                {"rarity": old_rarity},
+                {"$set": {"rarity": new_rarity}}
+            )
+            updated_base += result.modified_count
+    
+    # ၂။ ကစားသမားအားလုံးရဲ့ harem ထဲက Rarity တွေကို အသစ်ပြောင်းခြင်း
+    users = await users_catcher_col.find({}).to_list(length=None)
+    for user in users:
+        harem = user.get("harem", [])
+        modified = False
+        new_harem = []
+        
+        for item in harem:
+            if isinstance(item, dict):
+                old_rarity = item.get("rarity")
+                if old_rarity in rarity_mapping and old_rarity != rarity_mapping[old_rarity]:
+                    item["rarity"] = rarity_mapping[old_rarity]
+                    modified = True
+            new_harem.append(item)
+        
+        if modified:
+            await users_catcher_col.update_one(
+                {"_id": user["_id"]},
+                {"$set": {"harem": new_harem}}
+            )
+            updated_users += 1
+    
+    await status_msg.edit(
+        f"✅ <b>Rarity Migration Complete!</b>\n"
+        f"━━━━━━━━━━━━━━━━━━━━\n"
+        f"📦 <b>Base Characters Updated:</b> <code>{updated_base}</code>\n"
+        f"👥 <b>User Inventories Updated:</b> <code>{updated_users}</code>\n\n"
+        f"💡 Now <code>/hai</code> and <code>/profile</code> will show the new emojis consistently!"
+    )
 # ==========================================
 # 🛡️ ANTISPAM MECHANISMS (STICKER & CHARACTER)
 # ==========================================
