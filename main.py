@@ -292,43 +292,41 @@ RARITY_NUM_MAP = {
 # ==========================================
 # 🖼️ STATIC CALM GIF GENERATOR
 # ==========================================
-
-def generate_matrix_animated_gif(title, lines, width=600, height=400, fps=3, total_frames=15):
+def generate_matrix_animated_gif(title, lines, width=650, height=450, fps=12, total_frames=24):
     """
     Generate an animated GIF with Matrix rain background and animated text.
     title: main heading (e.g., "🎉 WELCOME")
     lines: list of strings to display
-    width, height: image size
-    fps: frames per second
-    total_frames: number of frames in animation
+    width, height: image size (increased for better quality)
+    fps: frames per second (increased to 12 for smooth animation)
+    total_frames: number of frames in animation (increased for longer animation)
     """
     try:
         # Try to load bold fonts (larger size for title)
-        font_title = ImageFont.truetype("DejaVuSans-Bold.ttf", 38)
-        font_body = ImageFont.truetype("DejaVuSans-Bold.ttf", 24)
+        font_title = ImageFont.truetype("DejaVuSans-Bold.ttf", 42)
+        font_body = ImageFont.truetype("DejaVuSans-Bold.ttf", 28)
     except:
         # Fallback to default (will be small but works)
         font_title = ImageFont.load_default()
         font_body = ImageFont.load_default()
 
     # Matrix rain setup
-    cols = width // 20  # number of columns
-    # Each column: current y position, speed, character
+    cols = width // 18  # number of columns (adjusted for width)
     rain = []
     for c in range(cols):
         rain.append({
-            'x': c * 20 + random.randint(0, 10),
+            'x': c * 18 + random.randint(0, 10),
             'y': random.randint(-height, 0),
-            'speed': random.randint(5, 15),
+            'speed': random.randint(5, 18),
             'char': random.choice(['0', '1', ' ', '░', '▒', '▓', '█'])
         })
 
     # Text animation parameters
     title_chars = list(title)
     total_title_chars = len(title_chars)
-    # We'll reveal title gradually over first 60% of frames
-    reveal_end = int(total_frames * 0.6)
-    # Lines appear one by one: each line appears at a certain frame
+    reveal_end = int(total_frames * 0.5)  # Title reveals in first 50% of frames
+
+    # Lines appear one by one
     line_appear_frames = []
     if lines:
         step = (total_frames - reveal_end) // len(lines)
@@ -344,70 +342,65 @@ def generate_matrix_animated_gif(title, lines, width=600, height=400, fps=3, tot
 
         # ---- Draw Matrix rain ----
         for col in rain:
-            # Draw the character in green
-            draw.text((col['x'], col['y']), col['char'], fill=(0, 255, 65), font=font_body)
-            # Move down
+            # Draw the character in green (slightly brighter green for quality)
+            draw.text((col['x'], col['y']), col['char'], fill=(0, 255, 80), font=font_body)
             col['y'] += col['speed']
-            # Reset when off screen
             if col['y'] > height:
                 col['y'] = random.randint(-height, -10)
                 col['char'] = random.choice(['0', '1', ' ', '░', '▒', '▓', '█'])
-                col['speed'] = random.randint(5, 15)
+                col['speed'] = random.randint(5, 18)
 
         # ---- Draw title with typewriter effect ----
-        # Calculate how many characters to show
         if frame_idx < reveal_end:
             show_len = int((frame_idx / reveal_end) * total_title_chars)
         else:
             show_len = total_title_chars
 
         title_to_show = title[:show_len]
-        # Glow effect: draw multiple times with slight offset and transparency
-        for dx, dy, alpha in [(-2,-2,50), (2,2,50), (-2,2,50), (2,-2,50), (0,0,255)]:
-            color = (0, 255, 200) if alpha == 255 else (0, 255, 200)
-            # For simplicity, we just draw once with full opacity, but we can add shadow
-            pass
-        # Actually draw the title with a slight shadow for glow
-        # Draw shadow
-        draw.text((22, 22), title_to_show, fill=(0, 255, 100), font=font_title)
-        # Draw main text
-        draw.text((20, 20), title_to_show, fill=(0, 255, 200), font=font_title)
+        
+        # Glow effect: multiple layers for better visual quality
+        # Shadow
+        draw.text((24, 24), title_to_show, fill=(0, 255, 100), font=font_title)
+        # Main bright text
+        draw.text((20, 20), title_to_show, fill=(0, 255, 220), font=font_title)
 
-        # ---- Draw lines with fade-in ----
-        y = 90
+        # ---- Draw lines with smooth fade-in ----
+        y = 100
         for idx, line in enumerate(lines):
-            # Determine opacity based on frame
             if frame_idx < line_appear_frames[idx]:
-                # Not yet appeared
                 continue
-            # Fade in: full opacity after 3 frames
             appear_frame = line_appear_frames[idx]
-            if frame_idx - appear_frame < 3:
-                # Gradually increase brightness
-                brightness = int(150 + (frame_idx - appear_frame) * 35)
-                color = (brightness, brightness + 50, 255)
+            if frame_idx - appear_frame < 5:
+                # Smoother fade-in over 5 frames
+                brightness = int(120 + (frame_idx - appear_frame) * 27)
+                color = (brightness, brightness + 60, 255)
             else:
-                color = (200, 230, 255)  # full bright
+                color = (210, 235, 255)  # full bright
             draw.text((25, y), line, fill=color, font=font_body)
-            y += 40
+            y += 45
 
         # ---- Blinking cursor (at the end of title) ----
         if frame_idx % 2 == 0 and show_len == total_title_chars:
-            # Draw cursor after title
-            # Measure title width to place cursor
             bbox = draw.textbbox((0,0), title_to_show, font=font_title)
             cursor_x = bbox[2] + 5
             cursor_y = bbox[1] + 5
-            draw.rectangle([(cursor_x, cursor_y), (cursor_x+4, cursor_y+30)], fill=(0, 255, 200))
+            draw.rectangle([(cursor_x, cursor_y), (cursor_x+5, cursor_y+35)], fill=(0, 255, 220))
 
         frames.append(np.array(img))
 
-    # Save as animated GIF
+    # Save as animated GIF with HIGHEST quality settings
     gif_buffer = io.BytesIO()
-    imageio.mimsave(gif_buffer, frames, format='GIF', fps=fps, loop=0)
+    imageio.mimsave(
+        gif_buffer, 
+        frames, 
+        format='GIF', 
+        fps=fps, 
+        loop=0,
+        palettesize=256,      # အရောင် ၂၅၆ လုံး အပြည့်သုံး (GIF ရဲ့ အများဆုံး)
+        quantizer='nq'        # NeuQuant – အရည်အသွေးအကောင်းဆုံး Color Quantization
+    )
     gif_buffer.seek(0)
     return gif_buffer
-
 # ==========================================
 # (Old generator functions are kept but no longer used; we replace their calls with the new one)
 # ==========================================
