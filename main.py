@@ -208,7 +208,6 @@ allow_col = db["allowed_users"]
 groups_col = db["active_groups"]
 talk_col = db["random_talk"]
 talker_col = db["talker"]
-welcome_col = db["custom_welcome"] 
 ans_col = db["chatbot_answers"]
 morgan_col = db["morgan_talk"] 
 rank_col = db["rank_col"]
@@ -1572,8 +1571,8 @@ async def tag_admins(event):
     
     try:
         admins = await bot1.get_participants(event.chat_id, filter=ChannelParticipantsAdmins)
-        admin_mentions = []
-        cyber_emojis = []
+        admin_mentions = [🍡]
+        cyber_emojis = [🍡]
         
         for index, a in enumerate(admins):
             if a.bot or getattr(a, 'deleted', False): continue
@@ -1582,7 +1581,7 @@ async def tag_admins(event):
             mention = f"<a href='tg://user?id={a.id}'><b>{escape_html(full_name)}</b></a> {emoji}"
             admin_mentions.append(mention)
         
-        compact_admin_list = "  🎋  ".join(admin_mentions)
+        compact_admin_list = "  •  ".join(admin_mentions)
         adm_signal_text = (
             f"</b> <code>{escape_html(text)}</code>\n\n"
             f"🐱 <b>Admins, please pay attention!</b>\n"
@@ -1609,7 +1608,7 @@ async def broadcast(event):
             if reply_msg: await bot1.forward_messages(chat_id, reply_msg)
             else: await bot1.send_message(chat_id, command_text, parse_mode='html')
             success += 1
-            await asyncio.sleep(0.2) 
+            await asyncio.sleep(4) 
         except errors.rpcerrorlist.FloodWaitError as e:
             await asyncio.sleep(e.seconds + 2)
             try:
@@ -1681,38 +1680,46 @@ async def protection_logic(event):
                 await event.respond(bq(f"🔗 {mention}, Doraemon says no links allowed! I deleted it."), parse_mode='html')
             except: pass
 
-play_blocks = {}  
+play_blocks = {}
 
 @bot1.on(events.NewMessage(pattern=r'^/play(?:\s+(.*))?'))
 async def play_response(event):
     if event.is_private: return
     song_title = event.pattern_match.group(1)
-    if not song_title: return await event.reply(bq("🐱 Please provide a song title!\nExample: <code>/play Doraemon Theme</code>"), parse_mode='html')
+    if not song_title:
+        return await event.reply(bq("🐱 Please provide a song title!\nExample: <code>/play Doraemon Theme</code>"), parse_mode='html')
 
     chat_id = event.chat_id
-    sender = await event.get_sender()
     user_id = event.sender_id
+    sender = await event.get_sender()
     
-    if sender and getattr(sender, 'username', None): mention = f"@{sender.username}"
-    else: mention = f"<a href='tg://user?id={user_id}'>{escape_html(getattr(sender, 'first_name', 'User'))}</a>"
+    if sender and getattr(sender, 'username', None):
+        mention = f"@{sender.username}"
+    else:
+        mention = f"<a href='tg://user?id={user_id}'>{escape_html(getattr(sender, 'first_name', 'User'))}</a>"
 
     session_key = (chat_id, user_id)
-    if session_key not in play_blocks: play_blocks[session_key] = {"msg_id": None, "songs": []}
+    if session_key not in play_blocks:
+        play_blocks[session_key] = {"msg_id": None, "songs": []}
 
+    # Add new song
     current_song_entry = {"title": song_title.strip(), "by": mention}
     play_blocks[session_key]["songs"].append(current_song_entry)
 
+    # Build playlist text (max 30)
     playlist_text = ""
-    for index, s in enumerate(play_blocks[session_key]["songs"], start=1):
+    for index, s in enumerate(play_blocks[session_key]["songs"][-30:], start=1):
         playlist_text += f"{index} 💿 <code>/play {escape_html(s['title'])}</code> — {s['by']}\n"
 
+    # Get owner name
     try:
         owner_entity = await bot1.get_entity(OWNER_ID)
         owner_fullname = f"{owner_entity.first_name or ''} {owner_entity.last_name or ''}".strip() or "Khant Thu Rain"
-    except Exception: owner_fullname = "Khant Thu Rain" 
+    except Exception:
+        owner_fullname = "Khant Thu Rain"
 
     msg_template = (
-        f"🐱 <b>Doraemon’s Music System</b>\n"
+        f"🐱 <b>Doraemon's Music System</b>\n"
         f"💿 <b>Now Playing:</b> <code>{escape_html(song_title.strip())}</code>\n"
         f"✨ <b>Requested By:</b> {mention}\n\n"
         f"💎 <b>Your Playlist (max 30):</b>\n"
@@ -1722,26 +1729,44 @@ async def play_response(event):
 
     inline_buttons = [
         [Button.url("Join the Fan Club", "https://t.me/Comeback_BoD")],
-        [Button.inline("Save Playlist 📥", data=f"save_pl_{user_id}")]
+        [Button.inline("💾 Save Playlist", data=f"save_pl_{user_id}")]
     ]
 
     try:
         last_msg_id = play_blocks[session_key]["msg_id"]
+        
+        # Try to edit existing message first
         if last_msg_id:
             try:
-                await bot1.edit_message(entity=chat_id, message=last_msg_id, text=bq(msg_template), parse_mode='html', buttons=inline_buttons)
-                try: await event.delete()
-                except: pass
-            except: last_msg_id = None
+                await bot1.edit_message(
+                    entity=chat_id,
+                    message=last_msg_id,
+                    text=bq(msg_template),
+                    parse_mode='html',
+                    buttons=inline_buttons
+                )
+                # Delete the command message
+                try:
+                    await event.delete()
+                except:
+                    pass
+                return
+            except Exception as edit_error:
+                # If edit fails (message deleted, etc.), send new message
+                print(f"Edit failed, sending new: {edit_error}")
+                last_msg_id = None
 
+        # If no existing message or edit failed, send new
         if not last_msg_id:
             new_msg = await event.respond(bq(msg_template), parse_mode='html', buttons=inline_buttons)
             play_blocks[session_key]["msg_id"] = new_msg.id
-            try: await event.delete()
-            except: pass
+            try:
+                await event.delete()
+            except:
+                pass
 
-        if len(play_blocks[session_key]["songs"]) >= 30: play_blocks[session_key] = {"msg_id": None, "songs": []}
-    except Exception as e: print(f"Multimedia Play System Error: {e}")
+    except Exception as e:
+        print(f"Multimedia Play System Error: {e}")
 
 @bot1.on(events.CallbackQuery(pattern=r'^save_pl_(\d+)$'))
 async def close_playlist_callback(event):
@@ -1750,17 +1775,37 @@ async def close_playlist_callback(event):
     target_user_id = int(event.pattern_match.group(1))
     
     if clicker_id != target_user_id:
-        return await event.answer("❌ This is not your playlist! Use your own /play.", alert=True)
-        
+        return await event.answer("❌ This is not your playlist!", alert=True)
+    
     session_key = (chat_id, target_user_id)
+    
     try:
+        # Get current message
         msg = await event.get_message()
-        current_html = msg.html if msg else ""
-        frozen_buttons = [[Button.url("Join Our Group", "https://t.me/Comeback_BoD")], [Button.inline("🔒 Playlist Locked", data="playlist_frozen_done")]]
-        if current_html: await event.edit(text=current_html, parse_mode='html', buttons=frozen_buttons)
-        if session_key in play_blocks: del play_blocks[session_key]
-        await event.answer("🔒 Playlist saved!", alert=True)
-    except Exception as e: print(f"Callback Error: {e}")
+        current_text = msg.text or ""
+        
+        # Remove the save button and show locked state
+        locked_buttons = [
+            [Button.url("Join Our Group", "https://t.me/Comeback_BoD")],
+            [Button.inline("🔒 Playlist Saved ✓", data="playlist_frozen_done")]
+        ]
+        
+        # Edit the message to show it's saved
+        await event.edit(
+            current_text,
+            parse_mode='html',
+            buttons=locked_buttons
+        )
+        
+        # Remove the playlist from memory (cleanup)
+        if session_key in play_blocks:
+            del play_blocks[session_key]
+        
+        await event.answer("💾 Playlist saved successfully!", alert=True)
+        
+    except Exception as e:
+        print(f"Callback Error: {e}")
+        await event.answer("❌ Error saving playlist!", alert=True)
 
 @bot1.on(events.NewMessage(pattern=r'^/shadow(?:@\w+)?$'))
 async def set_shadow_ban(event):
@@ -2096,12 +2141,12 @@ async def who_reveal_handler(event):
             f"🌟 <b>Name:</b> {spawn_data['name']}\n"
             f"🌟 <b>Rarity:</b> {spawn_data['rarity']}\n"
             f"🌐 <b>Category:</b> {spawn_data['category']}\n\n"
-            f" Click the button below to catch it instantly!"
+            f"👉 Click the button below to catch it instantly!"
         )
         
         # Inline button to catch
         buttons = [
-            [Button.inline("⚡Catch this Charater!", data=f"catch_now_{chat_id}")]
+            [Button.inline("⚡ Catch this Character!", data=f"catch_now_{chat_id}")]
         ]
         
         await event.client.send_file(
@@ -2116,29 +2161,40 @@ async def who_reveal_handler(event):
     except Exception as e:
         print(f"Error in /who command: {e}")
 
-
 # ===========
-async def perform_catch(chat_id, user_id, spawn_data, event, reply_to_msg=None):
+async def perform_catch(chat_id, user_id, spawn_data, event, reply_to_msg=None, is_callback=False):
     """
     Shared catch logic for both /catch command and inline button.
     Returns True if successful, False otherwise.
     """
     if chat_id not in active_group_spawns:
-        await event.respond("🛸 <b>Nothing to catch here!</b>", parse_mode='html')
+        if is_callback:
+            await event.answer("🛸 Nothing to catch here!", alert=True)
+        else:
+            await event.reply("🛸 <b>Nothing to catch here!</b>", parse_mode='html')
         return False
         
     if spawn_data["claimed"]:
-        await event.respond("❌ <b>This gadget has already been caught!</b>", parse_mode='html')
+        if is_callback:
+            await event.answer("❌ Already caught!", alert=True)
+        else:
+            await event.reply("❌ <b>This gadget has already been caught!</b>", parse_mode='html')
         return False
 
     if time.time() - spawn_data["spawn_time"] > 300:
         if chat_id in active_group_spawns: del active_group_spawns[chat_id]
-        await event.respond("⏱️ <b>Too late! The gadget ran away.</b>", parse_mode='html')
+        if is_callback:
+            await event.answer("⏱️ Too late!", alert=True)
+        else:
+            await event.reply("⏱️ <b>Too late! The gadget ran away.</b>", parse_mode='html')
         return False
 
     async with spawn_locks[chat_id]:
         if active_group_spawns.get(chat_id, {}).get("claimed", True):
-            await event.respond("❌ <b>Already caught by someone else!</b>", parse_mode='html')
+            if is_callback:
+                await event.answer("❌ Already caught by someone else!", alert=True)
+            else:
+                await event.reply("❌ <b>Already caught by someone else!</b>", parse_mode='html')
             return False
         active_group_spawns[chat_id]["claimed"] = True
 
@@ -2210,6 +2266,7 @@ async def perform_catch(chat_id, user_id, spawn_data, event, reply_to_msg=None):
             if guild_levelup_msg:
                 success_msg += guild_levelup_msg
                 
+            # Send result using bot1 (works for both command and callback)
             await bot1.send_file(
                 chat_id,
                 gif_file,
@@ -2222,7 +2279,11 @@ async def perform_catch(chat_id, user_id, spawn_data, event, reply_to_msg=None):
         except Exception as e:
             if chat_id in active_group_spawns:
                 active_group_spawns[chat_id]["claimed"] = False
-            await event.respond(f"❌ <b>Catch Logic Fault:</b> {e}", parse_mode='html')
+            error_msg = f"❌ <b>Catch Logic Fault:</b> {e}"
+            if is_callback:
+                await bot1.send_message(chat_id, error_msg, parse_mode='html')
+            else:
+                await event.reply(error_msg, parse_mode='html')
             return False
 
 @bot1.on(events.CallbackQuery(pattern=r'^catch_now_(\d+)$'))
@@ -2238,17 +2299,29 @@ async def catch_button_callback(event):
     if spawn_data["claimed"]:
         await event.answer("❌ Already caught!", alert=True)
         return
-        
-    # Use the shared catch logic
-    success = await perform_catch(chat_id, user_id, spawn_data, event, reply_to_msg=event.message_id)
+    
+    # Show loading
+    await event.answer("🎯 Catching...", alert=False)
+    
+    # Use the shared catch logic with is_callback=True
+    success = await perform_catch(chat_id, user_id, spawn_data, event, reply_to_msg=event.message_id, is_callback=True)
+    
     if success:
         await event.answer("🎉 Caught successfully!", alert=True)
-        # The perform_catch already sent the result message, so we just need to delete the button message or edit it?
-        # We can edit the original /who message to say "Caught!" to avoid confusion
+        # Edit the original /who message to show it's been caught
         try:
-            await event.edit("✅ This gadget has been caught! Check your inventory with /hai")
-        except:
-            pass
+            # Get the original message that had the button
+            original_msg = await event.get_message()
+            if original_msg:
+                # Edit it to show caught status
+                new_text = original_msg.text or ""
+                # Add a note at the top
+                await event.edit(
+                    f"✅ **This gadget has been caught!**\n\n{new_text}",
+                    parse_mode='markdown'
+                )
+        except Exception as e:
+            print(f"Could not edit original message: {e}")
     else:
         await event.answer("❌ Failed to catch!", alert=True)
 
