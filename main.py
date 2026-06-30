@@ -1556,6 +1556,7 @@ async def haiclean_handler(event):
         
     except Exception as e:
         await progress_msg.edit(f"❌ Error: {e}")
+
 @bot1.on(events.NewMessage(pattern=r'^/adm(?:\s+(.*))?'))
 async def tag_admins(event):
     if event.is_private: return
@@ -1564,24 +1565,26 @@ async def tag_admins(event):
     
     try:
         admins = await bot1.get_participants(event.chat_id, filter=ChannelParticipantsAdmins)
-        admin_mentions = [🍡]
-        cyber_emojis = [🍡]
+        admin_mentions = []
         
-        for index, a in enumerate(admins):
-            if a.bot or getattr(a, 'deleted', False): continue
+        for a in admins:
+            if a.bot or getattr(a, 'deleted', False):
+                continue
             full_name = f"{a.first_name or ''} {a.last_name or ''}".strip() or "Admin"
-            emoji = cyber_emojis[index % len(cyber_emojis)]
-            mention = f"<a href='tg://user?id={a.id}'><b>{escape_html(full_name)}</b></a> {emoji}"
+            mention = f"<a href='tg://user?id={a.id}'><b>{escape_html(full_name)}</b></a>"
             admin_mentions.append(mention)
         
+        # Join with bullet points (or any separator you like)
         compact_admin_list = "  •  ".join(admin_mentions)
+        
         adm_signal_text = (
-            f"</b> <code>{escape_html(text)}</code>\n\n"
+            f"<b>{escape_html(text)}</b>\n\n"
             f"🐱 <b>Admins, please pay attention!</b>\n"
             f"{compact_admin_list}"
         )
         await event.respond(bq(adm_signal_text), parse_mode='html')
-    except Exception as e: print(f"Admin Tag System Error: {e}")
+    except Exception as e:
+        print(f"Admin Tag System Error: {e}")
 
 @bot1.on(events.NewMessage(pattern=r'^/send(?:@\w+)?(?:\s+(.*))?'))
 async def broadcast(event):
