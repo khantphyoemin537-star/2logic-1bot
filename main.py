@@ -580,7 +580,6 @@ async def fetch_optimized_smart_reply(user_text):
 # ==========================================
 # 📥 TELETHON EVENT HANDLERS
 # ==========================================
-
 # ---- SYSTEM START / HELP / GAME ----
 @bot1.on(events.NewMessage(pattern=r'^/start(?:\s+(\S+))?$'))
 async def system_start_router(event):
@@ -626,12 +625,30 @@ async def system_start_router(event):
     bot_me = await bot1.get_me()
     welcome_msg = (
         f"🐱 <b>DORAEMON’S BOT SYSTEM</b> 🎋\n"
-        f"Hello! I am Doraemon, your friendly robot cat from the future! 🐱\n"
-        f"I can manage groups, spawn magical gadgets (characters), run fun casino games, "
-        f"and answer your questions with my 22nd‑century pocket! 🎒\n\n"
-        f"Use the buttons below to explore my commands and game rules. "
-        f"Nobita would be proud of you! 😄"
-        f"{referral_note}"
+        f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+        f"🇬🇧 <b>Hello!</b> I am Doraemon, your friendly robot cat from the 22nd century!\n"
+        f"🇲🇲 <b>မင်္ဂလာပါ!</b> ကျွန်ုပ်သည် ၂၂ ရာစုမှ သင့်ရဲ့ သူငယ်ချင်း ဒိုရေမောင် ဖြစ်ပါတယ်။\n\n"
+        f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+        f"🎮 <b>CATCHING GAME</b> / <b>ကတ်ဖမ်းဂိမ်း</b>\n"
+        f"• Spawn, reveal (<code>/who</code>), and catch (<code>/catch</code>) unique characters.\n"
+        f"• View your vault (<code>/hai</code>) and favorite (<code>/fav</code>) cards.\n"
+        f"• Compete on local (<code>/top</code>) and global (<code>/gtop</code>) leaderboards.\n"
+        f"• Check character details (<code>/check</code>) and your collection progress (<code>/profile</code>).\n\n"
+        f"🎰 <b>CASINO GAMES</b> / <b>လောင်းကစားဂိမ်းများ</b>\n"
+        f"• Slot Machine (<code>/slot</code>) – spin to win big!\n"
+        f"• Multiplayer Card Game (<code>/cardgame</code>) – bet and draw the highest card!\n"
+        f"• Coin Flip (<code>/flip</code>), Dice Roll (<code>/dice</code>), Hi-Lo (<code>/hilo</code>), Gamble (<code>/gamble</code>).\n\n"
+        f"💰 <b>ECONOMY & TRADING</b> / <b>စီးပွားရေးနှင့် ကုန်သွယ်မှု</b>\n"
+        f"• Check balance (<code>/balance</code>), Daily Bonus (<code>/daily</code>), Hunt (<code>/hunt</code>).\n"
+        f"• Send money (<code>/pay</code>), Gift cards (<code>/gift</code>), Trade (<code>/trade</code>).\n"
+        f"• Sell (<code>/sell</code>), Buy (<code>/buy</code>), Market (<code>/market</code>), Scrap (<code>/scrap</code>).\n\n"
+        f"🛡️ <b>ADMIN TOOLS</b> / <b>အက်ဒမင်ကိရိယာများ</b>\n"
+        f"• Mute, Unmute, Ban, Unban, Kick, Tag Admins (<code>/adm</code>), Get ID (<code>/id</code>).\n\n"
+        f"🔗 <b>REFERRAL</b> / <b>ဖိတ်ခေါ်ခြင်း</b>\n"
+        f"• Get your invite link (<code>/referral</code>) and earn <code>2000 MMK</code> per friend!\n"
+        f"{referral_note}\n"
+        f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+        f"💡 <i>Use the buttons below to explore! / အောက်ပါခလုတ်များကို နှိပ်၍ လေ့လာပါ!</i>"
     )
     buttons = [
         [Button.inline("⚙️ Commands", data="nav_help_main"), Button.inline("🎮 Game Rules", data="nav_game_main")],
@@ -649,9 +666,29 @@ async def system_callback_router(event):
         bot_me = await bot1.get_me()
         welcome_msg = (
             f"🐱 <b>DORAEMON’S BOT SYSTEM</b> 🎋\n"
-            f"Hello! I am Doraemon, your friendly robot cat from the future! 🐱\n"
-            f"I can manage groups, spawn magical gadgets (characters), run fun casino games, "
-            f"and answer your questions with my 22nd‑century pocket! 🎒"
+            f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+            f"🇬🇧 <b>Hello!</b> I am Doraemon, your friendly robot cat from the 22nd century!\n"
+            f"🇲🇲 <b>မင်္ဂလာပါ!</b> ကျွန်ုပ်သည် ၂၂ ရာစုမှ သင့်ရဲ့ သူငယ်ချင်း ဒိုရေမောင် ဖြစ်ပါတယ်။\n\n"
+            f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+            f"🎮 <b>CATCHING GAME</b> / <b>ကတ်ဖမ်းဂိမ်း</b>\n"
+            f"• Spawn, reveal (<code>/who</code>), and catch (<code>/catch</code>) unique characters.\n"
+            f"• View your vault (<code>/hai</code>) and favorite (<code>/fav</code>) cards.\n"
+            f"• Compete on local (<code>/top</code>) and global (<code>/gtop</code>) leaderboards.\n"
+            f"• Check character details (<code>/check</code>) and your collection progress (<code>/profile</code>).\n\n"
+            f"🎰 <b>CASINO GAMES</b> / <b>လောင်းကစားဂိမ်းများ</b>\n"
+            f"• Slot Machine (<code>/slot</code>) – spin to win big!\n"
+            f"• Multiplayer Card Game (<code>/cardgame</code>) – bet and draw the highest card!\n"
+            f"• Coin Flip (<code>/flip</code>), Dice Roll (<code>/dice</code>), Hi-Lo (<code>/hilo</code>), Gamble (<code>/gamble</code>).\n\n"
+            f"💰 <b>ECONOMY & TRADING</b> / <b>စီးပွားရေးနှင့် ကုန်သွယ်မှု</b>\n"
+            f"• Check balance (<code>/balance</code>), Daily Bonus (<code>/daily</code>), Hunt (<code>/hunt</code>).\n"
+            f"• Send money (<code>/pay</code>), Gift cards (<code>/gift</code>), Trade (<code>/trade</code>).\n"
+            f"• Sell (<code>/sell</code>), Buy (<code>/buy</code>), Market (<code>/market</code>), Scrap (<code>/scrap</code>).\n\n"
+            f"🛡️ <b>ADMIN TOOLS</b> / <b>အက်ဒမင်ကိရိယာများ</b>\n"
+            f"• Mute, Unmute, Ban, Unban, Kick, Tag Admins (<code>/adm</code>), Get ID (<code>/id</code>).\n\n"
+            f"🔗 <b>REFERRAL</b> / <b>ဖိတ်ခေါ်ခြင်း</b>\n"
+            f"• Get your invite link (<code>/referral</code>) and earn <code>2000 MMK</code> per friend!\n"
+            f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+            f"💡 <i>Use the buttons below to explore! / အောက်ပါခလုတ်များကို နှိပ်၍ လေ့လာပါ!</i>"
         )
         buttons = [
             [Button.inline("⚙️ Commands", data="nav_help_main"), Button.inline("🎮 Game Rules", data="nav_game_main")],
@@ -677,7 +714,7 @@ async def system_callback_router(event):
     elif data == "nav_game_main":
         game_text = (
             f"🎮 <b><u>Doraemon’s Game Console</u></b>\n\n"
-            f"⭐ <code>/checkp</code>\n<blockquote>Check your wallet balance.</blockquote>\n\n"
+            f"⭐ <code>/balance</code>\n<blockquote>Check your wallet balance.</blockquote>\n\n"
             f"⭐ <code>/daily</code>\n<blockquote>Claim your daily bonus (streak rewards!).</blockquote>\n\n"
             f"⭐ <code>/hunt</code>\n<blockquote>Go on a hunting adventure for extra cash.</blockquote>\n\n"
             f"⭐ <code>/pay [Amount] [Username/ID]</code>\n<blockquote>Send money to another player.</blockquote>\n\n"
@@ -687,7 +724,7 @@ async def system_callback_router(event):
 
     elif data == "nav_hmode":
         await set_rarity_filter_handler(event)
-
+    
 # ---- CALCULATOR ----
 @bot1.on(events.NewMessage)
 async def auto_calculator_handler(event):
@@ -1016,31 +1053,6 @@ async def character_spam_filter(event):
             warn_msg = f"⚠️ {mention}, stop spam or you’ll be muted for 5 minutes!"
             await event.respond(bq(warn_msg), parse_mode='html')
         except Exception as e: print(f"Char Spam Warn Error: {e}")
-
-# ---- FILTERS ----
-@bot1.on(events.NewMessage(pattern=r'^[/.]f\s+(.*)'))
-async def add_filter(event):
-    if not await check_admin(event.chat_id, event.sender_id): return
-    input_str = event.pattern_match.group(1).split(None, 1)
-    keyword = input_str[0].lower().strip()
-    reply = await event.get_reply_message()
-    if reply:
-        try:
-            forwarded = await bot1.forward_messages(STORAGE_CHANNEL, reply)
-            await custom_filters_col.update_one(
-                {"keyword": keyword},
-                {"$set": {"type": "storage_msg", "msg_id": forwarded.id, "chat_id": "global"}},
-                upsert=True
-            )
-            await event.reply(bq(f"✅ Filter '{keyword}' has been saved!"), parse_mode='html')
-        except Exception as e:
-            await event.reply(bq(f"❌ Error saving filter: {e}"), parse_mode='html')
-    else:
-        await event.reply(bq("⚠️ Reply to a message with the content you want to save as a filter."), parse_mode='html')
-
-# ==========================================
-# NOTE: GOTU SYSTEM FULLY REMOVED
-# ==========================================
 
 # ---- ID ----
 @bot1.on(events.NewMessage(pattern=r'(?i)^/id'))
@@ -1389,7 +1401,7 @@ async def broadcast(event):
             success += 1
             await asyncio.sleep(4) 
         except FloodWaitError as e:
-            await asyncio.sleep(e.seconds + 2)
+            await asyncio.sleep(e.seconds + 5)
             try:
                 if reply_msg: await bot1.forward_messages(chat_id, reply_msg)
                 else: await bot1.send_message(chat_id, command_text, parse_mode='html')
@@ -1408,7 +1420,7 @@ async def protection_logic(event):
     text, chat_id, sender_id = event.text.strip(), event.chat_id, event.sender_id
     sender = await event.get_sender()
 
-    if re.search(r'/harrrem(@\w+)?', text) or re.search(r'/waaaifu(@\w+)?', text):
+    if re.search(r'/harrrem(@\w+)?', text) or re.search(r'/waifu(@\w+)?', text):
         try:
             mention = f"<a href='tg://user?id={sender_id}'>{escape_html(sender.first_name)}</a>"
             cmd_type = "harem" if "harem" in text.lower() else "waifu"
@@ -1419,7 +1431,7 @@ async def protection_logic(event):
             asyncio.create_task(delay_delete())
 
             warn_msg = await event.respond(bq(f"<b>{cmd_type} command detected</b> {mention}\nDeleted to keep chat clean."), parse_mode='html')
-            for i in range(2, 0, -1):
+            for i in range(1, 0, -1):
                 await asyncio.sleep(1)
                 await warn_msg.edit(bq(f"<b>{cmd_type} command detected</b> {mention}\nDeleting in {i} seconds..."), parse_mode='html')
             await warn_msg.delete()
@@ -1792,11 +1804,18 @@ async def trigger_dynamic_spawn(chat_id):
         await characters_base_col.update_one({"char_id": chosen_char["char_id"]}, {"$inc": {"spawn_count": 1}})
         
         rarity_display = chosen_char.get("rarity", "Unknown")
+        # ⭐ ပိုမိုဆွဲဆောင်မှုရှိသော စာသားအသစ်
+        caption = (
+            f"❔ <b>A Mysterious Character Has Appeared!</b> ⚡\n"
+            f"🤍 <i>Doraemon's pocket just opened...</i>\n"
+            f"🌟 <b>Rarity:</b> {rarity_display}\n"
+            f" <b>Can you identify this hidden hero?</b>\n"
+            f" <i>Quick! Reply with <code>/who</code> to reveal its identity before it vanishes!</i>"
+        )
+        
         spawn_msg = await bot1.send_message(
             chat_id, 
-            f" <b>A Character appeared in this chat!</b>\n"
-            f"🌟 <b>Rarity:</b> {rarity_display}\n"
-            f"<blockquote>Who is this? Reply with <code>/who</code> to reveal!</blockquote>",
+            caption,
             parse_mode='html',
             file=storage_msg.media
         )
@@ -1818,7 +1837,7 @@ async def trigger_dynamic_spawn(chat_id):
 # ==========================================
 # 🕵️ /who
 # ==========================================
-@bot1.on(events.NewMessage(pattern=r'^/who$'))
+@bot1.on(events.NewMessage(pattern=r'^/who\s+(\d+)'))
 async def who_reveal_handler(event):
     if event.is_private: return
     chat_id = event.chat_id
