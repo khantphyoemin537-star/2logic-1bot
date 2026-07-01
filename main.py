@@ -147,158 +147,7 @@ async def register_temporary_mute(chat_id, user_id, duration_minutes=60):
         {"$set": {"expiry": expiry_time}},
         upsert=True
     )
-
-# ==========================================
-# 🏅 ACHIEVEMENT / BADGE SYSTEM (300 achievements)
-# ==========================================
-def generate_achievements():
-    achievements = []
-    
-    # 1. Catch count achievements (1, 5, 10, 25, 50, 100, 200, 500, 1000, 2000, 5000)
-    catch_targets = [1, 5, 10, 25, 50, 100, 200, 500, 1000, 2000, 5000]
-    emojis = ["🎯", "📦", "🎒", "🧳", "🏅", "🏆", "👑", "💎", "🌌", "🌟", "💫"]
-    for i, target in enumerate(catch_targets):
-        achievements.append({
-            "id": f"catch_{target}",
-            "emoji": emojis[i % len(emojis)],
-            "name": f"Catch {target} Characters",
-            "desc": f"Capture {target} characters",
-            "check": lambda u, t=target: u.get("total_caught", 0) >= t
-        })
-    
-    # 2. Balance achievements (1000, 10000, 50000, 100000, 500000, 1000000)
-    balance_targets = [1000, 10000, 50000, 100000, 500000, 1000000]
-    balance_emojis = ["🪙", "💰", "💵", "💳", "🏦", "💎"]
-    for i, target in enumerate(balance_targets):
-        achievements.append({
-            "id": f"wealth_{target}",
-            "emoji": balance_emojis[i],
-            "name": f"Hold {target:,} MMK",
-            "desc": f"Amass {target:,} MMK in your wallet",
-            "check": lambda u, t=target: u.get("wallet_balance", 0) >= t
-        })
-    
-    # 3. Streak achievements (3, 7, 14, 30, 60, 100)
-    streak_targets = [3, 7, 14, 30, 60, 100]
-    streak_emojis = ["🔥", "☄️", "⚡", "🌞", "🌙", "⭐"]
-    for i, target in enumerate(streak_targets):
-        achievements.append({
-            "id": f"streak_{target}",
-            "emoji": streak_emojis[i],
-            "name": f"{target}-Day Streak",
-            "desc": f"Maintain a daily streak of {target} days",
-            "check": lambda u, t=target: u.get("daily_streak", 0) >= t
-        })
-    
-    # 4. Referral achievements (1, 5, 10, 25, 50)
-    ref_targets = [1, 5, 10, 25, 50]
-    ref_emojis = ["🤝", "👥", "📢", "📣", "🌐"]
-    for i, target in enumerate(ref_targets):
-        achievements.append({
-            "id": f"referral_{target}",
-            "emoji": ref_emojis[i],
-            "name": f"Invite {target} Friends",
-            "desc": f"Get {target} friends to join via your referral link",
-            "check": lambda u, t=target: u.get("referral_count", 0) >= t
-        })
-    
-    # 5. Legendary catches (first, 5, 10, 50)
-    leg_targets = [1, 5, 10, 50]
-    leg_emojis = ["👑", "🌌", "💫", "🌟"]
-    for i, target in enumerate(leg_targets):
-        achievements.append({
-            "id": f"legendary_{target}",
-            "emoji": leg_emojis[i],
-            "name": f"Collect {target} Legendary Cards",
-            "desc": f"Own {target} LEGENDARY rarity cards",
-            "check": lambda u, t=target: sum(1 for item in u.get("harem", []) if isinstance(item, dict) and "LEGENDARY" in (item.get("rarity", "").upper())) >= t
-        })
-    
-    # 6. Marketplace sales (1, 10, 50)
-    for target in [1, 10, 50]:
-        achievements.append({
-            "id": f"sell_{target}",
-            "emoji": "🛒",
-            "name": f"Sell {target} Cards on Market",
-            "desc": f"Successfully sell {target} cards on the marketplace",
-            "check": lambda u, t=target: u.get("total_sales", 0) >= t
-        })
-    
-    # 7. Trades (1, 10, 50)
-    for target in [1, 10, 50]:
-        achievements.append({
-            "id": f"trade_{target}",
-            "emoji": "🤝",
-            "name": f"Complete {target} Trades",
-            "desc": f"Successfully trade {target} cards with other players",
-            "check": lambda u, t=target: u.get("total_trades", 0) >= t
-        })
-    
-    # 8. Casino wins (Slot Jackpot, Card Game, Gamble)
-    achievements.append({
-        "id": "slot_jackpot",
-        "emoji": "🎰",
-        "name": "Slot Jackpot Winner",
-        "desc": "Win a God‑Tier Jackpot (7 of a kind) on the slot machine",
-        "check": lambda u: u.get("slot_jackpots", 0) >= 1
-    })
-    achievements.append({
-        "id": "cardgame_win",
-        "emoji": "🃏",
-        "name": "Card Shark",
-        "desc": "Win a multiplayer card game",
-        "check": lambda u: u.get("cardgame_wins", 0) >= 1
-    })
-    achievements.append({
-        "id": "gamble_win",
-        "emoji": "💸",
-        "name": "Lucky Gambler",
-        "desc": "Win a gamble (double or nothing) 10 times",
-        "check": lambda u: u.get("gamble_wins", 0) >= 10
-    })
-    
-    # 9. Guild level achievements (1, 5, 10)
-    guild_targets = [1, 5, 10]
-    for target in guild_targets:
-        achievements.append({
-            "id": f"guild_level_{target}",
-            "emoji": "🏰",
-            "name": f"Guild Level {target}",
-            "desc": f"Reach Guild Level {target}",
-            "check": lambda u, t=target: u.get("guild_level", 0) >= t
-        })
-    
-    # 10. Additional unique ones (first blood, special events)
-    achievements.append({
-        "id": "first_blood",
-        "emoji": "🎯",
-        "name": "First Blood",
-        "desc": "Catch your very first character",
-        "check": lambda u: u.get("total_caught", 0) >= 1
-    })
-    achievements.append({
-        "id": "completionist",
-        "emoji": "👾",
-        "name": "Completionist",
-        "desc": "Collect at least one of every rarity (Common to Legendary)",
-        "check": lambda u: all(any(classify_rarity(item.get("rarity", "")) == tier for item in u.get("harem", [])) for tier in RARITY_TIERS)
-    })
-    
-    # Fill up to 300 with catch milestones (just in case)
-    extra_milestones = [15, 20, 30, 40, 60, 70, 80, 90, 120, 150, 180, 210, 250, 300, 350, 400, 450, 600, 700, 800, 900, 1200, 1500, 2000, 2500, 3000, 4000, 5000]
-    for target in extra_milestones:
-        if not any(a["id"] == f"catch_{target}" for a in achievements):
-            achievements.append({
-                "id": f"catch_{target}",
-                "emoji": "🃏",
-                "name": f"Catch {target} Characters",
-                "desc": f"Capture {target} characters",
-                "check": lambda u, t=target: u.get("total_caught", 0) >= t
-            })
-    
-    # Trim to 300 (in case we exceed)
-    return achievements[:300]
-    
+     
 # ==========================================
 # 📈 PROGRESS BAR / RARITY CLASSIFIER
 # ==========================================
@@ -451,6 +300,200 @@ RARITY_NUM_MAP = {
     "5": {"name": f"🍀 {f('RARE')}", "value": 150},      
     "6": {"name": f"🃏 {f('COMMON')}", "value": 50}       
 }
+
+# ==========================================
+# 🏅 ACHIEVEMENT / BADGE SYSTEM (300 achievements)
+# ==========================================
+def generate_achievements():
+    achievements = []
+    
+    # 1. Catch count achievements
+    catch_targets = [1, 5, 10, 25, 50, 100, 200, 500, 1000, 2000, 5000]
+    emojis = ["🎯", "📦", "🎒", "🧳", "🏅", "🏆", "👑", "💎", "🌌", "🌟", "💫"]
+    for i, target in enumerate(catch_targets):
+        achievements.append({
+            "id": f"catch_{target}",
+            "emoji": emojis[i % len(emojis)],
+            "name": f"Catch {target} Characters",
+            "desc": f"Capture {target} characters",
+            "check": lambda u, t=target: u.get("total_caught", 0) >= t
+        })
+    
+    # 2. Balance achievements
+    balance_targets = [1000, 10000, 50000, 100000, 500000, 1000000]
+    balance_emojis = ["🪙", "💰", "💵", "💳", "🏦", "💎"]
+    for i, target in enumerate(balance_targets):
+        achievements.append({
+            "id": f"wealth_{target}",
+            "emoji": balance_emojis[i],
+            "name": f"Hold {target:,} MMK",
+            "desc": f"Amass {target:,} MMK in your wallet",
+            "check": lambda u, t=target: u.get("wallet_balance", 0) >= t
+        })
+    
+    # 3. Streak achievements
+    streak_targets = [3, 7, 14, 30, 60, 100]
+    streak_emojis = ["🔥", "☄️", "⚡", "🌞", "🌙", "⭐"]
+    for i, target in enumerate(streak_targets):
+        achievements.append({
+            "id": f"streak_{target}",
+            "emoji": streak_emojis[i],
+            "name": f"{target}-Day Streak",
+            "desc": f"Maintain a daily streak of {target} days",
+            "check": lambda u, t=target: u.get("daily_streak", 0) >= t
+        })
+    
+    # 4. Referral achievements
+    ref_targets = [1, 5, 10, 25, 50]
+    ref_emojis = ["🤝", "👥", "📢", "📣", "🌐"]
+    for i, target in enumerate(ref_targets):
+        achievements.append({
+            "id": f"referral_{target}",
+            "emoji": ref_emojis[i],
+            "name": f"Invite {target} Friends",
+            "desc": f"Get {target} friends to join via your referral link",
+            "check": lambda u, t=target: u.get("referral_count", 0) >= t
+        })
+    
+    # 5. Legendary catches
+    leg_targets = [1, 5, 10, 50]
+    leg_emojis = ["👑", "🌌", "💫", "🌟"]
+    for i, target in enumerate(leg_targets):
+        achievements.append({
+            "id": f"legendary_{target}",
+            "emoji": leg_emojis[i],
+            "name": f"Collect {target} Legendary Cards",
+            "desc": f"Own {target} LEGENDARY rarity cards",
+            "check": lambda u, t=target: sum(1 for item in u.get("harem", []) if isinstance(item, dict) and "LEGENDARY" in (item.get("rarity", "").upper())) >= t
+        })
+    
+    # 6. Marketplace sales
+    for target in [1, 10, 50]:
+        achievements.append({
+            "id": f"sell_{target}",
+            "emoji": "🛒",
+            "name": f"Sell {target} Cards on Market",
+            "desc": f"Successfully sell {target} cards on the marketplace",
+            "check": lambda u, t=target: u.get("total_sales", 0) >= t
+        })
+    
+    # 7. Trades
+    for target in [1, 10, 50]:
+        achievements.append({
+            "id": f"trade_{target}",
+            "emoji": "🤝",
+            "name": f"Complete {target} Trades",
+            "desc": f"Successfully trade {target} cards with other players",
+            "check": lambda u, t=target: u.get("total_trades", 0) >= t
+        })
+    
+    # 8. Casino wins
+    achievements.append({
+        "id": "slot_jackpot",
+        "emoji": "🎰",
+        "name": "Slot Jackpot Winner",
+        "desc": "Win a God‑Tier Jackpot (7 of a kind) on the slot machine",
+        "check": lambda u: u.get("slot_jackpots", 0) >= 1
+    })
+    achievements.append({
+        "id": "cardgame_win",
+        "emoji": "🃏",
+        "name": "Card Shark",
+        "desc": "Win a multiplayer card game",
+        "check": lambda u: u.get("cardgame_wins", 0) >= 1
+    })
+    achievements.append({
+        "id": "gamble_win",
+        "emoji": "💸",
+        "name": "Lucky Gambler",
+        "desc": "Win a gamble (double or nothing) 10 times",
+        "check": lambda u: u.get("gamble_wins", 0) >= 10
+    })
+    
+    # 9. Guild level achievements
+    guild_targets = [1, 5, 10]
+    for target in guild_targets:
+        achievements.append({
+            "id": f"guild_level_{target}",
+            "emoji": "🏰",
+            "name": f"Guild Level {target}",
+            "desc": f"Reach Guild Level {target}",
+            "check": lambda u, t=target: u.get("guild_level", 0) >= t
+        })
+    
+    # 10. Additional unique ones
+    achievements.append({
+        "id": "first_blood",
+        "emoji": "🎯",
+        "name": "First Blood",
+        "desc": "Catch your very first character",
+        "check": lambda u: u.get("total_caught", 0) >= 1
+    })
+    achievements.append({
+        "id": "completionist",
+        "emoji": "🌈",
+        "name": "Completionist",
+        "desc": "Collect at least one of every rarity (Common to Legendary)",
+        "check": lambda u: all(any(classify_rarity(item.get("rarity", "")) == tier for item in u.get("harem", [])) for tier in RARITY_TIERS)
+    })
+    
+    # Fill up to 300 with extra milestones
+    extra_milestones = [15, 20, 30, 40, 60, 70, 80, 90, 120, 150, 180, 210, 250, 300, 350, 400, 450, 600, 700, 800, 900, 1200, 1500, 2000, 2500, 3000, 4000, 5000]
+    for target in extra_milestones:
+        if not any(a["id"] == f"catch_{target}" for a in achievements):
+            achievements.append({
+                "id": f"catch_{target}",
+                "emoji": "🃏",
+                "name": f"Catch {target} Characters",
+                "desc": f"Capture {target} characters",
+                "check": lambda u, t=target: u.get("total_caught", 0) >= t
+            })
+    
+    return achievements[:300]
+
+ACHIEVEMENTS = generate_achievements()
+ACHIEVEMENTS_BY_ID = {a["id"]: a for a in ACHIEVEMENTS}
+
+async def check_and_award_achievements(user_id, notify_chat_id=None):
+    """Checks a user's stats against all achievements, silently awards any newly
+    unlocked ones, and (optionally) posts an unlock notice."""
+    user_doc = await users_catcher_col.find_one({"user_id": user_id})
+    if not user_doc:
+        return []
+    earned_ids = set(user_doc.get("achievements", []))
+    newly_earned = []
+    for ach in ACHIEVEMENTS:
+        if ach["id"] in earned_ids:
+            continue
+        try:
+            if ach["check"](user_doc):
+                newly_earned.append(ach)
+        except Exception:
+            continue
+    if not newly_earned:
+        return []
+    await users_catcher_col.update_one(
+        {"user_id": user_id},
+        {"$addToSet": {"achievements": {"$each": [a["id"] for a in newly_earned]}}}
+    )
+    if notify_chat_id:
+        for ach in newly_earned:
+            try:
+                await send_safe_message(
+                    bot1, notify_chat_id,
+                    f"🏅 <b>ACHIEVEMENT UNLOCKED!</b>\n{ach['emoji']} <b>{ach['name']}</b>\n<i>{ach['desc']}</i>",
+                    parse_mode='html'
+                )
+            except Exception:
+                pass
+    return newly_earned
+
+def format_achievement_unlocks(newly_earned):
+    """Small inline text block to append to an existing reply."""
+    if not newly_earned:
+        return ""
+    lines = "\n".join(f"{a['emoji']} <b>{a['name']}</b>" for a in newly_earned)
+    return f"\n\n🏅 <b>ACHIEVEMENT UNLOCKED!</b>\n{lines}"
 
 # ==========================================
 # 🧠 HELPER FUNCTIONS
