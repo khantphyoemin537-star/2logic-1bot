@@ -379,7 +379,28 @@ async def update_admin_cache(client, chat_id):
     except Exception as e:
         print(f"Error updating admin cache for {chat_id}: {e}")
         return set()
-async def get_circle_avatar(user, size=150):
+
+async def generate_couple_proposal_image(user1, user2, bot_avatar_bytes=None):
+    """
+    user1, user2: telethon User objects
+    bot_avatar_bytes: bot's profile photo as bytes (optional background)
+    Returns: BytesIO of the image
+    """
+    W, H = 600, 400
+    img = Image.new('RGB', (W, H), color=(20, 20, 40))
+    draw = ImageDraw.Draw(img)
+
+    # Bot ရဲ့ profile ပုံကို background အဖြစ်သုံးမယ် (ရှိရင်)
+    if bot_avatar_bytes:
+        try:
+            bg = Image.open(io.BytesIO(bot_avatar_bytes))
+            bg = bg.resize((W, H))
+            img.paste(bg, (0, 0))
+        except:
+            pass
+
+    # နှစ်ယောက်ရဲ့ ပုံကို ဆွဲယူခြင်း (async function ထဲမှာ `await` သုံးလို့ရပြီ)
+    async def get_circle_avatar(user, size=150):
         try:
             photo = await bot1.download_profile_photo(user, bytesio=True)
             if photo:
@@ -407,6 +428,7 @@ async def get_circle_avatar(user, size=150):
         except:
             font = ImageFont.load_default()
         draw.text((140, 150), "👤", fill=(255,255,255), font=font)
+
     if avatar2:
         img.paste(avatar2, (350, 100), avatar2)
     else:
@@ -435,7 +457,7 @@ async def get_circle_avatar(user, size=150):
     buf = io.BytesIO()
     img.save(buf, format='PNG')
     buf.seek(0)
-    return buf
+    return buf 
 # ==========================================
 # 🧠 OPTIMIZED SMART REPLY ENGINE
 # ==========================================
@@ -720,7 +742,6 @@ async def my_couple_handler(event):
     user_id = event.sender_id
     chat_id = event.chat_id
 
-    # ကိုယ်တွဲဖက်ကို ရှာဖွေ
     couple = await couples_col.find_one({
         "$or": [{"user1_id": user_id}, {"user2_id": user_id}],
         "chat_id": chat_id,
@@ -737,11 +758,12 @@ async def my_couple_handler(event):
     img = Image.new('RGB', (600, 300), color=(30,30,50))
     draw = ImageDraw.Draw(img)
 
-    def get_circle(user, size=120):
+    async def get_circle_avatar(user, size=120):
         try:
             photo = await bot1.download_profile_photo(user, bytesio=True)
             if photo:
-                avatar = Image.open(photo).resize((size, size))
+                avatar = Image.open(photo)
+                avatar = avatar.resize((size, size))
                 mask = Image.new('L', (size, size), 0)
                 draw_mask = ImageDraw.Draw(mask)
                 draw_mask.ellipse((0,0,size,size), fill=255)
@@ -752,26 +774,41 @@ async def my_couple_handler(event):
             pass
         return None
 
-    av1 = get_circle(me)
-    av2 = get_circle(partner)
-    if av1: img.paste(av1, (100, 60), av1)
-    else: draw.text((140, 100), "👤", fill=(255,255,255), font=ImageFont.truetype("DejaVuSans-Bold.ttf", 50))
-    if av2: img.paste(av2, (380, 60), av2)
-    else: draw.text((420, 100), "👤", fill=(255,255,255), font=ImageFont.truetype("DejaVuSans-Bold.ttf", 50))
-    draw.text((260, 130), "❤️", fill=(255,0,0), font=ImageFont.truetype("DejaVuSans-Bold.ttf", 40))
+    av1 = await get_circle_avatar(me)
+    av2 = await get_circle_avatar(partner)
 
-    # Date
-    date_obj = couple.get("custom_date") or couple.get("accepted_date")
-    if date_obj:
-        date_str = date_obj.strftime("%Y-%m-%d")
+    if av1:
+        img.paste(av1, (100, 60), av1)
     else:
-        date_str = "Unknown"
+        try:
+            font = ImageFont.truetype("DejaVuSans-Bold.ttf", 50)
+        except:
+            font = ImageFont.load_default()
+        draw.text((140, 100), "👤", fill=(255,255,255), font=font)
+
+    if av2:
+        img.paste(av2, (380, 60), av2)
+    else:
+        try:
+            font = ImageFont.truetype("DejaVuSans-Bold.ttf", 50)
+        except:
+            font = ImageFont.load_default()
+        draw.text((420, 100), "👤", fill=(255,255,255), font=font)
 
     try:
-        font = ImageFont.truetype("DejaVuSans-Bold.ttf", 24)
+        font_heart = ImageFont.truetype("DejaVuSans-Bold.ttf", 40)
     except:
-        font = ImageFont.load_default()
-    draw.text((200, 230), f"Couple since: {date_str}", fill=(255,215,0), font=font)
+        font_heart = ImageFont.load_default()
+    draw.text((260, 130), "❤️", fill=(255,0,0), font=font_heart)
+
+    date_obj = couple.get("custom_date") or couple.get("accepted_date")
+    date_str = date_obj.strftime("%Y-%m-%d") if date_obj else "Unknown"
+
+    try:
+        font_text = ImageFont.truetype("DejaVuSans-Bold.ttf", 24)
+    except:
+        font_text = ImageFont.load_default()
+    draw.text((200, 230), f"Couple since: {date_str}", fill=(255,215,0), font=font_text)
 
     buf = io.BytesIO()
     img.save(buf, format='PNG')
@@ -781,7 +818,7 @@ async def my_couple_handler(event):
 
     caption = f"💕 **Your Couple:**\n{me.first_name} 💕 {partner.first_name}\nSince: {date_str}"
     await event.reply(file=img_file, caption=caption, parse_mode='html')
-
+    
 @bot1.on(events.NewMessage(pattern=r'^/coupledate(?:\s+(.+))?$'))
 async def set_couple_date(event):
     user_id = event.sender_id
