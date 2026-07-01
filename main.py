@@ -1898,7 +1898,7 @@ async def trigger_dynamic_spawn(chat_id):
         rarity_display = chosen_char.get("rarity", "Unknown")
         spawn_msg = await bot1.send_message(
             chat_id, 
-            f"🎃 <b>Doraemon’s gadget appeared!</b>\n"
+            f" <b>A Charater appeared in this chat!</b>\n"
             f"🌟 <b>Rarity:</b> {rarity_display}\n"
             f"<blockquote>Who is this? Reply with <code>/who</code> to reveal!</blockquote>",
             parse_mode='html',
@@ -1967,7 +1967,7 @@ async def perform_catch(chat_id, user_id, spawn_data, event, reply_to_msg=None, 
             await event.reply("❌ <b>This gadget has already been caught!</b>", parse_mode='html')
         return False
 
-    if time.time() - spawn_data["spawn_time"] > 500:
+    if time.time() - spawn_data["spawn_time"] > 300:
         if chat_id in active_group_spawns: del active_group_spawns[chat_id]
         if is_callback:
             await event.answer("⏱️ Too late!", alert=True)
@@ -2023,16 +2023,17 @@ async def perform_catch(chat_id, user_id, spawn_data, event, reply_to_msg=None, 
             character_name = spawn_data['name']
             
             success_msg = (
-                f"🦄,<b>Catcher</b> {mention}, you caught it! 🎉\n"
+                f"👤 <b>Hunter:</b> {mention}, you caught it! 🎉\n"
                 f"🃏 <b>Character:</b> <b>{escape_html(character_name)}</b>\n"
                 f"🆔 <b>Asset ID:</b> <b>{spawn_data['char_id']}</b>\n"
                 f"🌟 <b>Rarity Class:</b> {spawn_data['rarity']}\n"
                 f"🪙 <b>Bounty Added:</b> <b>+{spawn_data['value']} MMK</b>\n\n"
-                f"🌠 <b>Mission Secured!</b> Check your collection with <code>/hai</code>."
+                f"🎉 <b>Mission Secured!</b> Check your collection with <code>/hai</code>."
             )
             if guild_levelup_msg:
                 success_msg += guild_levelup_msg
                 
+            # ⭐ Temp message ကို ဖျက်လိုက်ပြီ (၂.၅ စက္ကန့်ကြာပြီးသား)
             if temp_msg_id:
                 try:
                     await bot1.delete_messages(chat_id, temp_msg_id)
@@ -2057,7 +2058,7 @@ async def perform_catch(chat_id, user_id, spawn_data, event, reply_to_msg=None, 
             else:
                 await event.reply(error_msg, parse_mode='html')
             return False
-
+            
 @bot1.on(events.NewMessage(pattern=r'^/catch\s+(.*)$'))
 async def catch_handler(event):
     if event.is_private: return
@@ -2079,7 +2080,9 @@ async def catch_handler(event):
     if normalize_name(catch_name) != normalize_name(spawn_data["name"]):
         return await event.reply(f"❌ <b>Wrong name! Use the exact name shown in /who.</b>", parse_mode='html')
     
+    # ⭐ ခေတ္တ Loading စာပို့ပြီး ၂.၅ စက္ကန့် ကြာအောင် ပြသမယ်
     temp_msg = await event.reply("👾")
+    await asyncio.sleep(2.5)  # 2.5 seconds delay
     await perform_catch(chat_id, user_id, spawn_data, event, reply_to_msg=event.id, is_callback=False, temp_msg_id=temp_msg.id)
 
 # (Callback is kept just in case, but /who no longer uses it)
