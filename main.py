@@ -304,35 +304,32 @@ async def get_html_mention(event, user_id=None):
         fullname = f"Agent {user_id}"
     return f"<a href='tg://user?id={user_id}'><b>{escape_html(fullname)}</b></a>"
 
-async def generate_couple_proposal_image(user1, user2, bot_avatar=None):
+async def generate_couple_proposal_image(user1, user2, bot_avatar_bytes=None):
     """
     user1, user2: telethon User objects
-    bot_avatar: bot's profile photo (optional background)
+    bot_avatar_bytes: bot's profile photo as bytes (optional background)
     Returns: BytesIO of the image
     """
-    # ပုံအရွယ်အစား
     W, H = 600, 400
     img = Image.new('RGB', (W, H), color=(20, 20, 40))
     draw = ImageDraw.Draw(img)
 
     # Bot ရဲ့ profile ပုံကို background အဖြစ်သုံးမယ် (ရှိရင်)
-    if bot_avatar:
+    if bot_avatar_bytes:
         try:
-            bg = Image.open(io.BytesIO(bot_avatar))
+            bg = Image.open(io.BytesIO(bot_avatar_bytes))
             bg = bg.resize((W, H))
             img.paste(bg, (0, 0))
         except:
             pass
 
-    # နှစ်ယောက်ရဲ့ ပုံကို ဆွဲယူခြင်း
-    def get_circle_avatar(user, size=150):
+    # နှစ်ယောက်ရဲ့ ပုံကို ဆွဲယူခြင်း (async function ထဲမှာ `await` သုံးလို့ရပြီ)
+    async def get_circle_avatar(user, size=150):
         try:
-            # profile photo ကို download လုပ်
             photo = await bot1.download_profile_photo(user, bytesio=True)
             if photo:
                 avatar = Image.open(photo)
                 avatar = avatar.resize((size, size))
-                # အဝိုင်းဖြတ်ခြင်း
                 mask = Image.new('L', (size, size), 0)
                 draw_mask = ImageDraw.Draw(mask)
                 draw_mask.ellipse((0, 0, size, size), fill=255)
@@ -341,32 +338,43 @@ async def generate_couple_proposal_image(user1, user2, bot_avatar=None):
                 return output
         except:
             pass
-        # fallback – ပုံမရရင် emoji သုံး
         return None
 
-    avatar1 = get_circle_avatar(user1)
-    avatar2 = get_circle_avatar(user2)
+    avatar1 = await get_circle_avatar(user1)
+    avatar2 = await get_circle_avatar(user2)
 
     # ပုံတွေကို နေရာချခြင်း
     if avatar1:
         img.paste(avatar1, (100, 100), avatar1)
     else:
-        draw.text((140, 150), "👤", fill=(255,255,255), font=ImageFont.truetype("DejaVuSans-Bold.ttf", 60))
+        try:
+            font = ImageFont.truetype("DejaVuSans-Bold.ttf", 60)
+        except:
+            font = ImageFont.load_default()
+        draw.text((140, 150), "👤", fill=(255,255,255), font=font)
     if avatar2:
         img.paste(avatar2, (350, 100), avatar2)
     else:
-        draw.text((390, 150), "👤", fill=(255,255,255), font=ImageFont.truetype("DejaVuSans-Bold.ttf", 60))
+        try:
+            font = ImageFont.truetype("DejaVuSans-Bold.ttf", 60)
+        except:
+            font = ImageFont.load_default()
+        draw.text((390, 150), "👤", fill=(255,255,255), font=font)
 
     # နှလုံးသင်္ကေတ
-    draw.text((280, 170), "❤️", fill=(255,0,0), font=ImageFont.truetype("DejaVuSans-Bold.ttf", 50))
+    try:
+        font_heart = ImageFont.truetype("DejaVuSans-Bold.ttf", 50)
+    except:
+        font_heart = ImageFont.load_default()
+    draw.text((280, 170), "❤️", fill=(255,0,0), font=font_heart)
 
     # စာသား
     try:
-        font = ImageFont.truetype("DejaVuSans-Bold.ttf", 28)
+        font_text = ImageFont.truetype("DejaVuSans-Bold.ttf", 28)
     except:
-        font = ImageFont.load_default()
-    draw.text((50, 320), f"{user1.first_name or 'User1'} & {user2.first_name or 'User2'}", fill=(255,215,0), font=font)
-    draw.text((180, 360), "Doraemon wants to match you!", fill=(200,200,255), font=font)
+        font_text = ImageFont.load_default()
+    draw.text((50, 320), f"{user1.first_name or 'User1'} & {user2.first_name or 'User2'}", fill=(255,215,0), font=font_text)
+    draw.text((180, 360), "Doraemon wants to match you!", fill=(200,200,255), font=font_text)
 
     # Image → BytesIO
     buf = io.BytesIO()
