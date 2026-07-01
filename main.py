@@ -303,28 +303,7 @@ async def get_html_mention(event, user_id=None):
     except:
         fullname = f"Agent {user_id}"
     return f"<a href='tg://user?id={user_id}'><b>{escape_html(fullname)}</b></a>"
-
-async def generate_couple_proposal_image(user1, user2, bot_avatar_bytes=None):
-    """
-    user1, user2: telethon User objects
-    bot_avatar_bytes: bot's profile photo as bytes (optional background)
-    Returns: BytesIO of the image
-    """
-    W, H = 600, 400
-    img = Image.new('RGB', (W, H), color=(20, 20, 40))
-    draw = ImageDraw.Draw(img)
-
-    # Bot ရဲ့ profile ပုံကို background အဖြစ်သုံးမယ် (ရှိရင်)
-    if bot_avatar_bytes:
-        try:
-            bg = Image.open(io.BytesIO(bot_avatar_bytes))
-            bg = bg.resize((W, H))
-            img.paste(bg, (0, 0))
-        except:
-            pass
-
-    # နှစ်ယောက်ရဲ့ ပုံကို ဆွဲယူခြင်း (async function ထဲမှာ `await` သုံးလို့ရပြီ)
-    
+  
 # ==========================================
 # ⚔️ ALL GROUPS COMMAND INTERCEPTOR (AUTO ACC OPENER)
 # ==========================================
@@ -382,82 +361,121 @@ async def update_admin_cache(client, chat_id):
 
 async def generate_couple_proposal_image(user1, user2, bot_avatar_bytes=None):
     """
-    user1, user2: telethon User objects
-    bot_avatar_bytes: bot's profile photo as bytes (optional background)
-    Returns: BytesIO of the image
+    Generate a romantic couple proposal image with centered text.
     """
-    W, H = 600, 400
-    img = Image.new('RGB', (W, H), color=(20, 20, 40))
+    W, H = 750, 500  # ပုံအရွယ်အစား ပိုကြီးအောင်လုပ်
+    img = Image.new('RGB', (W, H), color=(20, 15, 35))  # ခရမ်းရောင်အမှောင်
     draw = ImageDraw.Draw(img)
 
-    # Bot ရဲ့ profile ပုံကို background အဖြစ်သုံးမယ် (ရှိရင်)
-    if bot_avatar_bytes:
-        try:
-            bg = Image.open(io.BytesIO(bot_avatar_bytes))
-            bg = bg.resize((W, H))
-            img.paste(bg, (0, 0))
-        except:
-            pass
+    # Border
+    draw.rectangle([(10, 10), (W-10, H-10)], outline=(255, 180, 200), width=4)
 
-    # နှစ်ယောက်ရဲ့ ပုံကို ဆွဲယူခြင်း (async function ထဲမှာ `await` သုံးလို့ရပြီ)
-    async def get_circle_avatar(user, size=150):
+    # Title
+    try:
+        font_title = ImageFont.truetype("DejaVuSans-Bold.ttf", 44)
+    except:
+        font_title = ImageFont.load_default()
+    
+    # Title ကို အလယ်ဗဟိုမှာ ရေးမယ်
+    title = "💕 Doraemon's Love Match 💕"
+    bbox = draw.textbbox((0, 0), title, font=font_title)
+    tw = bbox[2] - bbox[0]
+    draw.text(((W - tw) // 2, 20), title, fill=(255, 200, 220), font=font_title)
+
+    # Profile ပုံတွေကို ဆွဲယူခြင်း
+    async def get_circle_avatar(user, size=160):
         try:
             photo = await bot1.download_profile_photo(user, bytesio=True)
             if photo:
                 avatar = Image.open(photo)
-                avatar = avatar.resize((size, size))
+                avatar = avatar.resize((size, size), Image.Resampling.LANCZOS)
                 mask = Image.new('L', (size, size), 0)
                 draw_mask = ImageDraw.Draw(mask)
                 draw_mask.ellipse((0, 0, size, size), fill=255)
-                output = Image.new('RGBA', (size, size), (0,0,0,0))
-                output.paste(avatar, (0,0), mask)
+                output = Image.new('RGBA', (size, size), (0, 0, 0, 0))
+                output.paste(avatar, (0, 0), mask)
                 return output
-        except:
-            pass
+        except Exception as e:
+            print(f"Avatar download error: {e}")
         return None
 
     avatar1 = await get_circle_avatar(user1)
     avatar2 = await get_circle_avatar(user2)
 
-    # ပုံတွေကို နေရာချခြင်း
+    # Avatar 1 (Left)
+    avatar_x1 = 140
+    avatar_y1 = 140
     if avatar1:
-        img.paste(avatar1, (100, 100), avatar1)
+        img.paste(avatar1, (avatar_x1, avatar_y1), avatar1)
     else:
         try:
-            font = ImageFont.truetype("DejaVuSans-Bold.ttf", 60)
+            font = ImageFont.truetype("DejaVuSans-Bold.ttf", 80)
         except:
             font = ImageFont.load_default()
-        draw.text((140, 150), "👤", fill=(255,255,255), font=font)
+        draw.text((avatar_x1 + 40, avatar_y1 + 40), "👤", fill=(200, 200, 255), font=font)
 
+    # Avatar 2 (Right)
+    avatar_x2 = 450
+    avatar_y2 = 140
     if avatar2:
-        img.paste(avatar2, (350, 100), avatar2)
+        img.paste(avatar2, (avatar_x2, avatar_y2), avatar2)
     else:
         try:
-            font = ImageFont.truetype("DejaVuSans-Bold.ttf", 60)
+            font = ImageFont.truetype("DejaVuSans-Bold.ttf", 80)
         except:
             font = ImageFont.load_default()
-        draw.text((390, 150), "👤", fill=(255,255,255), font=font)
+        draw.text((avatar_x2 + 40, avatar_y2 + 40), "👤", fill=(200, 200, 255), font=font)
 
-    # နှလုံးသင်္ကေတ
+    # Heart in the middle
     try:
-        font_heart = ImageFont.truetype("DejaVuSans-Bold.ttf", 50)
+        font_heart = ImageFont.truetype("DejaVuSans-Bold.ttf", 70)
     except:
         font_heart = ImageFont.load_default()
-    draw.text((280, 170), "❤️", fill=(255,0,0), font=font_heart)
+    draw.text((330, 170), "❤️", fill=(255, 50, 80), font=font_heart)
 
-    # စာသား
+    # Names
     try:
-        font_text = ImageFont.truetype("DejaVuSans-Bold.ttf", 28)
+        font_name = ImageFont.truetype("DejaVuSans-Bold.ttf", 32)
     except:
-        font_text = ImageFont.load_default()
-    draw.text((50, 320), f"{user1.first_name or 'User1'} & {user2.first_name or 'User2'}", fill=(255,215,0), font=font_text)
-    draw.text((180, 360), "Doraemon wants to match you!", fill=(200,200,255), font=font_text)
+        font_name = ImageFont.load_default()
+    
+    name1 = user1.first_name or "User1"
+    name2 = user2.first_name or "User2"
+    
+    # Name 1 (left)
+    bbox = draw.textbbox((0, 0), name1, font=font_name)
+    tw = bbox[2] - bbox[0]
+    draw.text(((avatar_x1 + 80) - tw // 2, avatar_y1 + 180), name1, fill=(255, 215, 0), font=font_name)
+    
+    # Name 2 (right)
+    bbox = draw.textbbox((0, 0), name2, font=font_name)
+    tw = bbox[2] - bbox[0]
+    draw.text(((avatar_x2 + 80) - tw // 2, avatar_y2 + 180), name2, fill=(255, 215, 0), font=font_name)
 
-    # Image → BytesIO
+    # Bottom message
+    try:
+        font_msg = ImageFont.truetype("DejaVuSans-Bold.ttf", 28)
+    except:
+        font_msg = ImageFont.load_default()
+    
+    msg = "Doraemon wants to match you two!"
+    bbox = draw.textbbox((0, 0), msg, font=font_msg)
+    tw = bbox[2] - bbox[0]
+    draw.text(((W - tw) // 2, 400), msg, fill=(200, 220, 255), font=font_msg)
+
+    # Romantic sparkles
+    try:
+        font_sparkle = ImageFont.truetype("DejaVuSans-Bold.ttf", 24)
+    except:
+        font_sparkle = ImageFont.load_default()
+    draw.text((40, 440), "✨", fill=(255, 255, 180), font=font_sparkle)
+    draw.text((680, 440), "✨", fill=(255, 255, 180), font=font_sparkle)
+
     buf = io.BytesIO()
     img.save(buf, format='PNG')
     buf.seek(0)
-    return buf 
+    return buf
+
 # ==========================================
 # 🧠 OPTIMIZED SMART REPLY ENGINE
 # ==========================================
@@ -510,7 +528,7 @@ async def daily_couple_matcher():
     while True:
         now = datetime.now(TZ)
         # ည ၁၂ နာရီ ၅ မိနစ်မှာ စစ်ဆေးမယ် (နေ့စဉ် ပြောင်းဖို့)
-        next_run = now.replace(hour=0, minute=5, second=0, microsecond=0) + timedelta(days=1)
+        next_run = now.replace(hour=12, minute=5, second=0, microsecond=0) + timedelta(days=1)
         if now > next_run:
             next_run += timedelta(days=1)
         await asyncio.sleep((next_run - now).total_seconds())
@@ -557,7 +575,7 @@ async def daily_couple_matcher():
                 # စာသားနဲ့အတူ ပို့ခြင်း
                 caption = (
                     f"🐱 Doraemon says: I want to match you two!\n"
-                    f"👤 {user1.first_name} 💕 {user2.first_name}\n"
+                    f"🐼 {user1.first_name} 💕 {user2.first_name}\n"
                     f"Do you accept this couple?"
                 )
                 buttons = [
@@ -722,6 +740,7 @@ async def couple_callback_handler(event):
     proposal_id = event.pattern_match.group(2)
     user_id = event.sender_id
 
+    # Proposal ကို ရှာပါ
     proposal = await proposals_col.find_one({"proposal_id": proposal_id})
     if not proposal:
         await event.answer("💕 This love story has already ended! 🌸", alert=True)
@@ -731,6 +750,7 @@ async def couple_callback_handler(event):
         await event.answer("💕 This proposal has already been answered! 🌸", alert=True)
         return
 
+    # ဒီ proposal က ဒီ user အတွက်မဟုတ်ရင် ခွင့်မပြု
     if user_id not in (proposal["user1_id"], proposal["user2_id"]):
         await event.answer("💕 This love letter is not for you! 🌸", alert=True)
         return
@@ -739,7 +759,9 @@ async def couple_callback_handler(event):
     user1_id = proposal["user1_id"]
     user2_id = proposal["user2_id"]
 
+    # ⭐ Action အတိုင်း လုပ်ဆောင်ခြင်း
     if action == "accept":
+        # အတွဲဖြစ်သွားပြီဆိုရင် DB ထဲသိမ်း
         await couples_col.insert_one({
             "chat_id": chat_id,
             "user1_id": user1_id,
@@ -750,15 +772,17 @@ async def couple_callback_handler(event):
         })
         await proposals_col.update_one({"proposal_id": proposal_id}, {"$set": {"status": "accepted"}})
 
+        # ⭐ Original Message ကို Edit လုပ်ပြီး အောင်မြင်ကြောင်းပြမယ်
         await event.edit(
             f"💕 **Congratulations!** 🎉\n"
             f"🌸 You are now a beautiful couple!\n"
             f"🐱 Doraemon is so happy for you!\n\n"
             f"💕 Use /mycouple to see your love story!\n"
-            f"📅 Use /coupledate [2026.6.17] to set your special day!"
+            f"📅 Use /coupledate [eg./coupledate 2026.6.17] to set your special day!"
         )
         await event.answer("💕 You said YES! Love is beautiful! 🌸", alert=True)
 
+        # DM ပို့မယ်
         try:
             await bot1.send_message(user1_id, "💕 YOUR LOVE STORY BEGINS! 🎉\nYou are now officially a couple! Doraemon is overjoyed! 🌸")
             await bot1.send_message(user2_id, "💕 YOUR LOVE STORY BEGINS! 🎉\nYou are now officially a couple! Doraemon is overjoyed! 🌸")
@@ -767,13 +791,14 @@ async def couple_callback_handler(event):
 
     else:  # reject
         await proposals_col.update_one({"proposal_id": proposal_id}, {"$set": {"status": "rejected"}})
+        
         await event.edit(
             f"💔 That's okay! Love takes time! 🌸\n"
             f"🐱 Doraemon believes the right person will come along!\n"
             f"🌟 Keep your heart open!"
         )
         await event.answer("💔 You said no. That's okay! Love will find you! 🌸", alert=True)
-    
+        
 @bot1.on(events.NewMessage(pattern=r'^/mycouple(?:@\w+)?$'))
 async def my_couple_handler(event):
     user_id = event.sender_id
