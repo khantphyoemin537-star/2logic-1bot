@@ -899,8 +899,7 @@ async def set_gotu_pair_handler(event):
         reply_msg += f"❌ <b>Errors:</b>\n" + "\n".join(errors[:5])
     
     await event.reply(reply_msg, parse_mode='html')
- # 5. /gotu – Main Game Handler
-# ==========================================
+
 @bot1.on(events.NewMessage(pattern=r'^/gotu(?:@\w+)?(?:\s+(.*))?'))
 async def gotu_handler(event):
     chat_id = event.chat_id
@@ -1056,7 +1055,6 @@ async def gotu_handler(event):
         if existing_player:
             return await event.reply("❌ You are already in the lobby!")
         
-        # Check if user has started bot (registered)
         user_entity = await event.get_sender()
         bot_me = await bot1.get_me()
         
@@ -1110,102 +1108,109 @@ async def gotu_handler(event):
         else:
             await event.reply("❌ You are not in the lobby.")
         return
-        
+    
     elif args == "startgame":
-    game = await gotu_games_col.find_one({
-        "chat_id": chat_id,
-        "status": "lobby"
-    })
-    if not game:
-        return await event.reply("❌ No lobby to start.")
-    if game["host_id"] != user_id:
-        return await event.reply("❌ Only the host can start the game.")
-    
-    players = await gotu_players_col.find({"game_id": game["_id"]}).to_list(length=None)
-    if len(players) < 3:
-        return await event.reply(f"❌ Need at least 3 players. Currently {len(players)}.")
-    
-    import random
-    random.shuffle(players)
-    unique_player = players[0]
-    common_item = game["pair"][0]
-    unique_item = game["pair"][1]
-    
-    # Assign roles to each player
-    for p in players:
-        is_unique = (p["_id"] == unique_player["_id"])
-        role = unique_item if is_unique else common_item
-        await gotu_players_col.update_one(
-            {"_id": p["_id"]},
-            {"$set": {"role_item": role, "is_unique": is_unique, "alive": True}}
+        game = await gotu_games_col.find_one({
+            "chat_id": chat_id,
+            "status": "lobby"
+        })
+        if not game:
+            return await event.reply("❌ No lobby to start.")
+        if game["host_id"] != user_id:
+            return await event.reply("❌ Only the host can start the game.")
+        
+        players = await gotu_players_col.find({"game_id": game["_id"]}).to_list(length=None)
+        if len(players) < 3:
+            return await event.reply(f"❌ Need at least 3 players. Currently {len(players)}.")
+        
+        import random
+        random.shuffle(players)
+        unique_player = players[0]
+        common_item = game["pair"][0]
+        unique_item = game["pair"][1]
+        
+        for p in players:
+            is_unique = (p["_id"] == unique_player["_id"])
+            role = unique_item if is_unique else common_item
+            await gotu_players_col.update_one(
+                {"_id": p["_id"]},
+                {"$set": {"role_item": role, "is_unique": is_unique, "alive": True}}
+            )
+        
+        await gotu_games_col.update_one(
+            {"_id": game["_id"]},
+            {"$set": {"status": "active", "started_at": datetime.now(TZ), "unique_item": unique_item}}
         )
+        
+        for p in players:
+            try:
+                if p["is_unique"]:
+                    role_msg = (
+                        f"🎭 <b>Your GOTU Role / သင်၏ GOTU အခန်းကဏ္ဍ</b>\n"
+                        f"━━━━━━━━━━━━━━━━━━━━\n"
+                        f"🔍 <b>English:</b> You are the <b>UNIQUE</b> one!\n"
+                        f"   Your item: <b>{unique_item}</b>\n"
+                        f"   Others have a <b>different</b> item. You don't know what it is!\n"
+                        f"   Blend in and don't get caught!\n\n"
+                        f"🇲🇲 <b>မြန်မာ:</b> သင်သည် <b>ထူးခြားသူ</b> ဖြစ်သည်!\n"
+                        f"   သင့်အရာ: <b>{unique_item}</b>\n"
+                        f"   အခြားသူများက <b>မတူညီတဲ့အရာ</b> ရထားသည်။ သင်မသိပါ။\n"
+                        f"   သာမန်လိုဟန်ဆောင်ပြီး မမိအောင်နေပါ!"
+                    )
+                else:
+                    role_msg = (
+                        f"🎭 <b>Your GOTU Role / သင်၏ GOTU အခန်းကဏ္ဍ</b>\n"
+                        f"━━━━━━━━━━━━━━━━━━━━\n"
+                        f"👤 <b>English:</b> You are a <b>COMMON</b> player.\n"
+                        f"   Your item: <b>{common_item}</b>\n"
+                        f"   The unique one has: <b>{unique_item}</b>\n"
+                        f"   Find the unique one!\n\n"
+                        f"🇲🇲 <b>မြန်မာ:</b> သင်သည် <b>သာမန်</b> ကစားသမားဖြစ်သည်။\n"
+                        f"   သင့်အရာ: <b>{common_item}</b>\n"
+                        f"   ထူးခြားသူက <b>{unique_item}</b> ရထားသည်။\n"
+                        f"   ထူးခြားသူကိုရှာပါ!"
+                    )
+                await bot1.send_message(p["user_id"], role_msg, parse_mode='html')
+            except Exception as e:
+                print(f"Failed to send DM to {p['user_id']}: {e}")
+        
+        await event.reply(
+            f"🎮 <b>GOTU GAME STARTED!</b>\n"
+            f"━━━━━━━━━━━━━━━━━━━━\n"
+            f"👥 <b>Players:</b> {len(players)}\n"
+            f"📌 <b>Items:</b> {common_item} (common) | {unique_item} (unique)\n"
+            f"🔍 <b>Find the unique one!</b>\n"
+            f"⏱️ <b>Time limit:</b> 5 minutes\n"
+            f"💕 Use <code>/gotu @username</code> (or reply) to guess!\n"
+            f"🐱 Good luck!"
+        )
+        
+        async def game_timer():
+            await asyncio.sleep(300)
+            g = await gotu_games_col.find_one({"_id": game["_id"]})
+            if g and g["status"] == "active":
+                await gotu_games_col.update_one({"_id": game["_id"]}, {"$set": {"status": "ended"}})
+                all_players = await gotu_players_col.find({"game_id": game["_id"]}).to_list(length=None)
+                roles_msg = "⏰ <b>Time's up!</b>\n📋 <b>Final Roles / နောက်ဆုံးအခန်းကဏ္ဍများ:</b>\n"
+                for p in all_players:
+                    roles_msg += f"• {p['username']}: {p['role_item']} {'(UNIQUE)' if p['is_unique'] else ''}\n"
+                await bot1.send_message(chat_id, roles_msg, parse_mode='html')
+        
+        asyncio.create_task(game_timer())
+        return
     
-    await gotu_games_col.update_one(
-        {"_id": game["_id"]},
-        {"$set": {"status": "active", "started_at": datetime.now(TZ), "unique_item": unique_item}}
-    )
-    
-    # Send DM to each player with bilingual message
-    for p in players:
-        try:
-            if p["is_unique"]:
-                # ⭐ UNIQUE player – ONLY knows their own item, NOT the common item!
-                role_msg = (
-                    f"🎭 <b>Your GOTU Role / သင်၏ GOTU အခန်းကဏ္ဍ</b>\n"
-                    f"━━━━━━━━━━━━━━━━━━━━\n"
-                    f"🔍 <b>English:</b> You are the <b>UNIQUE</b> one!\n"
-                    f"   Your item: <b>{unique_item}</b>\n"
-                    f"   Others have a <b>different</b> item. You don't know what it is!\n"
-                    f"   Blend in and don't get caught!\n\n"
-                    f"🇲🇲 <b>မြန်မာ:</b> သင်သည် <b>ထူးခြားသူ</b> ဖြစ်သည်!\n"
-                    f"   သင့်အရာ: <b>{unique_item}</b>\n"
-                    f"   အခြားသူများက <b>မတူညီတဲ့အရာ</b> ရထားသည်။ သင်မသိပါ။\n"
-                    f"   သာမန်လိုဟန်ဆောင်ပြီး မမိအောင်နေပါ!"
-                )
-            else:
-                # ⭐ COMMON players – know both items
-                role_msg = (
-                    f"🎭 <b>Your GOTU Role / သင်၏ GOTU အခန်းကဏ္ဍ</b>\n"
-                    f"━━━━━━━━━━━━━━━━━━━━\n"
-                    f"👤 <b>English:</b> You are a <b>COMMON</b> player.\n"
-                    f"   Your item: <b>{common_item}</b>\n"
-                    f"   The unique one has: <b>{unique_item}</b>\n"
-                    f"   Find the unique one!\n\n"
-                    f"🇲🇲 <b>မြန်မာ:</b> သင်သည် <b>သာမန်</b> ကစားသမားဖြစ်သည်။\n"
-                    f"   သင့်အရာ: <b>{common_item}</b>\n"
-                    f"   ထူးခြားသူက <b>{unique_item}</b> ရထားသည်။\n"
-                    f"   ထူးခြားသူကိုရှာပါ (/gotu နဲ့ replyပြန်ပြီး ဖမ်းလို့ရတယ်)"
-                )
-            await bot1.send_message(p["user_id"], role_msg, parse_mode='html')
-        except Exception as e:
-            print(f"Failed to send DM to {p['user_id']}: {e}")
-    
-    await event.reply(
-        f"🎮 <b>GOTU GAME STARTED!</b>\n"
-        f"━━━━━━━━━━━━━━━━━━━━\n"
-        f"👥 <b>Players:</b> {len(players)}\n"
-        f"📌 <b>Items:</b> {common_item} (common) | {unique_item} (unique)\n"
-        f"🔍 <b>Find the unique one!</b>\n"
-        f"⏱️ <b>Time limit:</b> 5 minutes\n"
-        f"💕 Use <code>/gotu @username</code> (or reply) to guess!\n"
-        f"🐱 Good luck!"
-    )
-    
-    async def game_timer():
-        await asyncio.sleep(300)
-        g = await gotu_games_col.find_one({"_id": game["_id"]})
-        if g and g["status"] == "active":
-            await gotu_games_col.update_one({"_id": game["_id"]}, {"$set": {"status": "ended"}})
-            all_players = await gotu_players_col.find({"game_id": game["_id"]}).to_list(length=None)
-            roles_msg = "⏰ <b>Time's up!</b>\n📋 <b>Final Roles / နောက်ဆုံးအခန်းကဏ္ဍများ:</b>\n"
-            for p in all_players:
-                roles_msg += f"• {p['username']}: {p['role_item']} {'(UNIQUE)' if p['is_unique'] else ''}\n"
-            await bot1.send_message(chat_id, roles_msg, parse_mode='html')
-    
-    asyncio.create_task(game_timer())
-    return
-            
-       
+    else:
+        await event.reply(
+            f"🎮 <b>GOTU Game Commands</b>\n"
+            f"━━━━━━━━━━━━━━━━━━━━\n"
+            f"<code>/gotu start</code> - Create a game lobby\n"
+            f"<code>/gotu join</code> - Join the lobby\n"
+            f"<code>/gotu leave</code> - Leave the lobby\n"
+            f"<code>/gotu startgame</code> - Start the game (host only)\n"
+            f"<code>/gotu @username</code> - Guess the unique player\n"
+            f"━━━━━━━━━━━━━━━━━━━━\n"
+            f"🐱 Doraemon's GOTU game - find the unique one!"
+                )               
 # ---- ID ----
 @bot1.on(events.NewMessage(pattern=r'(?i)^/id'))
 async def id_handler(event):
@@ -3233,9 +3238,6 @@ async def start_system():
             print(f"✅ Bot connected as @{me_main.username}")
             if me_main.id not in bot_ids: bot_ids.append(me_main.id)
             asyncio.create_task(ghost_spawn_cleaner())
-            # existing code ...
-            asyncio.create_task(daily_couple_matcher())
-            asyncio.create_task(anniversary_checker())
             print("📅 Background tasks started.")
             await bot1.run_until_disconnected()
         except Exception as system_fault:
