@@ -1359,13 +1359,20 @@ async def tag_admins(event):
     except Exception as e:
         print(f"Admin Tag System Error: {e}")
 
-@bot1.on(events.NewMessage(pattern=r'^/status(?:@\w+)?$'))
+@bot1.on(events.NewMessage(pattern=r'^/stats(?:@\w+)?$'))
 async def system_inflation_stats(event):
     status_msg = await event.reply("⏳ <b>Compiling statistics...</b>", parse_mode='html')
 
     try:
-        # 1. Economy totals
-        pipeline = [{"$group": {"_id": None, "total_cash": {"$sum": "$wallet_balance"}, "total_cards": {"$sum": {"$size": "$harem"}}, "players_count": {"$sum": 1}}}]
+        # 1. Economy totals (with $ifNull to handle missing harem)
+        pipeline = [
+            {"$group": {
+                "_id": None,
+                "total_cash": {"$sum": "$wallet_balance"},
+                "total_cards": {"$sum": {"$size": {"$ifNull": ["$harem", []]}}},
+                "players_count": {"$sum": 1}
+            }}
+        ]
         econ_data = await users_catcher_col.aggregate(pipeline).to_list(length=1)
         metrics = econ_data[0] if econ_data else {"total_cash": 0, "total_cards": 0, "players_count": 0}
 
@@ -1378,8 +1385,9 @@ async def system_inflation_stats(event):
             if tier in base_tier_counts:
                 base_tier_counts[tier] += 1
 
-        # 3. Total catches across all players, grouped by rarity (optimized with aggregation)
+        # 3. Total catches across all players (skip users without harem)
         catch_pipeline = [
+            {"$match": {"harem": {"$exists": True, "$ne": []}}},
             {"$unwind": "$harem"},
             {"$group": {"_id": "$harem.rarity", "count": {"$sum": 1}}}
         ]
@@ -1395,6 +1403,7 @@ async def system_inflation_stats(event):
 
         # 4. Unique characters discovered (using distinct on harem.char_id)
         distinct_pipeline = [
+            {"$match": {"harem": {"$exists": True, "$ne": []}}},
             {"$unwind": "$harem"},
             {"$group": {"_id": "$harem.char_id"}},
             {"$count": "unique"}
