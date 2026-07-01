@@ -513,7 +513,7 @@ async def system_callback_router(event):
         return await event.edit(bq(game_text), parse_mode='html', buttons=[[Button.inline("🔙 Back", data="nav_back_home")]])
     elif data == "nav_hmode":
     # Simulate /hmode command
-    await set_rarity_filter_handler(event)
+        await set_rarity_filter_handler(event)
 # ---- CALCULATOR ----
 @bot1.on(events.NewMessage)
 async def auto_calculator_handler(event):
