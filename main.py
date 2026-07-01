@@ -1110,6 +1110,7 @@ async def gotu_handler(event):
         else:
             await event.reply("❌ You are not in the lobby.")
         return
+        
     elif args == "startgame":
     game = await gotu_games_col.find_one({
         "chat_id": chat_id,
