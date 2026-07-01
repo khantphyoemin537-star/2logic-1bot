@@ -846,7 +846,7 @@ async def add_filter(event):
     else:
         await event.reply(bq("⚠️ Reply to a message with the content you want to save as a filter."), parse_mode='html')
 
-@bot1.on(events.NewMessage(pattern=r'^/setgotu(?:\s+(.+))?$'))
+@bot1.on(events.NewMessage(pattern=r'^/setgotu(?:\s+(.*))?$'))
 async def set_gotu_pair_handler(event):
     if event.sender_id != OWNER_ID:
         return await event.reply("❌ This command is for the owner only.")
@@ -857,28 +857,48 @@ async def set_gotu_pair_handler(event):
     text = event.pattern_match.group(1)
     if not text:
         return await event.reply(
-            "📝 <b>Add a GOTU pair</b>\n"
-            "Send: <code>/setgotu item1 | item2</code>\n"
-            "Example: <code>/setgotu ငှက်ပျောသီး | သရက်သီး</code>\n"
-            "You can add multiple pairs one by one."
+            "📝 <b>Add GOTU pairs (bulk supported!)</b>\n"
+            "Send: <code>/setgotu</code> followed by pairs, one per line.\n"
+            "Example:\n"
+            "<code>/setgotu\n"
+            "ငှက်ပျောသီး | သရက်သီး\n"
+            "ခြင် | ဝက်\n"
+            "ဆင် | ကျား</code>"
         )
     
-    if '|' not in text:
-        return await event.reply("❌ Invalid format. Use: <code>item1 | item2</code>")
+    # Split by newlines
+    lines = text.strip().split('\n')
+    added = 0
+    skipped = 0
+    errors = []
     
-    parts = [p.strip() for p in text.split('|')]
-    if len(parts) != 2:
-        return await event.reply("❌ Exactly two items required.")
+    for line in lines:
+        line = line.strip()
+        if not line or '|' not in line:
+            continue
+        
+        parts = [p.strip() for p in line.split('|')]
+        if len(parts) != 2:
+            errors.append(f"❌ Invalid: {line}")
+            continue
+        
+        pair = parts
+        # Check if already exists
+        existing = await gotu_pairs_col.find_one({"pair": pair})
+        if existing:
+            skipped += 1
+            continue
+        
+        await gotu_pairs_col.insert_one({"pair": pair})
+        added += 1
     
-    pair = parts
-    # Check if already exists
-    existing = await gotu_pairs_col.find_one({"pair": pair})
-    if existing:
-        return await event.reply(f"✅ Pair already exists: {pair[0]} | {pair[1]}")
+    reply_msg = f"✅ <b>Bulk GOTU pairs added!</b>\n"
+    reply_msg += f"📦 <b>Added:</b> {added}\n"
+    reply_msg += f"⏭️ <b>Skipped (already exist):</b> {skipped}\n"
+    if errors:
+        reply_msg += f"❌ <b>Errors:</b>\n" + "\n".join(errors[:5])
     
-    await gotu_pairs_col.insert_one({"pair": pair})
-    await event.reply(f"✅ Added pair: {pair[0]} | {pair[1]}")
-
+    await event.reply(reply_msg, parse_mode='html')
  # 5. /gotu – Main Game Handler
 # ==========================================
 @bot1.on(events.NewMessage(pattern=r'^/gotu(?:@\w+)?(?:\s+(.*))?'))
