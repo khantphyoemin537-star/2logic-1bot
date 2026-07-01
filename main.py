@@ -219,8 +219,9 @@ groups_config_col = db["groups_catcher_config"]
 marketplace_col = db["marketplace_data"]
 guilds_col = db["guilds_data"]
 # အောက်ပါ collection များကို DB connection ရဲ့အောက်မှာ ထည့်ပါ
-couples_col = db["couples"]           # အတွဲဖြစ်ပြီးသား သိမ်းရန်
-proposals_col = db["proposals"]       # ဆိုင်းငံ့ထားတဲ့ ကမ်းလှမ်းချက်များ
+gotu_pairs_col = db["gotu_pairs"]          # အတွဲများ သိမ်းရန် (e.g., {"pair": ["ငှက်ပျောသီး", "သရက်သီး"]})
+gotu_games_col = db["gotu_games"]          # ဂိမ်းအခြေအနေ
+gotu_players_col = db["gotu_players"]      # ဂိမ်းထဲက ကစားသမားများ
 
 async def create_indexes():
     print("⚡ Creating Database Indexes...")
@@ -237,8 +238,9 @@ async def create_indexes():
     await characters_col.create_index("name", unique=True)
     await couples_col.create_index([("chat_id", 1), ("user1_id", 1), ("user2_id", 1)])
     await couples_col.create_index("status")
-    await proposals_col.create_index("status")
-    await proposals_col.create_index("timestamp")
+    await gotu_pairs_col.create_index("pair")
+    await gotu_games_col.create_index([("chat_id", 1), ("status", 1)])
+    await gotu_players_col.create_index("game_id")
     print("Database Indexes synchronized! ✔️")
 
 bot1 = TelegramClient('bot_main_session', APP_ID, APP_HASH)
@@ -359,123 +361,6 @@ async def update_admin_cache(client, chat_id):
         print(f"Error updating admin cache for {chat_id}: {e}")
         return set()
 
-async def generate_couple_proposal_image(user1, user2, bot_avatar_bytes=None):
-    """
-    Generate a romantic couple proposal image with centered text.
-    """
-    W, H = 750, 500  # ပုံအရွယ်အစား ပိုကြီးအောင်လုပ်
-    img = Image.new('RGB', (W, H), color=(20, 15, 35))  # ခရမ်းရောင်အမှောင်
-    draw = ImageDraw.Draw(img)
-
-    # Border
-    draw.rectangle([(10, 10), (W-10, H-10)], outline=(255, 180, 200), width=4)
-
-    # Title
-    try:
-        font_title = ImageFont.truetype("DejaVuSans-Bold.ttf", 44)
-    except:
-        font_title = ImageFont.load_default()
-    
-    # Title ကို အလယ်ဗဟိုမှာ ရေးမယ်
-    title = "💕 Doraemon's Love Match 💕"
-    bbox = draw.textbbox((0, 0), title, font=font_title)
-    tw = bbox[2] - bbox[0]
-    draw.text(((W - tw) // 2, 20), title, fill=(255, 200, 220), font=font_title)
-
-    # Profile ပုံတွေကို ဆွဲယူခြင်း
-    async def get_circle_avatar(user, size=160):
-        try:
-            photo = await bot1.download_profile_photo(user, bytesio=True)
-            if photo:
-                avatar = Image.open(photo)
-                avatar = avatar.resize((size, size), Image.Resampling.LANCZOS)
-                mask = Image.new('L', (size, size), 0)
-                draw_mask = ImageDraw.Draw(mask)
-                draw_mask.ellipse((0, 0, size, size), fill=255)
-                output = Image.new('RGBA', (size, size), (0, 0, 0, 0))
-                output.paste(avatar, (0, 0), mask)
-                return output
-        except Exception as e:
-            print(f"Avatar download error: {e}")
-        return None
-
-    avatar1 = await get_circle_avatar(user1)
-    avatar2 = await get_circle_avatar(user2)
-
-    # Avatar 1 (Left)
-    avatar_x1 = 140
-    avatar_y1 = 140
-    if avatar1:
-        img.paste(avatar1, (avatar_x1, avatar_y1), avatar1)
-    else:
-        try:
-            font = ImageFont.truetype("DejaVuSans-Bold.ttf", 80)
-        except:
-            font = ImageFont.load_default()
-        draw.text((avatar_x1 + 40, avatar_y1 + 40), "👤", fill=(200, 200, 255), font=font)
-
-    # Avatar 2 (Right)
-    avatar_x2 = 450
-    avatar_y2 = 140
-    if avatar2:
-        img.paste(avatar2, (avatar_x2, avatar_y2), avatar2)
-    else:
-        try:
-            font = ImageFont.truetype("DejaVuSans-Bold.ttf", 80)
-        except:
-            font = ImageFont.load_default()
-        draw.text((avatar_x2 + 40, avatar_y2 + 40), "👤", fill=(200, 200, 255), font=font)
-
-    # Heart in the middle
-    try:
-        font_heart = ImageFont.truetype("DejaVuSans-Bold.ttf", 70)
-    except:
-        font_heart = ImageFont.load_default()
-    draw.text((330, 170), "❤️", fill=(255, 50, 80), font=font_heart)
-
-    # Names
-    try:
-        font_name = ImageFont.truetype("DejaVuSans-Bold.ttf", 32)
-    except:
-        font_name = ImageFont.load_default()
-    
-    name1 = user1.first_name or "User1"
-    name2 = user2.first_name or "User2"
-    
-    # Name 1 (left)
-    bbox = draw.textbbox((0, 0), name1, font=font_name)
-    tw = bbox[2] - bbox[0]
-    draw.text(((avatar_x1 + 80) - tw // 2, avatar_y1 + 180), name1, fill=(255, 215, 0), font=font_name)
-    
-    # Name 2 (right)
-    bbox = draw.textbbox((0, 0), name2, font=font_name)
-    tw = bbox[2] - bbox[0]
-    draw.text(((avatar_x2 + 80) - tw // 2, avatar_y2 + 180), name2, fill=(255, 215, 0), font=font_name)
-
-    # Bottom message
-    try:
-        font_msg = ImageFont.truetype("DejaVuSans-Bold.ttf", 28)
-    except:
-        font_msg = ImageFont.load_default()
-    
-    msg = "Doraemon wants to match you two!"
-    bbox = draw.textbbox((0, 0), msg, font=font_msg)
-    tw = bbox[2] - bbox[0]
-    draw.text(((W - tw) // 2, 400), msg, fill=(200, 220, 255), font=font_msg)
-
-    # Romantic sparkles
-    try:
-        font_sparkle = ImageFont.truetype("DejaVuSans-Bold.ttf", 24)
-    except:
-        font_sparkle = ImageFont.load_default()
-    draw.text((40, 440), "✨", fill=(255, 255, 180), font=font_sparkle)
-    draw.text((680, 440), "✨", fill=(255, 255, 180), font=font_sparkle)
-
-    buf = io.BytesIO()
-    img.save(buf, format='PNG')
-    buf.seek(0)
-    return buf
-
 # ==========================================
 # 🧠 OPTIMIZED SMART REPLY ENGINE
 # ==========================================
@@ -519,429 +404,7 @@ async def fetch_optimized_smart_reply(user_text):
             if valid_choices: 
                 reply_text = random.choice(valid_choices)
     except Exception as e:
-        print(f"Smart Reply DB Error: {e}")
-
-    return reply_text
-
-async def daily_couple_matcher():
-    """ညသန်းခေါင်မှာ Group တိုင်းအတွက် ကျပန်းတွဲတစ်တွဲ ရွေးပြီး Proposal ပို့ပေးမယ်"""
-    while True:
-        now = datetime.now(TZ)
-        # ည ၁၂ နာရီ ၅ မိနစ်မှာ စစ်ဆေးမယ် (နေ့စဉ် ပြောင်းဖို့)
-        next_run = now.replace(hour=12, minute=5, second=0, microsecond=0) + timedelta(days=1)
-        if now > next_run:
-            next_run += timedelta(days=1)
-        await asyncio.sleep((next_run - now).total_seconds())
-
-        # Group အားလုံးကို ရယူခြင်း
-        groups = await groups_col.find().to_list(length=None)
-        for group in groups:
-            chat_id = group["chat_id"]
-            try:
-                # Group ထဲက Members အကုန်ရယူ (admin + regular)
-                participants = await bot1.get_participants(chat_id)
-                # Bot နဲ့ Owner ကိုဖယ်
-                bot_me = await bot1.get_me()
-                members = [p for p in participants if not p.bot and p.id != bot_me.id and p.id != OWNER_ID]
-                if len(members) < 2:
-                    continue
-
-                # ဒီနေ့ ဘယ်သူတွေ လက်ခံပြီးသား / ငြင်းပြီးသား ကို စစ်ထုတ်မယ် (optional)
-                # ရိုးရှင်းအောင် ကျပန်းနှစ်ယောက်ရွေး
-                random.shuffle(members)
-                user1 = members[0]
-                user2 = members[1]
-
-                # Proposal ထည့်သွင်းခြင်း
-                proposal_id = f"daily_{chat_id}_{int(time.time())}"
-                await proposals_col.insert_one({
-                    "proposal_id": proposal_id,
-                    "chat_id": chat_id,
-                    "user1_id": user1.id,
-                    "user2_id": user2.id,
-                    "user1_name": user1.first_name or "User1",
-                    "user2_name": user2.first_name or "User2",
-                    "timestamp": time.time(),
-                    "status": "pending",  # pending, accepted, rejected
-                    "type": "daily"
-                })
-
-                # ပုံဖန်တီးခြင်း
-                bot_avatar = None  # လိုချင်ရင် bot ရဲ့ profile photo ကိုယူ
-                img_bytes = await generate_couple_proposal_image(user1, user2, bot_avatar)
-                img_file = io.BytesIO(img_bytes.getvalue())
-                img_file.name = "couple_proposal.png"
-
-                # စာသားနဲ့အတူ ပို့ခြင်း
-                caption = (
-                    f"🐱 Doraemon says: I want to match you two!\n"
-                    f"🐼 {user1.first_name} 💕 {user2.first_name}\n"
-                    f"Do you accept this couple?"
-                )
-                buttons = [
-                    [Button.inline("✅ Accept", data=f"couple_accept_{proposal_id}"),
-                     Button.inline("❌ Reject", data=f"couple_reject_{proposal_id}")]
-                ]
-                await bot1.send_file(chat_id, img_file, caption=caption, buttons=buttons, parse_mode='html')
-            except Exception as e:
-                print(f"Daily couple error in {chat_id}: {e}")
-
-@bot1.on(events.NewMessage(pattern=r'^/couple(?:@\w+)?(?:\s+(.*))?'))
-async def couple_handler(event):
-    chat_id = event.chat_id
-    user_id = event.sender_id
-
-    # ---- Case 1: Reply ပါရင် manual proposal ----
-    if event.is_reply:
-        try:
-            reply_msg = await event.get_reply_message()
-            if not reply_msg:
-                return await event.reply("💕 Doraemon couldn't read your reply! Please try again, love is waiting! 🐱")
-                
-            target_user_id = reply_msg.sender_id
-            
-            # မိမိကိုယ်ကို ကမ်းလှမ်းလို့မရ
-            if target_user_id == user_id:
-                return await event.reply("💕 You can't propose to yourself! Doraemon wants you to find love, but you're already perfect as you are! 🐱")
-            
-            # Owner ကို ကမ်းလှမ်းလို့မရ
-            if target_user_id == OWNER_ID:
-                return await event.reply("💕 Oh! You're aiming high! But the bot owner is already married to the code! 😹")
-
-            # ကိုယ်တိုင် အတွဲရှိပြီးသားလား?
-            sender_couple = await couples_col.find_one({
-                "$or": [{"user1_id": user_id}, {"user2_id": user_id}],
-                "chat_id": chat_id,
-                "status": "active"
-            })
-            if sender_couple:
-                partner_id = sender_couple["user1_id"] if sender_couple["user2_id"] == user_id else sender_couple["user2_id"]
-                try:
-                    partner = await bot1.get_entity(partner_id)
-                    partner_name = partner.first_name or "Partner"
-                except:
-                    partner_name = "Unknown"
-                return await event.reply(
-                    f"💕 Oh my! You already have a special someone, **{partner_name}**! 🥰\n"
-                    f"Doraemon is so happy for you! Use `/mycouple` to see your love story! 🌸"
-                )
-
-            # ကမ်းလှမ်းခံရသူမှာ အတွဲရှိပြီးသားလား?
-            target_couple = await couples_col.find_one({
-                "$or": [{"user1_id": target_user_id}, {"user2_id": target_user_id}],
-                "chat_id": chat_id,
-                "status": "active"
-            })
-            if target_couple:
-                return await event.reply(
-                    f"💕 Aww, {reply_msg.sender.first_name or 'They'} already has a love story with someone else! 💔\n"
-                    f"Doraemon believes your special someone is out there! Keep hoping! 🌟"
-                )
-
-            # သူတို့နှစ်ယောက်ကြား အတွဲရှိပြီးသားလား?
-            existing = await couples_col.find_one({
-                "$or": [
-                    {"user1_id": user_id, "user2_id": target_user_id},
-                    {"user1_id": target_user_id, "user2_id": user_id}
-                ],
-                "chat_id": chat_id,
-                "status": "active"
-            })
-            if existing:
-                return await event.reply(
-                    "💕 You two are already a beautiful couple! Doraemon is blushing! 🥰\n"
-                    "Use `/mycouple` to see your love story!"
-                )
-
-            # ⭐ အားလုံးအဆင်ပြေရင် Proposal ဖန်တီးခြင်း
-            proposal_id = f"manual_{chat_id}_{int(time.time())}_{random.randint(1000,9999)}"
-            
-            sender = await event.get_sender()
-            target = await bot1.get_entity(target_user_id)
-            
-            await proposals_col.insert_one({
-                "proposal_id": proposal_id,
-                "chat_id": chat_id,
-                "user1_id": user_id,
-                "user2_id": target_user_id,
-                "user1_name": sender.first_name or "User1",
-                "user2_name": target.first_name or "User2",
-                "timestamp": time.time(),
-                "status": "pending",
-                "type": "manual"
-            })
-
-            # ပုံဖန်တီးခြင်း
-            try:
-                img_bytes = await generate_couple_proposal_image(sender, target)
-                img_file = io.BytesIO(img_bytes.getvalue())
-                img_file.name = "couple_proposal.png"
-            except Exception as img_err:
-                print(f"Image generation error: {img_err}")
-                img_file = None
-
-            caption = (
-                f"💕 Doraemon sees a spark between you two! ✨\n"
-                f"🐱 {sender.first_name} wants to be your couple!\n"
-                f"🌸 Will you accept this love? 💕"
-            )
-            buttons = [
-                [Button.inline("💕 Yes! I Accept!", data=f"couple_accept_{proposal_id}"),
-                 Button.inline("💔 No, Thank You", data=f"couple_reject_{proposal_id}")]
-            ]
-            
-            if img_file:
-                await bot1.send_file(
-                    chat_id,
-                    file=img_file,
-                    caption=caption,
-                    buttons=buttons,
-                    parse_mode='html',
-                    reply_to=event.id
-                )
-            else:
-                await event.reply(caption, buttons=buttons, parse_mode='html')
-                
-        except Exception as e:
-            print(f"Couple reply error: {e}")
-            await event.reply(f"💕 Oops! Something went wrong! Doraemon is fixing it... 🐱\nError: {str(e)}")
-        return
-
-    # ---- Case 2: အတွဲများကို ပြသခြင်း (group အတွင်း) ----
-    try:
-        couples = await couples_col.find({"chat_id": chat_id, "status": "active"}).to_list(length=None)
-        if not couples:
-            await event.reply(
-                "💕 No couples in this group yet! 🌸\n"
-                "Use `/couple` with reply to propose to someone special!\n"
-                "Doraemon believes in love! 🐱"
-            )
-            return
-
-        msg = "🌸 **Love Stories in this Group:** 💕\n━━━━━━━━━━━━━━━━━━━━\n"
-        for c in couples:
-            try:
-                u1 = await bot1.get_entity(c["user1_id"])
-                u2 = await bot1.get_entity(c["user2_id"])
-                date = c.get("custom_date") or c.get("accepted_date")
-                date_str = date.strftime("%Y-%m-%d") if date else "Unknown"
-                msg += f"💕 {u1.first_name} ✨ {u2.first_name}\n   📅 Since: {date_str}\n\n"
-            except:
-                msg += f"💕 A beautiful couple (ID: {c['_id']})\n\n"
-        msg += "🐱 Doraemon loves seeing happy couples! 🌸"
-        await event.reply(msg, parse_mode='html')
-    except Exception as e:
-        print(f"Couple list error: {e}")
-        await event.reply(f"💕 Doraemon couldn't load the couples! 🐱\nError: {str(e)}")
-
-@bot1.on(events.CallbackQuery(pattern=r'^couple_(accept|reject)_(.+)$'))
-async def couple_callback_handler(event):
-    action = event.pattern_match.group(1)
-    proposal_id = event.pattern_match.group(2)
-    user_id = event.sender_id
-
-    # Proposal ကို ရှာပါ
-    proposal = await proposals_col.find_one({"proposal_id": proposal_id})
-    if not proposal:
-        await event.answer("💕 This love story has already ended! 🌸", alert=True)
-        return
-
-    if proposal["status"] != "pending":
-        await event.answer("💕 This proposal has already been answered! 🌸", alert=True)
-        return
-
-    # ဒီ proposal က ဒီ user အတွက်မဟုတ်ရင် ခွင့်မပြု
-    if user_id not in (proposal["user1_id"], proposal["user2_id"]):
-        await event.answer("💕 This love letter is not for you! 🌸", alert=True)
-        return
-
-    chat_id = proposal["chat_id"]
-    user1_id = proposal["user1_id"]
-    user2_id = proposal["user2_id"]
-
-    # ⭐ Action အတိုင်း လုပ်ဆောင်ခြင်း
-    if action == "accept":
-        # အတွဲဖြစ်သွားပြီဆိုရင် DB ထဲသိမ်း
-        await couples_col.insert_one({
-            "chat_id": chat_id,
-            "user1_id": user1_id,
-            "user2_id": user2_id,
-            "accepted_date": datetime.now(TZ),
-            "custom_date": None,
-            "status": "active"
-        })
-        await proposals_col.update_one({"proposal_id": proposal_id}, {"$set": {"status": "accepted"}})
-
-        # ⭐ Original Message ကို Edit လုပ်ပြီး အောင်မြင်ကြောင်းပြမယ်
-        await event.edit(
-            f"💕 **Congratulations!** 🎉\n"
-            f"🌸 You are now a beautiful couple!\n"
-            f"🐱 Doraemon is so happy for you!\n\n"
-            f"💕 Use /mycouple to see your love story!\n"
-            f"📅 Use /coupledate [eg./coupledate 2026.6.17] to set your special day!"
-        )
-        await event.answer("💕 You said YES! Love is beautiful! 🌸", alert=True)
-
-        # DM ပို့မယ်
-        try:
-            await bot1.send_message(user1_id, "💕 YOUR LOVE STORY BEGINS! 🎉\nYou are now officially a couple! Doraemon is overjoyed! 🌸")
-            await bot1.send_message(user2_id, "💕 YOUR LOVE STORY BEGINS! 🎉\nYou are now officially a couple! Doraemon is overjoyed! 🌸")
-        except:
-            pass
-
-    else:  # reject
-        await proposals_col.update_one({"proposal_id": proposal_id}, {"$set": {"status": "rejected"}})
-        
-        await event.edit(
-            f"💔 That's okay! Love takes time! 🌸\n"
-            f"🐱 Doraemon believes the right person will come along!\n"
-            f"🌟 Keep your heart open!"
-        )
-        await event.answer("💔 You said no. That's okay! Love will find you! 🌸", alert=True)
-        
-@bot1.on(events.NewMessage(pattern=r'^/mycouple(?:@\w+)?$'))
-async def my_couple_handler(event):
-    user_id = event.sender_id
-    chat_id = event.chat_id
-
-    couple = await couples_col.find_one({
-        "$or": [{"user1_id": user_id}, {"user2_id": user_id}],
-        "chat_id": chat_id,
-        "status": "active"
-    })
-    if not couple:
-        return await event.reply("💔 You are not in a couple yet. Use /couple to propose or wait for daily match.")
-
-    partner_id = couple["user1_id"] if couple["user2_id"] == user_id else couple["user2_id"]
-    partner = await bot1.get_entity(partner_id)
-    me = await bot1.get_entity(user_id)
-
-    # ပုံဖန်တီးခြင်း (အဝိုင်းပုံနှစ်ခု၊ Date)
-    img = Image.new('RGB', (600, 300), color=(30,30,50))
-    draw = ImageDraw.Draw(img)
-
-    async def get_circle_avatar(user, size=120):
-        try:
-            photo = await bot1.download_profile_photo(user, bytesio=True)
-            if photo:
-                avatar = Image.open(photo)
-                avatar = avatar.resize((size, size))
-                mask = Image.new('L', (size, size), 0)
-                draw_mask = ImageDraw.Draw(mask)
-                draw_mask.ellipse((0,0,size,size), fill=255)
-                output = Image.new('RGBA', (size,size), (0,0,0,0))
-                output.paste(avatar, (0,0), mask)
-                return output
-        except:
-            pass
-        return None
-
-    av1 = await get_circle_avatar(me)
-    av2 = await get_circle_avatar(partner)
-
-    if av1:
-        img.paste(av1, (100, 60), av1)
-    else:
-        try:
-            font = ImageFont.truetype("DejaVuSans-Bold.ttf", 50)
-        except:
-            font = ImageFont.load_default()
-        draw.text((140, 100), "👤", fill=(255,255,255), font=font)
-
-    if av2:
-        img.paste(av2, (380, 60), av2)
-    else:
-        try:
-            font = ImageFont.truetype("DejaVuSans-Bold.ttf", 50)
-        except:
-            font = ImageFont.load_default()
-        draw.text((420, 100), "👤", fill=(255,255,255), font=font)
-
-    try:
-        font_heart = ImageFont.truetype("DejaVuSans-Bold.ttf", 40)
-    except:
-        font_heart = ImageFont.load_default()
-    draw.text((260, 130), "❤️", fill=(255,0,0), font=font_heart)
-
-    date_obj = couple.get("custom_date") or couple.get("accepted_date")
-    date_str = date_obj.strftime("%Y-%m-%d") if date_obj else "Unknown"
-
-    try:
-        font_text = ImageFont.truetype("DejaVuSans-Bold.ttf", 24)
-    except:
-        font_text = ImageFont.load_default()
-    draw.text((200, 230), f"Couple since: {date_str}", fill=(255,215,0), font=font_text)
-
-    buf = io.BytesIO()
-    img.save(buf, format='PNG')
-    buf.seek(0)
-    img_file = io.BytesIO(buf.getvalue())
-    img_file.name = "my_couple.png"
-
-    caption = f"💕 **Your Couple:**\n{me.first_name} 💕 {partner.first_name}\nSince: {date_str}"
-    await event.reply(file=img_file, caption=caption, parse_mode='html')
-    
-@bot1.on(events.NewMessage(pattern=r'^/coupledate(?:\s+(.+))?$'))
-async def set_couple_date(event):
-    user_id = event.sender_id
-    chat_id = event.chat_id
-    date_text = event.pattern_match.group(1)
-
-    # ကိုယ်အတွဲရှိမရှိစစ်
-    couple = await couples_col.find_one({
-        "$or": [{"user1_id": user_id}, {"user2_id": user_id}],
-        "chat_id": chat_id,
-        "status": "active"
-    })
-    if not couple:
-        return await event.reply("❌ You are not in a couple.")
-
-    if not date_text:
-        # လက်ရှိရက်ကိုပြပေးမယ်
-        current = couple.get("custom_date") or couple.get("accepted_date")
-        if current:
-            return await event.reply(f"📅 Current couple date: {current.strftime('%Y-%m-%d')}")
-        else:
-            return await event.reply("📅 No custom date set. Use /coupledate YYYY-MM-DD to set.")
-
-    # ရက်ကို parse လုပ်ပြီး update
-    try:
-        new_date = datetime.strptime(date_text.strip(), "%Y-%m-%d").replace(tzinfo=TZ)
-    except:
-        return await event.reply("❌ Invalid format. Use YYYY-MM-DD, e.g. /coupledate 2025-01-01")
-
-    await couples_col.update_one({"_id": couple["_id"]}, {"$set": {"custom_date": new_date}})
-    await event.reply(f"✅ Couple date updated to {new_date.strftime('%Y-%m-%d')}")
-
-async def anniversary_checker():
-    """နေ့တိုင်း စစ်ဆေးပြီး လပြည့် အထိမ်းအမှတ် သတိပေးချက် ပို့မယ်"""
-    while True:
-        now = datetime.now(TZ)
-        # နေ့တိုင်း မနက် ၈ နာရီမှာ စစ်ဆေးမယ်
-        next_run = now.replace(hour=8, minute=0, second=0, microsecond=0)
-        if now > next_run:
-            next_run += timedelta(days=1)
-        await asyncio.sleep((next_run - now).total_seconds())
-
-        # အတွဲအကုန်လုံးကို ယူ
-        all_couples = await couples_col.find({"status": "active"}).to_list(length=None)
-        for c in all_couples:
-            base_date = c.get("custom_date") or c.get("accepted_date")
-            if not base_date:
-                continue
-            # လအရေအတွက် တွက်ချက်
-            months = (now.year - base_date.year) * 12 + (now.month - base_date.month)
-            if months > 0 and now.day == base_date.day:
-                # လပြည့်နေ့
-                user1_id = c["user1_id"]
-                user2_id = c["user2_id"]
-                # နှစ်ယောက်စလုံးကို သတိပေး
-                msg = f"🎉 Happy {months}-month anniversary to your couple! 💕\nDoraemon sends you love!"
-                try:
-                    await bot1.send_message(user1_id, msg)
-                    await bot1.send_message(user2_id, msg)
-                except:
-                    pass
+        print(f"Smart Reply DB Error: {e}")                  
 # ==========================================
 # 📥 TELETHON EVENT HANDLERS
 # ==========================================
@@ -1145,15 +608,15 @@ async def welcome_goodbye(event):
                         mention = f"<a href='tg://user?id={uid}'><b>{escape_html(user_first_name)}</b></a>"
                         
                         caption = (
-                            f"🎉 Welcome {mention} to {escape_html(group_name)}!\n"
-                            f"👥 Members: {member_count}\n🐱 Doraemon is happy to see you!"
+                            f"ဟိုက် {mention}... {escape_html(group_name)} ကနေ ကြိုဆိုလိုက်ပါတယ်\n"
+                            f"🐱 Doraemon is happy to see you!"
                         )
                         await bot1.send_message(
                             event.chat_id,
                             caption,
                             buttons=[
                                 [Button.url("Bot OWNER DM", "t.me/Hello_Im_DexterMorgan")],
-                                [Button.url("Join our Community", "https://t.me/Comeback_BoD")]
+                                [Button.url("Join Doraemon Group", "https://t.me/Comeback_BoD")]
                             ],
                             parse_mode='html'
                         )
@@ -1165,7 +628,7 @@ async def welcome_goodbye(event):
                     u = await bot1.get_entity(event.user_id)
                     user_first_name = u.first_name or "User"
                     mention = f"<a href='tg://user?id={event.user_id}'><b>{escape_html(user_first_name)}</b></a>"
-                    caption = f"👋 Goodbye {mention}!\nWe'll miss you.\n👥 Members: {member_count}"
+                    caption = f" တာ့တာ {mention}!\nWe'll miss you."
                     await bot1.send_message(event.chat_id, caption, parse_mode='html')
                 except:
                     pass
@@ -1383,6 +846,648 @@ async def add_filter(event):
     else:
         await event.reply(bq("⚠️ Reply to a message with the content you want to save as a filter."), parse_mode='html')
 
+@bot1.on(events.NewMessage(pattern=r'^/setgotu(?:\s+(.+))?$'))
+async def set_gotu_pair_handler(event):
+    if event.sender_id != OWNER_ID:
+        return await event.reply("❌ This command is for the owner only.")
+    
+    if not event.is_private:
+        return await event.reply("❌ Please use this command in DM.")
+    
+    text = event.pattern_match.group(1)
+    if not text:
+        return await event.reply(
+            "📝 <b>Add a GOTU pair</b>\n"
+            "Send: <code>/setgotu item1 | item2</code>\n"
+            "Example: <code>/setgotu ငှက်ပျောသီး | သရက်သီး</code>\n"
+            "You can add multiple pairs one by one."
+        )
+    
+    if '|' not in text:
+        return await event.reply("❌ Invalid format. Use: <code>item1 | item2</code>")
+    
+    parts = [p.strip() for p in text.split('|')]
+    if len(parts) != 2:
+        return await event.reply("❌ Exactly two items required.")
+    
+    pair = parts
+    # Check if already exists
+    existing = await gotu_pairs_col.find_one({"pair": pair})
+    if existing:
+        return await event.reply(f"✅ Pair already exists: {pair[0]} | {pair[1]}")
+    
+    await gotu_pairs_col.insert_one({"pair": pair})
+    await event.reply(f"✅ Added pair: {pair[0]} | {pair[1]}")
+
+@bot1.on(events.NewMessage(pattern=r'^/gotu(?:@\w+)?(?:\s+(.*))?'))
+async def gotu_handler(event):
+    chat_id = event.chat_id
+    user_id = event.sender_id
+    args = event.pattern_match.group(1) or ""
+    args = args.strip().lower()
+    
+    # Case: during active game, guess via mention
+    if args.startswith('@') or args:
+        # Check if there's an active game in this chat
+        game = await gotu_games_col.find_one({
+            "chat_id": chat_id,
+            "status": "active"
+        })
+        if not game:
+            return await event.reply("❌ No active GOTU game in this chat. Start one with <code>/gotu start</code>")
+        
+        # Get target user from mention or reply
+        target_user_id = None
+        if event.is_reply:
+            reply_msg = await event.get_reply_message()
+            target_user_id = reply_msg.sender_id
+        else:
+            # Try to extract @username
+            mention = args.strip()
+            if mention.startswith('@'):
+                try:
+                    entity = await bot1.get_entity(mention)
+                    target_user_id = entity.id
+                except:
+                    return await event.reply("❌ User not found. Use @username or reply to their message.")
+            else:
+                return await event.reply("❌ Please mention the user you want to guess, e.g., <code>/gotu @username</code> or reply to their message.")
+        
+        # Check if target is a player in this game
+        target_player = await gotu_players_col.find_one({
+            "game_id": game["_id"],
+            "user_id": target_user_id,
+            "alive": True
+        })
+        if not target_player:
+            return await event.reply("❌ That user is not a player in this game or already dead.")
+        
+        # Check if the guesser is a player
+        guesser = await gotu_players_col.find_one({
+            "game_id": game["_id"],
+            "user_id": user_id,
+            "alive": True
+        })
+        if not guesser:
+            return await event.reply("❌ You are not a player in this game.")
+        
+        # Check if guesser already guessed (if we limit to one guess)
+        if guesser.get("has_guessed", False):
+            return await event.reply("❌ You have already used your guess! 😅")
+        
+        # Check if target is the unique one
+        unique_player = await gotu_players_col.find_one({
+            "game_id": game["_id"],
+            "is_unique": True
+        })
+        
+        if target_player["_id"] == unique_player["_id"]:
+            # Correct guess!
+            await gotu_games_col.update_one({"_id": game["_id"]}, {"$set": {"status": "ended", "winner": user_id}})
+            await gotu_players_col.update_one({"_id": guesser["_id"]}, {"$set": {"has_guessed": True}})
+            
+            # Animated response
+            async with bot1.action(chat_id, 'typing'):
+                await asyncio.sleep(1.5)
+            
+            await event.reply(
+                f"🎉🎉 <b>CORRECT!</b> 🎉🎉\n"
+                f"👤 {guesser['username']} guessed correctly!\n"
+                f"🔍 The unique one was {unique_player['username']} with role: <b>{unique_player['role_item']}</b>!\n"
+                f"🐱 Doraemon is amazed! 🌟"
+            )
+            # Optionally reveal roles
+            roles_msg = "📋 <b>Final Roles:</b>\n"
+            all_players = await gotu_players_col.find({"game_id": game["_id"]}).to_list(length=None)
+            for p in all_players:
+                roles_msg += f"• {p['username']}: {p['role_item']} {'(UNIQUE)' if p['is_unique'] else ''}\n"
+            await event.reply(roles_msg, parse_mode='html')
+        else:
+            # Wrong guess
+            await gotu_players_col.update_one({"_id": guesser["_id"]}, {"$set": {"has_guessed": True}})
+            async with bot1.action(chat_id, 'typing'):
+                await asyncio.sleep(1)
+            await event.reply(
+                f"❌ <b>Wrong!</b> {target_player['username']} is not the unique one.\n"
+                f"😅 You have used your guess! Better luck next time, {guesser['username']}!"
+            )
+        return
+    
+    # Parse sub-commands
+    if args == "start":
+        # Create lobby
+        # Check if there's an existing active or lobby game
+        existing = await gotu_games_col.find_one({
+            "chat_id": chat_id,
+            "status": {"$in": ["lobby", "active"]}
+        })
+        if existing:
+            return await event.reply("❌ A GOTU game is already in progress or lobby. Use <code>/gotu join</code> to join.")
+        
+        # Get a random pair from DB
+        pair_doc = await gotu_pairs_col.aggregate([{"$sample": {"size": 1}}]).to_list(length=1)
+        if not pair_doc:
+            return await event.reply("❌ No GOTU pairs available. Owner needs to add some with <code>/setgotu</code>")
+        
+        pair = pair_doc[0]["pair"]
+        # Create game
+        game = {
+            "chat_id": chat_id,
+            "host_id": user_id,
+            "status": "lobby",
+            "pair": pair,
+            "created_at": datetime.now(TZ),
+            "started_at": None,
+            "unique_item": None,
+            "winner": None
+        }
+        result = await gotu_games_col.insert_one(game)
+        game_id = result.inserted_id
+        
+        # Add host as first player
+        sender = await event.get_sender()
+        await gotu_players_col.insert_one({
+            "game_id": game_id,
+            "user_id": user_id,
+            "username": sender.first_name or "Player",
+            "role_item": None,
+            "is_unique": False,
+            "alive": True,
+            "has_guessed": False
+        })
+        
+        await event.reply(
+            f"🎮 <b>GOTU Game Lobby Created!</b>\n"
+            f"━━━━━━━━━━━━━━━━━━━━\n"
+            f"👑 <b>Host:</b> {sender.first_name}\n"
+            f"📌 <b>Pair:</b> {pair[0]} | {pair[1]}\n\n"
+            f"💕 Use <code>/gotu join</code> to join the game!\n"
+            f"🐱 Need at least 3 players to start.\n"
+            f"Host: Use <code>/gotu startgame</code> when ready!"
+        )
+        return
+    
+    elif args == "join":
+        # Find lobby
+        game = await gotu_games_col.find_one({
+            "chat_id": chat_id,
+            "status": "lobby"
+        })
+        if not game:
+            return await event.reply("❌ No GOTU lobby open. Host can create one with <code>/gotu start</code>")
+        
+        # Check if already joined
+        existing_player = await gotu_players_col.find_one({
+            "game_id": game["_id"],
+            "user_id": user_id
+        })
+        if existing_player:
+            return await event.reply("❌ You are already in the lobby!")
+        
+        # Check if user has started bot (registered)
+        user_entity = await event.get_sender()
+        # Ensure they are registered
+        await ensure_user_registered(user_id, user_entity.first_name or "User")
+        
+        # Add player
+        sender = await event.get_sender()
+        await gotu_players_col.insert_one({
+            "game_id": game["_id"],
+            "user_id": user_id,
+            "username": sender.first_name or "Player",
+            "role_item": None,
+            "is_unique": False,
+            "alive": True,
+            "has_guessed": False
+        })
+        
+        # Show lobby status
+        players = await gotu_players_col.find({"game_id": game["_id"]}).to_list(length=None)
+        player_list = "\n".join([f"• {p['username']}" for p in players])
+        await event.reply(
+            f"🎮 <b>GOTU Lobby</b>\n"
+            f"━━━━━━━━━━━━━━━━━━━━\n"
+            f"👥 <b>Players ({len(players)}):</b>\n{player_list}\n\n"
+            f"📌 <b>Pair:</b> {game['pair'][0]} | {game['pair'][1]}\n"
+            f"🐱 Need at least 3 players. Host: <code>/gotu startgame</code>"
+        )
+        return
+    
+    elif args == "leave":
+        game = await gotu_games_col.find_one({
+            "chat_id": chat_id,
+            "status": "lobby"
+        })
+        if not game:
+            return await event.reply("❌ No lobby to leave.")
+        result = await gotu_players_col.delete_one({
+            "game_id": game["_id"],
+            "user_id": user_id
+        })
+        if result.deleted_count:
+            await event.reply("✅ You have left the lobby.")
+        else:
+            await event.reply("❌ You are not in the lobby.")
+        return
+    
+    elif args == "startgame":
+        # Only host can start
+        game = await gotu_games_col.find_one({
+            "chat_id": chat_id,
+            "status": "lobby"
+        })
+        if not game:
+            return await event.reply("❌ No lobby to start.")
+        if game["host_id"] != user_id:
+            return await event.reply("❌ Only the host can start the game.")
+        
+        players = await gotu_players_col.find({"game_id": game["_id"]}).to_list(length=None)
+        if len(players) < 3:
+            return await event.reply(f"❌ Need at least 3 players. Currently {len(players)}.")
+        
+        # Assign roles
+        import random
+        random.shuffle(players)
+        unique_player = players[0]  # First one gets unique
+        common_item = game["pair"][0]
+        unique_item = game["pair"][1]
+        
+        # Update each player
+        for p in players:
+            is_unique = (p["_id"] == unique_player["_id"])
+            role = unique_item if is_unique else common_item
+            await gotu_players_col.update_one(
+                {"_id": p["_id"]},
+                {"$set": {"role_item": role, "is_unique": is_unique, "alive": True}}
+            )
+        
+        # Update game
+        await gotu_games_col.update_one(
+            {"_id": game["_id"]},
+            {"$set": {"status": "active", "started_at": datetime.now(TZ), "unique_item": unique_item}}
+        )
+        
+        # Send DM to each player with their role
+        for p in players:
+            try:
+                role_msg = f"🎭 <b>Your GOTU Role</b>\n━━━━━━━━━━━━━━━━━━━━\n"
+                if p["is_unique"]:
+                    role_msg += f"🔍 You are the <b>UNIQUE</b> one!\nYour item: <b>{unique_item}</b>\n"
+                    role_msg += f"🐱 Others have <b>{common_item}</b>. Don't get caught!"
+                else:
+                    role_msg += f"👤 You are a <b>COMMON</b> player.\nYour item: <b>{common_item}</b>\n"
+                    role_msg += f"🔍 Find the unique one (they have <b>{unique_item}</b>)!"
+                await bot1.send_message(p["user_id"], role_msg, parse_mode='html')
+            except:
+                pass
+        
+        # Announce start
+        await event.reply(
+            f"🎮 <b>GOTU GAME STARTED!</b>\n"
+            f"━━━━━━━━━━━━━━━━━━━━\n"
+            f"👥 <b>Players:</b> {len(players)}\n"
+            f"📌 <b>Items:</b> {common_item} (common) | {unique_item} (unique)\n"
+            f"🔍 <b>Find the unique one!</b>\n"
+            f"⏱️ <b>Time limit:</b> 5 minutes\n"
+            f"💕 Use <code>/gotu @username</code> (or reply) to guess!\n"
+            f"🐱 Good luck!"
+        )
+        
+        # Start timer (5 minutes)
+        async def game_timer():
+            await asyncio.sleep(300)  # 5 minutes
+            # Check if game still active
+            g = await gotu_games_col.find_one({"_id": game["_id"]})
+            if g and g["status"] == "active":
+                await gotu_games_col.update_one({"_id": game["_id"]}, {"$set": {"status": "ended"}})
+                # Reveal roles
+                all_players = await gotu_players_col.find({"game_id": game["_id"]}).to_list(length=None)
+                roles_msg = "⏰ <b>Time's up!</b>\n📋 <b>Final Roles:</b>\n"
+                for p in all_players:
+                    roles_msg += f"• {p['username']}: {p['role_item']} {'(UNIQUE)' if p['is_unique'] else ''}\n"
+                await bot1.send_message(chat_id, roles_msg, parse_mode='html')
+        
+        asyncio.create_task(game_timer())
+        return
+    
+    else:
+        # No args or invalid: show usage
+        await event.reply(
+            f"🎮 <b>GOTU Game Commands</b>\n"
+            f"━━━━━━━━━━━━━━━━━━━━\n"
+            f"<code>/gotu start</code> - Create a game lobby\n"
+            f"<code>/gotu join</code> - Join the lobby\n"
+            f"<code>/gotu leave</code> - Leave the lobby\n"
+            f"<code>/gotu startgame</code> - Start the game (host only)\n"
+            f"<code>/gotu @username</code> - Guess the unique player (during game)\n"
+            f"━━━━━━━━━━━━━━━━━━━━\n"
+            f"🐱 Doraemon's GOTU game - find the unique one!"
+)
+
+@bot1.on(events.NewMessage(pattern=r'^/gotu(?:@\w+)?(?:\s+(.*))?'))
+async def gotu_handler(event):
+    chat_id = event.chat_id
+    user_id = event.sender_id
+    args = event.pattern_match.group(1) or ""
+    args = args.strip().lower()
+    
+    # Case: during active game, guess via mention
+    if args.startswith('@') or args:
+        # Check if there's an active game in this chat
+        game = await gotu_games_col.find_one({
+            "chat_id": chat_id,
+            "status": "active"
+        })
+        if not game:
+            return await event.reply("❌ No active GOTU game in this chat. Start one with <code>/gotu start</code>")
+        
+        # Get target user from mention or reply
+        target_user_id = None
+        if event.is_reply:
+            reply_msg = await event.get_reply_message()
+            target_user_id = reply_msg.sender_id
+        else:
+            # Try to extract @username
+            mention = args.strip()
+            if mention.startswith('@'):
+                try:
+                    entity = await bot1.get_entity(mention)
+                    target_user_id = entity.id
+                except:
+                    return await event.reply("❌ User not found. Use @username or reply to their message.")
+            else:
+                return await event.reply("❌ Please mention the user you want to guess, e.g., <code>/gotu @username</code> or reply to their message.")
+        
+        # Check if target is a player in this game
+        target_player = await gotu_players_col.find_one({
+            "game_id": game["_id"],
+            "user_id": target_user_id,
+            "alive": True
+        })
+        if not target_player:
+            return await event.reply("❌ That user is not a player in this game or already dead.")
+        
+        # Check if the guesser is a player
+        guesser = await gotu_players_col.find_one({
+            "game_id": game["_id"],
+            "user_id": user_id,
+            "alive": True
+        })
+        if not guesser:
+            return await event.reply("❌ You are not a player in this game.")
+        
+        # Check if guesser already guessed (if we limit to one guess)
+        if guesser.get("has_guessed", False):
+            return await event.reply("❌ You have already used your guess! 😅")
+        
+        # Check if target is the unique one
+        unique_player = await gotu_players_col.find_one({
+            "game_id": game["_id"],
+            "is_unique": True
+        })
+        
+        if target_player["_id"] == unique_player["_id"]:
+            # Correct guess!
+            await gotu_games_col.update_one({"_id": game["_id"]}, {"$set": {"status": "ended", "winner": user_id}})
+            await gotu_players_col.update_one({"_id": guesser["_id"]}, {"$set": {"has_guessed": True}})
+            
+            # Animated response
+            async with bot1.action(chat_id, 'typing'):
+                await asyncio.sleep(1.5)
+            
+            await event.reply(
+                f"🎉🎉 <b>CORRECT!</b> 🎉🎉\n"
+                f"👤 {guesser['username']} guessed correctly!\n"
+                f"🔍 The unique one was {unique_player['username']} with role: <b>{unique_player['role_item']}</b>!\n"
+                f"🐱 Doraemon is amazed! 🌟"
+            )
+            # Optionally reveal roles
+            roles_msg = "📋 <b>Final Roles:</b>\n"
+            all_players = await gotu_players_col.find({"game_id": game["_id"]}).to_list(length=None)
+            for p in all_players:
+                roles_msg += f"• {p['username']}: {p['role_item']} {'(UNIQUE)' if p['is_unique'] else ''}\n"
+            await event.reply(roles_msg, parse_mode='html')
+        else:
+            # Wrong guess
+            await gotu_players_col.update_one({"_id": guesser["_id"]}, {"$set": {"has_guessed": True}})
+            async with bot1.action(chat_id, 'typing'):
+                await asyncio.sleep(1)
+            await event.reply(
+                f"❌ <b>Wrong!</b> {target_player['username']} is not the unique one.\n"
+                f"😅 You have used your guess! Better luck next time, {guesser['username']}!"
+            )
+        return
+    
+    # Parse sub-commands
+    if args == "start":
+        # Create lobby
+        # Check if there's an existing active or lobby game
+        existing = await gotu_games_col.find_one({
+            "chat_id": chat_id,
+            "status": {"$in": ["lobby", "active"]}
+        })
+        if existing:
+            return await event.reply("❌ A GOTU game is already in progress or lobby. Use <code>/gotu join</code> to join.")
+        
+        # Get a random pair from DB
+        pair_doc = await gotu_pairs_col.aggregate([{"$sample": {"size": 1}}]).to_list(length=1)
+        if not pair_doc:
+            return await event.reply("❌ No GOTU pairs available. Owner needs to add some with <code>/setgotu</code>")
+        
+        pair = pair_doc[0]["pair"]
+        # Create game
+        game = {
+            "chat_id": chat_id,
+            "host_id": user_id,
+            "status": "lobby",
+            "pair": pair,
+            "created_at": datetime.now(TZ),
+            "started_at": None,
+            "unique_item": None,
+            "winner": None
+        }
+        result = await gotu_games_col.insert_one(game)
+        game_id = result.inserted_id
+        
+        # Add host as first player
+        sender = await event.get_sender()
+        await gotu_players_col.insert_one({
+            "game_id": game_id,
+            "user_id": user_id,
+            "username": sender.first_name or "Player",
+            "role_item": None,
+            "is_unique": False,
+            "alive": True,
+            "has_guessed": False
+        })
+        
+        await event.reply(
+            f"🎮 <b>GOTU Game Lobby Created!</b>\n"
+            f"━━━━━━━━━━━━━━━━━━━━\n"
+            f"👑 <b>Host:</b> {sender.first_name}\n"
+            f"📌 <b>Pair:</b> {pair[0]} | {pair[1]}\n\n"
+            f"💕 Use <code>/gotu join</code> to join the game!\n"
+            f"🐱 Need at least 3 players to start.\n"
+            f"Host: Use <code>/gotu startgame</code> when ready!"
+        )
+        return
+    
+    elif args == "join":
+        # Find lobby
+        game = await gotu_games_col.find_one({
+            "chat_id": chat_id,
+            "status": "lobby"
+        })
+        if not game:
+            return await event.reply("❌ No GOTU lobby open. Host can create one with <code>/gotu start</code>")
+        
+        # Check if already joined
+        existing_player = await gotu_players_col.find_one({
+            "game_id": game["_id"],
+            "user_id": user_id
+        })
+        if existing_player:
+            return await event.reply("❌ You are already in the lobby!")
+        
+        # Check if user has started bot (registered)
+        user_entity = await event.get_sender()
+        # Ensure they are registered
+        await ensure_user_registered(user_id, user_entity.first_name or "User")
+        
+        # Add player
+        sender = await event.get_sender()
+        await gotu_players_col.insert_one({
+            "game_id": game["_id"],
+            "user_id": user_id,
+            "username": sender.first_name or "Player",
+            "role_item": None,
+            "is_unique": False,
+            "alive": True,
+            "has_guessed": False
+        })
+        
+        # Show lobby status
+        players = await gotu_players_col.find({"game_id": game["_id"]}).to_list(length=None)
+        player_list = "\n".join([f"• {p['username']}" for p in players])
+        await event.reply(
+            f"🎮 <b>GOTU Lobby</b>\n"
+            f"━━━━━━━━━━━━━━━━━━━━\n"
+            f"👥 <b>Players ({len(players)}):</b>\n{player_list}\n\n"
+            f"📌 <b>Pair:</b> {game['pair'][0]} | {game['pair'][1]}\n"
+            f"🐱 Need at least 3 players. Host: <code>/gotu startgame</code>"
+        )
+        return
+    
+    elif args == "leave":
+        game = await gotu_games_col.find_one({
+            "chat_id": chat_id,
+            "status": "lobby"
+        })
+        if not game:
+            return await event.reply("❌ No lobby to leave.")
+        result = await gotu_players_col.delete_one({
+            "game_id": game["_id"],
+            "user_id": user_id
+        })
+        if result.deleted_count:
+            await event.reply("✅ You have left the lobby.")
+        else:
+            await event.reply("❌ You are not in the lobby.")
+        return
+    
+    elif args == "startgame":
+        # Only host can start
+        game = await gotu_games_col.find_one({
+            "chat_id": chat_id,
+            "status": "lobby"
+        })
+        if not game:
+            return await event.reply("❌ No lobby to start.")
+        if game["host_id"] != user_id:
+            return await event.reply("❌ Only the host can start the game.")
+        
+        players = await gotu_players_col.find({"game_id": game["_id"]}).to_list(length=None)
+        if len(players) < 3:
+            return await event.reply(f"❌ Need at least 3 players. Currently {len(players)}.")
+        
+        # Assign roles
+        import random
+        random.shuffle(players)
+        unique_player = players[0]  # First one gets unique
+        common_item = game["pair"][0]
+        unique_item = game["pair"][1]
+        
+        # Update each player
+        for p in players:
+            is_unique = (p["_id"] == unique_player["_id"])
+            role = unique_item if is_unique else common_item
+            await gotu_players_col.update_one(
+                {"_id": p["_id"]},
+                {"$set": {"role_item": role, "is_unique": is_unique, "alive": True}}
+            )
+        
+        # Update game
+        await gotu_games_col.update_one(
+            {"_id": game["_id"]},
+            {"$set": {"status": "active", "started_at": datetime.now(TZ), "unique_item": unique_item}}
+        )
+        
+        # Send DM to each player with their role
+        for p in players:
+            try:
+                role_msg = f"🎭 <b>Your GOTU Role</b>\n━━━━━━━━━━━━━━━━━━━━\n"
+                if p["is_unique"]:
+                    role_msg += f"🔍 You are the <b>UNIQUE</b> one!\nYour item: <b>{unique_item}</b>\n"
+                    role_msg += f"🐱 Others have <b>{common_item}</b>. Don't get caught!"
+                else:
+                    role_msg += f"👤 You are a <b>COMMON</b> player.\nYour item: <b>{common_item}</b>\n"
+                    role_msg += f"🔍 Find the unique one (they have <b>{unique_item}</b>)!"
+                await bot1.send_message(p["user_id"], role_msg, parse_mode='html')
+            except:
+                pass
+        
+        # Announce start
+        await event.reply(
+            f"🎮 <b>GOTU GAME STARTED!</b>\n"
+            f"━━━━━━━━━━━━━━━━━━━━\n"
+            f"👥 <b>Players:</b> {len(players)}\n"
+            f"📌 <b>Items:</b> {common_item} (common) | {unique_item} (unique)\n"
+            f"🔍 <b>Find the unique one!</b>\n"
+            f"⏱️ <b>Time limit:</b> 5 minutes\n"
+            f"💕 Use <code>/gotu @username</code> (or reply) to guess!\n"
+            f"🐱 Good luck!"
+        )
+        
+        # Start timer (5 minutes)
+        async def game_timer():
+            await asyncio.sleep(300)  # 5 minutes
+            # Check if game still active
+            g = await gotu_games_col.find_one({"_id": game["_id"]})
+            if g and g["status"] == "active":
+                await gotu_games_col.update_one({"_id": game["_id"]}, {"$set": {"status": "ended"}})
+                # Reveal roles
+                all_players = await gotu_players_col.find({"game_id": game["_id"]}).to_list(length=None)
+                roles_msg = "⏰ <b>Time's up!</b>\n📋 <b>Final Roles:</b>\n"
+                for p in all_players:
+                    roles_msg += f"• {p['username']}: {p['role_item']} {'(UNIQUE)' if p['is_unique'] else ''}\n"
+                await bot1.send_message(chat_id, roles_msg, parse_mode='html')
+        
+        asyncio.create_task(game_timer())
+        return
+    
+    else:
+        # No args or invalid: show usage
+        await event.reply(
+            f"🎮 <b>GOTU Game Commands</b>\n"
+            f"━━━━━━━━━━━━━━━━━━━━\n"
+            f"<code>/gotu start</code> - Create a game lobby\n"
+            f"<code>/gotu join</code> - Join the lobby\n"
+            f"<code>/gotu leave</code> - Leave the lobby\n"
+            f"<code>/gotu startgame</code> - Start the game (host only)\n"
+            f"<code>/gotu @username</code> - Guess the unique player (during game)\n"
+            f"━━━━━━━━━━━━━━━━━━━━\n"
+            f"🐱 Doraemon's GOTU game - find the unique one!"
+            )
 # ---- ID ----
 @bot1.on(events.NewMessage(pattern=r'(?i)^/id'))
 async def id_handler(event):
@@ -2115,7 +2220,7 @@ async def who_reveal_handler(event):
             f"🌟 <b>Name:</b> {spawn_data['name']}\n"
             f"🌟 <b>Rarity:</b> {spawn_data['rarity']}\n"
             f"🌐 <b>Category:</b> {spawn_data['category']}\n\n"
-            f"👉 <code>/catch {spawn_data['name']}</code>"
+            f"├─➩ <code>/catch {spawn_data['name']}</code>"
         )
         await event.reply(reveal_text, parse_mode='html')
     except Exception as e:
@@ -2139,7 +2244,7 @@ async def perform_catch(chat_id, user_id, spawn_data, event, reply_to_msg=None, 
             await event.reply("❌ <b>This gadget has already been caught!</b>", parse_mode='html')
         return False
 
-    if time.time() - spawn_data["spawn_time"] > 300:
+    if time.time() - spawn_data["spawn_time"] > 500:
         if chat_id in active_group_spawns: del active_group_spawns[chat_id]
         if is_callback:
             await event.answer("⏱️ Too late!", alert=True)
@@ -2195,12 +2300,12 @@ async def perform_catch(chat_id, user_id, spawn_data, event, reply_to_msg=None, 
             character_name = spawn_data['name']
             
             success_msg = (
-                f"👤 <b>Hunter:</b> {mention}, you caught it! 🎉\n"
+                f"🦄,<b>Catcher</b> {mention}, you caught it! 🎉\n"
                 f"🃏 <b>Character:</b> <b>{escape_html(character_name)}</b>\n"
                 f"🆔 <b>Asset ID:</b> <b>{spawn_data['char_id']}</b>\n"
                 f"🌟 <b>Rarity Class:</b> {spawn_data['rarity']}\n"
                 f"🪙 <b>Bounty Added:</b> <b>+{spawn_data['value']} MMK</b>\n\n"
-                f"🎉 <b>Mission Secured!</b> Check your collection with <code>/hai</code>."
+                f"🌠 <b>Mission Secured!</b> Check your collection with <code>/hai</code>."
             )
             if guild_levelup_msg:
                 success_msg += guild_levelup_msg
@@ -2251,7 +2356,7 @@ async def catch_handler(event):
     if normalize_name(catch_name) != normalize_name(spawn_data["name"]):
         return await event.reply(f"❌ <b>Wrong name! Use the exact name shown in /who.</b>", parse_mode='html')
     
-    temp_msg = await event.reply("🐱 Catching...")
+    temp_msg = await event.reply("👾")
     await perform_catch(chat_id, user_id, spawn_data, event, reply_to_msg=event.id, is_callback=False, temp_msg_id=temp_msg.id)
 
 # (Callback is kept just in case, but /who no longer uses it)
@@ -2568,7 +2673,7 @@ async def profile_handler(event):
             if i.get("status") == "market": market_count += 1
             if "rarity" in i: counts[i["rarity"]] = counts.get(i["rarity"], 0) + 1
 
-    profile_text = f"🐱 <b>YOUR PROFILE</b>\n👤 <b>Agent:</b> {mention}\n🦦 <b>User ID:</b> <code>{user_id}</code>\n🪙 <b>Balance:</b> <code>{balance} MMK</code>\n🎒 <b>Total Caught:</b> <code>{total_caught} Cards</code>\n🛒 <b>On Market:</b> <code>{market_count} Cards</code>\n"
+    profile_text = f"🐱 <b>YOUR PROFILE</b>\n <b>Name:</b> {mention}\n🦦 <b>User ID:</b> <code>{user_id}</code>\n🪙 <b>Balance:</b> <code>{balance} MMK</code>\n🎒 <b>Total Caught:</b> <code>{total_caught} Cards</code>\n🛒 <b>On Market:</b> <code>{market_count} Cards</code>\n"
     if counts:
         profile_text += f"📊 <b>VAULT BREAKDOWN:</b>\n"
         for tier, qty in sorted(counts.items(), key=lambda x: x[1], reverse=True):
@@ -2708,7 +2813,7 @@ async def global_top_handler(event):
 # ==========================================
 # 💰 CHECKP
 # ==========================================
-@bot1.on(events.NewMessage(pattern=r'^/checkp(?:@\w+)?$'))
+@bot1.on(events.NewMessage(pattern=r'^/balance(?:@\w+)?$'))
 async def check_points_balance(event):
     user_doc = await users_catcher_col.find_one({"user_id": event.sender_id})
     balance = user_doc.get("wallet_balance", 0) if user_doc else 0
@@ -2768,31 +2873,86 @@ async def trade_proposal_handler(event):
 # ==========================================
 # 🎰 CASINO GAMES (TEXT ONLY)
 # ==========================================
-@bot1.on(events.NewMessage(pattern=r'^/slot\s+(\d+)$'))
+@bot1.on(events.NewMessage(pattern=r'^/slot(?:@\w+)?(?:\s+(\d+))?$'))
 async def slot_game_handler(event):
     user_id = event.sender_id
-    bet = int(event.pattern_match.group(1))
-    if bet <= 0: return await event.reply("❌ <b>Bet must be at least 1 MMK.</b>", parse_mode='html')
+    bet_str = event.pattern_match.group(1)
+    
+    # ⭐ ပမာဏမပါရင် Usage ပြန်ပြောမယ်
+    if not bet_str:
+        return await event.reply(
+            f"🎰 <b>DORAEMON'S SLOT MACHINE</b>\n"
+            f"━━━━━━━━━━━━━━━━━━━━\n"
+            f"💕 Please specify your bet amount!\n"
+            f"Example: <code>/slot 100</code>\n"
+            f"💵 Minimum bet: <code>1 MMK</code>\n"
+            f"🐱 Use <code>/balance</code> to check your money!"
+        )
+    
+    bet = int(bet_str)
+    if bet <= 0: 
+        return await event.reply("💕 <b>Bet must be at least 1 MMK, my dear gambler!</b>", parse_mode='html')
+    
     user_doc = await users_catcher_col.find_one({"user_id": user_id})
     balance = user_doc.get("wallet_balance", 0) if user_doc else 0
-    if balance < bet: return await event.reply(f"❌ <b>Insufficient balance! You have {balance} MMK</b>", parse_mode='html')
+    if balance < bet: 
+        return await event.reply(f"💕 <b>Oh no! You only have {balance} MMK! Doraemon believes in you! 🐱</b>", parse_mode='html')
+    
     await users_catcher_col.update_one({"user_id": user_id}, {"$inc": {"wallet_balance": -bet}})
     mention = await get_html_mention(event, user_id)
-    symbols = ["​🐯", "​🦁", "​🐃", "​🦓", "🦀", "🐄", "🦅"]
-    res_syms = random.choices(symbols, k=7)
-    res_str = " | ".join(res_syms)
+    
+    symbols = ["🐯", "🦁", "🐃", "🦓", "🦀", "🐄", "🦅", "🐱", "🌟", "💎"]
+    res_syms = random.choices(symbols, k=9)
+    res_str = " ✨ ".join(res_syms)
     counts = Counter(res_syms)
     most_common_sym, max_count = counts.most_common(1)[0]
     win_amount = 0
-    if max_count == 7: win_amount = bet * 77 if most_common_sym == "​🐃" else bet * 50; status_text = f"🥶 <b>GOD-TIER JACKPOT!!! (+{win_amount:,} MMK)</b>"
-    elif max_count == 6: win_amount = bet * 25; status_text = f"💎 <b>MEGA MULTI-MATCH!!! (+{win_amount:,} MMK)</b>"
-    elif max_count == 5: win_amount = bet * 12; status_text = f"⚡ <b>SUPER MULTI-MATCH!! (+{win_amount:,} MMK)</b>"
-    elif max_count == 4: win_amount = bet * 5; status_text = f"😲 <b>QUADRA SYNC MATCH! (+{win_amount:,} MMK)</b>"
-    elif max_count == 3: win_amount = int(bet * 2.5); status_text = f"🤤 <b>TRIPLE COMBINATION. (+{win_amount:,} MMK)</b>"
-    elif max_count == 2: win_amount = int(bet * .5); status_text = f"🤣 <b>PAIR MATCH. (+{win_amount:,} MMK)</b>"
-    else: status_text = f"🤪 <b>No win this time. (-{bet:,} MMK)</b>"
-    if win_amount > 0: await users_catcher_col.update_one({"user_id": user_id}, {"$inc": {"wallet_balance": win_amount}})
-    final_text = f"🎰 <b>SLOT MACHINE</b>\n🐱 DORAEMON’S CASINO\n👤 <b>Player:</b> {mention}\n💵 <b>Bet:</b> <code>{bet:,} MMK</code>\n\n🎰 <b>[ {res_str} ]</b>\n\n{status_text}"
+    
+    if max_count >= 8:
+        win_amount = bet * 100 if most_common_sym == "🌟" else bet * 77
+        status_text = f"🎉🎊 <b>GOD-TIER JACKPOT!!!</b> 🎊🎉\n{most_common_sym} x{max_count} = {win_amount:,} MMK! DORAEMON IS SHOCKED! 😱"
+        celebration = "🎉✨🌟💎🎊🎉✨🌟💎🎊"
+    elif max_count == 7:
+        win_amount = bet * 50 if most_common_sym == "🐱" else bet * 35
+        status_text = f"🔥🔥 <b>MEGA MULTI-MATCH!!!</b> 🔥🔥\n{most_common_sym} x{max_count} = {win_amount:,} MMK! AMAZING! 😍"
+        celebration = "🎉✨🌟💎🎊"
+    elif max_count == 6:
+        win_amount = bet * 20
+        status_text = f"⚡⚡ <b>SUPER MULTI-MATCH!!</b> ⚡⚡\n{most_common_sym} x{max_count} = {win_amount:,} MMK! You're on fire! 🔥"
+        celebration = "🎉🌟✨💎"
+    elif max_count == 5:
+        win_amount = bet * 10
+        status_text = f"😲😲 <b>QUADRA SYNC MATCH!</b> 😲😲\n{most_common_sym} x{max_count} = {win_amount:,} MMK! Not bad! 👍"
+        celebration = "🎉✨🌟"
+    elif max_count == 4:
+        win_amount = int(bet * 4)
+        status_text = f"🤩 <b>TRIPLE COMBINATION!</b> 🤩\n{most_common_sym} x{max_count} = {win_amount:,} MMK! Keep going! 💪"
+        celebration = "🎉✨"
+    elif max_count == 3:
+        win_amount = int(bet * 2)
+        status_text = f"😊 <b>PAIR MATCH!</b> 😊\n{most_common_sym} x{max_count} = {win_amount:,} MMK! Small win! 🎈"
+        celebration = "✨"
+    else:
+        status_text = f"😅 <b>No win this time!</b> 😅\nBetter luck next time! Doraemon believes in you! 🐱💕"
+        celebration = "💔"
+    
+    if win_amount > 0:
+        await users_catcher_col.update_one({"user_id": user_id}, {"$inc": {"wallet_balance": win_amount}})
+    
+    final_text = (
+        f"🎰 <b>DORAEMON'S SLOT MACHINE</b> 🎰\n"
+        f"{celebration}\n"
+        f"👤 <b>Player:</b> {mention}\n"
+        f"💵 <b>Bet:</b> <code>{bet:,} MMK</code>\n"
+        f"━━━━━━━━━━━━━━━━━━━━\n"
+        f"🎯 <b>RESULT:</b>\n"
+        f"<code>{res_str}</code>\n"
+        f"━━━━━━━━━━━━━━━━━━━━\n"
+        f"{status_text}\n"
+        f"{celebration}\n"
+        f"🐱 <i>Doraemon sends you luck!</i>"
+    )
+    
     await event.reply(final_text, parse_mode='html')
 
 @bot1.on(events.NewMessage(pattern=r'^/cardgame\s+(\d+)$'))
