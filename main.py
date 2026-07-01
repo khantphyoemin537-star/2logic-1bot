@@ -511,7 +511,9 @@ async def system_callback_router(event):
             f"⭐ <code>/game</code>\n<blockquote>View all available mini‑games.</blockquote>"
         )
         return await event.edit(bq(game_text), parse_mode='html', buttons=[[Button.inline("🔙 Back", data="nav_back_home")]])
-
+    elif data == "nav_hmode":
+    # Simulate /hmode command
+    await set_rarity_filter_handler(event)
 # ---- CALCULATOR ----
 @bot1.on(events.NewMessage)
 async def auto_calculator_handler(event):
@@ -684,23 +686,48 @@ async def migrate_rarity_handler(event):
         return await event.reply("❌ Owner only command.")
     
     status_msg = await event.reply("⏳ Migrating rarity emojis... Please wait.")
+    
+    # ⭐ အဟောင်း -> အသစ် mapping (စာလုံးဖောင့်ပါထည့်)
+    old_legendary = f"🌌 {f('LEGENDARY')}"
+    new_legendary = f"👑 {f('LEGENDARY')}"
+    
+    old_limited = f"🎴 {f('LIMITED')}"
+    new_limited = f"💎 {f('LIMITED')}"
+    
+    old_mythic = f"🌀 {f('MYTHIC')}"
+    new_mythic = f"🌟 {f('MYTHIC')}"
+    
+    old_epic = f"🔥 {f('EPIC')}"
+    new_epic = f"⚡ {f('EPIC')}"
+    
+    old_rare = f"💠 {f('RARE')}"
+    new_rare = f"🍀 {f('RARE')}"
+    
+    old_common = f"🃏 {f('COMMON')}"
+    new_common = f"🃏 {f('COMMON')}"  # common က အတူတူပဲ (မပြောင်းဘူး)
+    
     rarity_mapping = {
-        "🌌 LEGENDARY": "👑 LEGENDARY",
-        "🎴 LIMITED": "💎 LIMITED",
-        "🌀 MYTHIC": "🌟 MYTHIC",
-        "🔥 EPIC": "⚡ EPIC",
-        "💠 RARE": "🍀 RARE",
-        "🃏 COMMON": "🃏 COMMON"
+        old_legendary: new_legendary,
+        old_limited: new_limited,
+        old_mythic: new_mythic,
+        old_epic: new_epic,
+        old_rare: new_rare,
+        old_common: new_common  # optional
     }
     
     updated_base = 0
     updated_users = 0
     
+    # 1. characters_base_data
     for old_rarity, new_rarity in rarity_mapping.items():
         if old_rarity != new_rarity:
-            result = await characters_base_col.update_many({"rarity": old_rarity}, {"$set": {"rarity": new_rarity}})
+            result = await characters_base_col.update_many(
+                {"rarity": old_rarity},
+                {"$set": {"rarity": new_rarity}}
+            )
             updated_base += result.modified_count
     
+    # 2. users_catcher_data (harem)
     users = await users_catcher_col.find({}).to_list(length=None)
     for user in users:
         harem = user.get("harem", [])
@@ -714,7 +741,10 @@ async def migrate_rarity_handler(event):
                     modified = True
             new_harem.append(item)
         if modified:
-            await users_catcher_col.update_one({"_id": user["_id"]}, {"$set": {"harem": new_harem}})
+            await users_catcher_col.update_one(
+                {"_id": user["_id"]},
+                {"$set": {"harem": new_harem}}
+            )
             updated_users += 1
     
     await status_msg.edit(
@@ -2116,6 +2146,68 @@ async def catch_button_callback(event):
     else:
         await event.answer("❌ Failed to catch!", alert=True)
 
+@bot1.on(events.NewMessage(pattern=r'^/hmode(?:@\w+)?$'))
+async def set_rarity_filter_handler(event):
+    user_id = event.sender_id
+    # Load current filter (if any)
+    user_doc = await users_catcher_col.find_one({"user_id": user_id})
+    current_filter = user_doc.get("rarity_filter") if user_doc else None
+    
+    # Build keyboard with all rarity options
+    buttons = []
+    for num, data in RARITY_NUM_MAP.items():
+        rarity_name = data["name"]  # already includes emoji + font
+        # Check if this is currently selected
+        label = f"✅ {rarity_name}" if current_filter == rarity_name else rarity_name
+        buttons.append([Button.inline(label, data=f"hfilter_{num}")])
+    
+    # Add Clear Filter button
+    clear_label = "🔓 Clear Filter" if current_filter else "🔒 No Filter"
+    buttons.append([Button.inline(clear_label, data="hfilter_clear")])
+    
+    # Add a cancel/back button
+    buttons.append([Button.inline("🔙 Back", data="nav_back_home")])
+    
+    await event.reply(
+        f"🎯 <b>Select Rarity Filter for /hai</b>\n"
+        f"Current: {current_filter if current_filter else 'None (Show All)'}\n\n"
+        f"Tap a rarity to filter your vault, or clear to show all.",
+        buttons=buttons,
+        parse_mode='html'
+    )
+
+@bot1.on(events.CallbackQuery(pattern=r'^hfilter_(\d+|clear)$'))
+async def rarity_filter_callback(event):
+    user_id = event.sender_id
+    data = event.data.decode('utf-8')
+    action = data.split('_')[1]
+    
+    if action == "clear":
+        await users_catcher_col.update_one(
+            {"user_id": user_id},
+            {"$set": {"rarity_filter": None}},
+            upsert=True
+        )
+        await event.answer("🔓 Filter cleared! All rarities will be shown.")
+        await event.edit("✅ Filter cleared. Use /hai to see all cards.")
+        return
+    
+    # action is a number (1-6)
+    rarity_num = action
+    rarity_data = RARITY_NUM_MAP.get(rarity_num)
+    if not rarity_data:
+        await event.answer("❌ Invalid rarity.")
+        return
+    
+    rarity_name = rarity_data["name"]
+    await users_catcher_col.update_one(
+        {"user_id": user_id},
+        {"$set": {"rarity_filter": rarity_name}},
+        upsert=True
+    )
+    await event.answer(f"✅ Filter set to {rarity_name}")
+    await event.edit(f"✅ Filter set to {rarity_name}. Use /hai to see your filtered vault.")
+
 # ==========================================
 # 🎒 INVENTORY / HAI
 # ==========================================
@@ -2131,7 +2223,6 @@ async def set_favorite_card(event):
     if not owns_card: return await event.reply(f"❌ <b>You don’t own this card!</b>", parse_mode='html')
     await users_catcher_col.update_one({"user_id": user_id}, {"$set": {"fav_card": char_id}})
     await event.reply(f"⭐️ <b>{escape_html(card['name'])}</b> ({char_id}) is now your favourite card!", parse_mode='html')
-
 async def send_paginated_harem(client, chat_id, user_id, page=1, edit_msg_id=None):
     user_doc = await users_catcher_col.find_one({"user_id": user_id})
     if not user_doc or not user_doc.get("harem"):
@@ -2141,16 +2232,43 @@ async def send_paginated_harem(client, chat_id, user_id, page=1, edit_msg_id=Non
         return
 
     raw_harem = user_doc.get("harem", [])
+    # ⭐ Filter by rarity if set
+    rarity_filter = user_doc.get("rarity_filter")
+    filtered_harem = []
+    if rarity_filter:
+        for item in raw_harem:
+            if isinstance(item, dict) and item.get("rarity") == rarity_filter:
+                filtered_harem.append(item)
+    else:
+        filtered_harem = raw_harem
+
+    if not filtered_harem:
+        msg = f"🎒 <b>No cards found with rarity filter.</b>\n"
+        msg += f"Use <code>/hmode</code> to change or clear filter."
+        if edit_msg_id: await client.edit_message(chat_id, edit_msg_id, msg, parse_mode='html')
+        else: await client.send_message(chat_id, msg, parse_mode='html')
+        return
+
+    # Count occurrences (per char_id)
     harem_counts = {}
-    for item in raw_harem:
+    for item in filtered_harem:
         if isinstance(item, dict) and "char_id" in item:
             cid = item["char_id"]
             is_market = item.get("status") == "market"
-            if cid not in harem_counts: harem_counts[cid] = {"normal": 0, "market": 0}
-            if is_market: harem_counts[cid]["market"] += 1
-            else: harem_counts[cid]["normal"] += 1
-            
+            if cid not in harem_counts:
+                harem_counts[cid] = {"normal": 0, "market": 0}
+            if is_market:
+                harem_counts[cid]["market"] += 1
+            else:
+                harem_counts[cid]["normal"] += 1
+
     owned_ids = list(harem_counts.keys())
+    if not owned_ids:
+        msg = f"🎒 <b>No valid cards in vault.</b>"
+        if edit_msg_id: await client.edit_message(chat_id, edit_msg_id, msg, parse_mode='html')
+        else: await client.send_message(chat_id, msg, parse_mode='html')
+        return
+
     db_chars = await characters_base_col.find({"char_id": {"$in": owned_ids}}).to_list(length=None)
     
     def get_rarity_weight(rarity_str):
@@ -2168,13 +2286,16 @@ async def send_paginated_harem(client, chat_id, user_id, page=1, edit_msg_id=Non
     lines = []
     for card in db_chars:
         cid = card["char_id"]
-        counts = harem_counts[cid]
+        counts = harem_counts.get(cid, {"normal": 0, "market": 0})
         normal_qty = counts["normal"]
         market_qty = counts["market"]
         
-        if normal_qty > 0 and market_qty > 0: status_str = f"<b>(x{normal_qty} | {market_qty} 🛒)</b>"
-        elif market_qty > 0: status_str = f"<b>({market_qty} 🛒)</b>"
-        else: status_str = f"<b>(x{normal_qty})</b>"
+        if normal_qty > 0 and market_qty > 0:
+            status_str = f"<b>(x{normal_qty} | {market_qty} 🛒)</b>"
+        elif market_qty > 0:
+            status_str = f"<b>({market_qty} 🛒)</b>"
+        else:
+            status_str = f"<b>(x{normal_qty})</b>"
         
         rarity_text = card.get("rarity", "")
         emoji = rarity_text.split()[0] if rarity_text else "•"
@@ -2183,7 +2304,7 @@ async def send_paginated_harem(client, chat_id, user_id, page=1, edit_msg_id=Non
         escaped_name = escape_html(card['name'])
         escaped_series = escape_html(series_name)
         lines.append(f" {emoji} <b>{escaped_name}</b> (<i>{escaped_series}</i>) — [<code>{cid}</code>] {status_str}")
-        
+
     per_page = 7
     total_pages = (len(lines) + per_page - 1) // per_page
     if page < 1: page = 1
@@ -2198,53 +2319,283 @@ async def send_paginated_harem(client, chat_id, user_id, page=1, edit_msg_id=Non
         last = getattr(sender_ent, 'last_name', '') or ''
         fullname = f"{first} {last}".strip() or getattr(sender_ent, 'username', '') or "Hunter"
     except: fullname = "Hunter"
-        
+
     mention = f"<a href='tg://user?id={user_id}'><b>{escape_html(fullname)}</b></a>"
-    output_text = f"🎒 {mention} <b>VAULT COLLECTION</b>\n"
-    output_text += f"📑 <b>Page:</b> <code>{page}/{total_pages}</code> | <b>Total Unique:</b> <code>{len(lines)}</code>\n\n"
-    for l in page_lines: output_text += l + "\n"
+    output_text = f"🎒 {mention} <b>VAULT COLLECTION</b>"
+    if rarity_filter:
+        output_text += f"\n🔍 <b>Filter:</b> {rarity_filter}"
+    output_text += f"\n📑 <b>Page:</b> <code>{page}/{total_pages}</code> | <b>Total Unique:</b> <code>{len(lines)}</code> | <b>Total Cards:</b> <code>{len(filtered_harem)}</code>\n\n"
+    
+    for l in page_lines:
+        output_text += l + "\n"
+    
     output_text += f"\n⚡ ━━━━━⚡\n"
     output_text += f"<blockquote>💡 Use <code>/fav [BODxxxx]</code> to set a favourite card.</blockquote>"
+    if rarity_filter:
+        output_text += f"\n<i>Filter active. Use /hmode to change or clear.</i>"
     
     buttons = []
+         # ... existing code ...
+    # ⭐ "View All Cards" button with total count
+    total_cards = len(filtered_harem)
+    view_all_button = [Button.inline(f"🖼️ View All Cards ({total_cards})", data=f"view_all_cards_{user_id}")]
+    buttons.append(view_all_button)
+
+# Add pagination buttons
     nav_buttons = []
-    if page > 1: nav_buttons.append(Button.inline("⬅️ Prev", data=f"hai_{page-1}_{user_id}"))
-    if page < total_pages: nav_buttons.append(Button.inline("Next ➡️", data=f"hai_{page+1}_{user_id}"))
-    if nav_buttons: buttons.append(nav_buttons)
-    if not buttons: buttons = None
+    if page > 1:
+        nav_buttons.append(Button.inline("⬅️ Prev", data=f"hai_{page-1}_{user_id}"))
+    if page < total_pages:
+        nav_buttons.append(Button.inline("Next ➡️", data=f"hai_{page+1}_{user_id}"))
+    if nav_buttons:
+        buttons.append(nav_buttons)
+
+# Add filter button
+    if rarity_filter:
+        buttons.append([Button.inline("🔓 Clear Filter", data=f"hfilter_clear")])
+    buttons.append([Button.inline("🎯 Change Rarity Filter", data="nav_hmode")])
+
+# ... rest of the function ...
+
+    
+    if not buttons:
+        buttons = None
     
     fav_card_id = user_doc.get("fav_card")
     fav_media = None
     target_display_id = fav_card_id
     if not target_display_id and owned_ids:
         target_display_id = random.choice(owned_ids)
-        
+    
     if target_display_id:
         fav_card_data = await characters_base_col.find_one({"char_id": target_display_id})
         if fav_card_data:
             try:
                 storage_msg = await client.get_messages(SPECIFIC_CONTROL_GROUP, ids=fav_card_data["storage_msg_id"])
-                if storage_msg and storage_msg.media: fav_media = storage_msg.media
+                if storage_msg and storage_msg.media:
+                    fav_media = storage_msg.media
             except: pass
-            
+    
     try:
         if edit_msg_id:
-            try: await client.edit_message(chat_id, edit_msg_id, output_text, parse_mode='html', buttons=buttons)
-            except errors.MessageNotModifiedError: pass
+            try:
+                await client.edit_message(chat_id, edit_msg_id, output_text, parse_mode='html', buttons=buttons)
+            except errors.MessageNotModifiedError:
+                pass
         else:
-            if fav_media: 
-                try: await client.send_message(chat_id, output_text, file=fav_media, parse_mode='html', buttons=buttons)
-                except Exception: await client.send_message(chat_id, output_text, parse_mode='html', buttons=buttons)
+            if fav_media:
+                try:
+                    await client.send_message(chat_id, output_text, file=fav_media, parse_mode='html', buttons=buttons)
+                except Exception:
+                    await client.send_message(chat_id, output_text, parse_mode='html', buttons=buttons)
             else:
                 await client.send_message(chat_id, output_text, parse_mode='html', buttons=buttons)
     except Exception as main_err:
-        try: await client.send_message(chat_id, f"❌ <b>Vault Display Error:</b> <code>{escape_html(str(main_err))}</code>", parse_mode='html')
+        try:
+            await client.send_message(chat_id, f"❌ <b>Vault Display Error:</b> <code>{escape_html(str(main_err))}</code>", parse_mode='html')
         except: pass
+@bot1.on(events.CallbackQuery(pattern=r'^view_all_cards_(\d+)$'))
+async def view_all_cards_callback(event):
+    user_id = int(event.pattern_match.group(1))
+    clicker_id = event.sender_id
+    
+    # Only the owner of the vault can view the gallery
+    if clicker_id != user_id:
+        return await event.answer("❌ This is not your vault!", alert=True)
+    
+    # Get user data with filter
+    user_doc = await users_catcher_col.find_one({"user_id": user_id})
+    if not user_doc or not user_doc.get("harem"):
+        return await event.answer("❌ Your vault is empty!", alert=True)
+    
+    raw_harem = user_doc.get("harem", [])
+    rarity_filter = user_doc.get("rarity_filter")
+    
+    # Apply filter
+    filtered_harem = []
+    if rarity_filter:
+        for item in raw_harem:
+            if isinstance(item, dict) and item.get("rarity") == rarity_filter:
+                filtered_harem.append(item)
+    else:
+        filtered_harem = raw_harem
+    
+    if not filtered_harem:
+        return await event.answer("❌ No cards found with current filter!", alert=True)
+    
+    # Group by char_id to get unique cards
+    unique_cards = {}
+    for item in filtered_harem:
+        if isinstance(item, dict) and "char_id" in item:
+            cid = item["char_id"]
+            if cid not in unique_cards:
+                unique_cards[cid] = {"count": 0, "item": item}
+            unique_cards[cid]["count"] += 1
+    
+    if not unique_cards:
+        return await event.answer("❌ No valid cards found!", alert=True)
+    
+    # Show first page of gallery (5 cards per page)
+    card_ids = list(unique_cards.keys())
+    page = 1
+    per_page = 5
+    total_pages = (len(card_ids) + per_page - 1) // per_page
+    
+    await send_gallery_page(event, user_id, card_ids, unique_cards, page, per_page, total_pages)
 
-@bot1.on(events.NewMessage(pattern=r'^/hai(?:@\w+)?$'))
-async def display_harem_list(event):
-    await send_paginated_harem(bot1, event.chat_id, event.sender_id, page=1)
+async def send_gallery_page(event, user_id, card_ids, unique_cards, page, per_page, total_pages):
+    start_idx = (page - 1) * per_page
+    end_idx = min(start_idx + per_page, len(card_ids))
+    page_card_ids = card_ids[start_idx:end_idx]
+    
+    # Build gallery message with card buttons
+    gallery_text = f"🖼️ <b>Your Card Gallery</b>\n"
+    filter_doc = await users_catcher_col.find_one({"user_id": user_id})
+    rarity_filter = filter_doc.get("rarity_filter") if filter_doc else None
+    if rarity_filter:
+        gallery_text += f"🔍 <b>Filter:</b> {rarity_filter}\n"
+    gallery_text += f"📑 <b>Page {page}/{total_pages}</b> | <b>Total Cards:</b> {len(card_ids)}\n\n"
+    gallery_text += f"<i>Tap a card to view its details</i>\n━━━━━━━━━━━━━━━━━━━━\n"
+    
+    # Create buttons for each card (2 per row)
+    buttons = []
+    row = []
+    for idx, cid in enumerate(page_card_ids):
+        card_data = await characters_base_col.find_one({"char_id": cid})
+        if not card_data:
+            continue
+        card_name = card_data.get("name", "Unknown")
+        emoji = card_data.get("rarity", "🃏")[0] if card_data.get("rarity") else "🃏"
+        count = unique_cards[cid]["count"]
+        label = f"{emoji} {card_name} x{count}"
+        row.append(Button.inline(label, data=f"card_detail_{cid}_{user_id}"))
+        if len(row) == 2:
+            buttons.append(row)
+            row = []
+    if row:
+        buttons.append(row)
+    
+    # Navigation buttons
+    nav_row = []
+    if page > 1:
+        nav_row.append(Button.inline("⬅️ Prev", data=f"gallery_page_{page-1}_{user_id}"))
+    if page < total_pages:
+        nav_row.append(Button.inline("Next ➡️", data=f"gallery_page_{page+1}_{user_id}"))
+    if nav_row:
+        buttons.append(nav_row)
+    
+    # Back to vault button
+    buttons.append([Button.inline("🔙 Back to Vault", data=f"hai_1_{user_id}")])
+    
+    await event.edit(gallery_text, parse_mode='html', buttons=buttons)
+@bot1.on(events.CallbackQuery(pattern=r'^gallery_page_(\d+)_(\d+)$'))
+async def gallery_page_callback(event):
+    page = int(event.pattern_match.group(1))
+    user_id = int(event.pattern_match.group(2))
+    
+    if event.sender_id != user_id:
+        return await event.answer("❌ This is not your gallery!", alert=True)
+    
+    user_doc = await users_catcher_col.find_one({"user_id": user_id})
+    if not user_doc or not user_doc.get("harem"):
+        return await event.answer("❌ Your vault is empty!", alert=True)
+    
+    raw_harem = user_doc.get("harem", [])
+    rarity_filter = user_doc.get("rarity_filter")
+    
+    filtered_harem = []
+    if rarity_filter:
+        for item in raw_harem:
+            if isinstance(item, dict) and item.get("rarity") == rarity_filter:
+                filtered_harem.append(item)
+    else:
+        filtered_harem = raw_harem
+    
+    unique_cards = {}
+    for item in filtered_harem:
+        if isinstance(item, dict) and "char_id" in item:
+            cid = item["char_id"]
+            if cid not in unique_cards:
+                unique_cards[cid] = {"count": 0, "item": item}
+            unique_cards[cid]["count"] += 1
+    
+    card_ids = list(unique_cards.keys())
+    per_page = 5
+    total_pages = (len(card_ids) + per_page - 1) // per_page
+    
+    await send_gallery_page(event, user_id, card_ids, unique_cards, page, per_page, total_pages)
 
+@bot1.on(events.CallbackQuery(pattern=r'^card_detail_([a-zA-Z0-9_]+)_(\d+)$'))
+async def card_detail_callback(event):
+    char_id = event.pattern_match.group(1)
+    user_id = int(event.pattern_match.group(2))
+    
+    if event.sender_id != user_id:
+        return await event.answer("❌ This is not your card!", alert=True)
+    
+    # Get card details from database
+    card = await characters_base_col.find_one({"char_id": char_id})
+    if not card:
+        return await event.answer("❌ Card not found!", alert=True)
+    
+    # Get user's card count
+    user_doc = await users_catcher_col.find_one({"user_id": user_id})
+    if not user_doc:
+        return await event.answer("❌ User not found!", alert=True)
+    
+    harem = user_doc.get("harem", [])
+    count = 0
+    for item in harem:
+        if isinstance(item, dict) and item.get("char_id") == char_id:
+            count += 1
+    
+    # Get the media (image) from storage
+    media_file = None
+    try:
+        storage_msg = await bot1.get_messages(SPECIFIC_CONTROL_GROUP, ids=card["storage_msg_id"])
+        if storage_msg and storage_msg.media:
+            # Check if it's a photo (skip videos)
+            if storage_msg.photo:
+                media_file = storage_msg.media
+            else:
+                # If not photo, try to get the photo from document
+                if storage_msg.document and storage_msg.document.mime_type and storage_msg.document.mime_type.startswith('image/'):
+                    media_file = storage_msg.media
+                else:
+                    # Skip video or other media
+                    media_file = None
+    except Exception as e:
+        print(f"Error getting media: {e}")
+    
+    # Build detail message
+    detail_text = (
+        f"🃏 <b>Card Details</b>\n"
+        f"━━━━━━━━━━━━━━━━━━━━\n"
+        f"🌟 <b>Name:</b> <code>{card['name']}</code>\n"
+        f"🆔 <b>ID:</b> <code>{card['char_id']}</code>\n"
+        f"🌐 <b>Category:</b> <code>{card['category']}</code>\n"
+        f"🌟 <b>Rarity:</b> {card['rarity']}\n"
+        f"📦 <b>You Own:</b> <code>{count} copies</code>\n"
+        f"💎 <b>Value:</b> <code>{card['currency_value']} MMK</code>\n"
+        f"━━━━━━━━━━━━━━━━━━━━\n"
+        f"<i>Tap the image to close</i>"
+    )
+    
+    # If media exists, send as file with caption; otherwise send text only
+    if media_file:
+        await event.answer("🃏 Loading card...", alert=False)
+        await bot1.send_file(
+            event.chat_id,
+            media_file,
+            caption=detail_text,
+            parse_mode='html',
+            reply_to=event.message_id
+        )
+        # Edit the original message to show "Card sent" or just keep it
+        await event.answer("✅ Card sent!", alert=True)
+    else:
+        await event.edit(detail_text, parse_mode='html')
+        
 # ==========================================
 # 🔗 UNIFIED CALLBACK HANDLER
 # ==========================================
