@@ -2604,67 +2604,84 @@ async def slot_game_handler(event):
     user_id = event.sender_id
     bet_str = event.pattern_match.group(1)
     
-    # ⭐ ပမာဏမပါရင် Usage ပြန်ပြောမယ်
+    # ⭐ ပမာဏမပါရင် အတိုချုံး အကြောင်းကြားစာ
     if not bet_str:
         return await event.reply(
-            f"🎰 <b>DORAEMON'S SLOT MACHINE</b>\n"
-            f"━━━━━━━━━━━━━━━━━━━━\n"
-            f"💕 Please specify your bet amount!\n"
-            f"Example: <code>/slot 100</code>\n"
-            f"💵 Minimum bet: <code>1 MMK</code>\n"
-            f"🐱 Use <code>/balance</code> to check your money!"
+            f"🎰 Please specify your bet amount!\nExample: <code>/slot 100</code>"
         )
     
     bet = int(bet_str)
-    if bet <= 0: 
-        return await event.reply("💕 <b>Bet must be at least 1 MMK, my dear gambler!</b>", parse_mode='html')
+    if bet <= 0:
+        return await event.reply("💕 <b>Bet must be at least 1 MMK!</b>", parse_mode='html')
     
+    # Check balance
     user_doc = await users_catcher_col.find_one({"user_id": user_id})
     balance = user_doc.get("wallet_balance", 0) if user_doc else 0
-    if balance < bet: 
-        return await event.reply(f"💕 <b>Oh no! You only have {balance} MMK! Doraemon believes in you! 🐱</b>", parse_mode='html')
+    if balance < bet:
+        return await event.reply(f"💕 <b>Oh no! You only have {balance} MMK! 🐱</b>", parse_mode='html')
     
+    # Deduct bet
     await users_catcher_col.update_one({"user_id": user_id}, {"$inc": {"wallet_balance": -bet}})
     mention = await get_html_mention(event, user_id)
     
-    symbols = ["🐯", "🦁", "🐃", "🦓", "🦀", "🐄", "🦅", "🐱", "🌟", "💎"]
-    res_syms = random.choices(symbols, k=9)
-    res_str = " ✨ ".join(res_syms)
+    # ⭐ Symbols (၇ ခုပဲ)
+    symbols = ["🐯", "🦁", "🐃", "🦓", "🦀", "🐄", "🦅"]
+    
+    # ⭐ Loading Message ပို့မယ်
+    loading_msg = await event.reply("🎰 🔄 🔄 🔄 🔄 🔄 🔄")
+    
+    # ⭐ Slot Machine လည်ပတ်နေသလိုမျိုး Animation (၃ ခါ)
+    for spin in range(3):
+        await asyncio.sleep(0.8)
+        shuffled = random.sample(symbols, 7)
+        display = " | ".join(shuffled)
+        await bot1.edit_message(
+            event.chat_id,
+            loading_msg,
+            f"🎰 {display}"
+        )
+    
+    # ⭐ နောက်ဆုံး ရလဒ်ကို ဆွဲထုတ်မယ်
+    res_syms = random.choices(symbols, k=7)
+    res_str = " | ".join(res_syms)
+    
+    # ⭐ အနိုင် / အရှုံး တွက်ချက်မယ်
     counts = Counter(res_syms)
     most_common_sym, max_count = counts.most_common(1)[0]
     win_amount = 0
     
-    if max_count >= 8:
-        win_amount = bet * 100 if most_common_sym == "🌟" else bet * 77
-        status_text = f"🎉🎊 <b>GOD-TIER JACKPOT!!!</b> 🎊🎉\n{most_common_sym} x{max_count} = {win_amount:,} MMK! DORAEMON IS SHOCKED! 😱"
+    if max_count >= 7:
+        win_amount = bet * 77 if most_common_sym == "🐃" else bet * 50
+        status_text = f"🎉🎊 <b>GOD-TIER JACKPOT!!!</b> 🎊🎉\n{most_common_sym} x{max_count} = {win_amount:,} MMK! 😱"
         celebration = "🎉✨🌟💎🎊🎉✨🌟💎🎊"
-    elif max_count == 7:
-        win_amount = bet * 50 if most_common_sym == "🐱" else bet * 35
-        status_text = f"🔥🔥 <b>MEGA MULTI-MATCH!!!</b> 🔥🔥\n{most_common_sym} x{max_count} = {win_amount:,} MMK! AMAZING! 😍"
-        celebration = "🎉✨🌟💎🎊"
     elif max_count == 6:
-        win_amount = bet * 20
-        status_text = f"⚡⚡ <b>SUPER MULTI-MATCH!!</b> ⚡⚡\n{most_common_sym} x{max_count} = {win_amount:,} MMK! You're on fire! 🔥"
-        celebration = "🎉🌟✨💎"
+        win_amount = bet * 25
+        status_text = f"🔥🔥 <b>MEGA MULTI-MATCH!!!</b> 🔥🔥\n{most_common_sym} x{max_count} = {win_amount:,} MMK! 😍"
+        celebration = "🎉✨🌟💎🎊"
     elif max_count == 5:
-        win_amount = bet * 10
-        status_text = f"😲😲 <b>QUADRA SYNC MATCH!</b> 😲😲\n{most_common_sym} x{max_count} = {win_amount:,} MMK! Not bad! 👍"
-        celebration = "🎉✨🌟"
+        win_amount = bet * 12
+        status_text = f"⚡⚡ <b>SUPER MULTI-MATCH!!</b> ⚡⚡\n{most_common_sym} x{max_count} = {win_amount:,} MMK! 🔥"
+        celebration = "🎉🌟✨💎"
     elif max_count == 4:
-        win_amount = int(bet * 4)
-        status_text = f"🤩 <b>TRIPLE COMBINATION!</b> 🤩\n{most_common_sym} x{max_count} = {win_amount:,} MMK! Keep going! 💪"
-        celebration = "🎉✨"
+        win_amount = bet * 5
+        status_text = f"😲😲 <b>QUADRA SYNC MATCH!</b> 😲😲\n{most_common_sym} x{max_count} = {win_amount:,} MMK! 👍"
+        celebration = "🎉✨🌟"
     elif max_count == 3:
-        win_amount = int(bet * 2)
-        status_text = f"😊 <b>PAIR MATCH!</b> 😊\n{most_common_sym} x{max_count} = {win_amount:,} MMK! Small win! 🎈"
+        win_amount = int(bet * 2.5)
+        status_text = f"🤩 <b>TRIPLE COMBINATION!</b> 🤩\n{most_common_sym} x{max_count} = {win_amount:,} MMK! 💪"
+        celebration = "🎉✨"
+    elif max_count == 2:
+        win_amount = int(bet * 0.5)
+        status_text = f"😊 <b>PAIR MATCH!</b> 😊\n{most_common_sym} x{max_count} = {win_amount:,} MMK! 🎈"
         celebration = "✨"
     else:
-        status_text = f"😅 <b>No win this time!</b> 😅\nBetter luck next time! Doraemon believes in you! 🐱💕"
+        status_text = f"😅 <b>No win this time!</b> 😅\nBetter luck next time! 🐱"
         celebration = "💔"
     
     if win_amount > 0:
         await users_catcher_col.update_one({"user_id": user_id}, {"$inc": {"wallet_balance": win_amount}})
     
+    # ⭐ နောက်ဆုံး Message ကို Edit လုပ်မယ်
     final_text = (
         f"🎰 <b>DORAEMON'S SLOT MACHINE</b> 🎰\n"
         f"{celebration}\n"
@@ -2679,7 +2696,7 @@ async def slot_game_handler(event):
         f"🐱 <i>Doraemon sends you luck!</i>"
     )
     
-    await event.reply(final_text, parse_mode='html')
+    await bot1.edit_message(event.chat_id, loading_msg, final_text, parse_mode='html')
 
 @bot1.on(events.NewMessage(pattern=r'^/cardgame\s+(\d+)$'))
 async def create_cardgame_lobby(event):
