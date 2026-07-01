@@ -1317,7 +1317,7 @@ async def permanent_ascii_mute_handler(event):
         )
         user_entity = await event.client.get_entity(target_id)
         target_name = f"{user_entity.first_name} {user_entity.last_name or ''}".strip()
-        await event.reply(f"🌌 <b>MUTE OPERATION SUCCESS!</b>\n🤫 <b>{target_name}</b> has been silenced <b>Permanently</b>.", parse_mode='html')
+        await event.reply(f"<b>MUTE OPERATION SUCCESS!</b>\n<b>{target_name}</b> has been silenced <b>Permanently</b>.", parse_mode='html')
     except Exception as e:
         await event.reply(f"❌ Error: {str(e)}")
 
@@ -2115,37 +2115,6 @@ async def catch_handler(event):
     await asyncio.sleep(2.5)  # 2.5 seconds delay
     await perform_catch(chat_id, user_id, spawn_data, event, reply_to_msg=event.id, is_callback=False, temp_msg_id=temp_msg.id)
 
-# (Callback is kept just in case, but /who no longer uses it)
-@bot1.on(events.CallbackQuery(pattern=r'^catch_now_(\d+)$'))
-async def catch_button_callback(event):
-    chat_id = int(event.pattern_match.group(1))
-    user_id = event.sender_id
-    
-    if chat_id not in active_group_spawns:
-        await event.answer("❌ No gadget available!", alert=True)
-        return
-        
-    spawn_data = active_group_spawns[chat_id]
-    if spawn_data["claimed"]:
-        await event.answer("❌ Already caught!", alert=True)
-        return
-    
-    temp_msg = await bot1.send_message(chat_id, "🐱 Catching...", reply_to=event.message_id)
-    await event.answer("🎯 Catching...", alert=False)
-    
-    success = await perform_catch(chat_id, user_id, spawn_data, event, reply_to_msg=event.message_id, is_callback=True, temp_msg_id=temp_msg.id)
-    
-    if success:
-        await event.answer("🎉 Caught successfully!", alert=True)
-        try:
-            original_msg = await event.get_message()
-            if original_msg:
-                await event.edit("✅ This gadget has been caught! Check your inventory with /hai")
-        except Exception as e:
-            print(f"Could not edit original message: {e}")
-    else:
-        await event.answer("❌ Failed to catch!", alert=True)
-
 @bot1.on(events.NewMessage(pattern=r'^/hmode(?:@\w+)?$'))
 async def set_rarity_filter_handler(event):
     user_id = event.sender_id
@@ -2223,10 +2192,11 @@ async def set_favorite_card(event):
     if not owns_card: return await event.reply(f"❌ <b>You don’t own this card!</b>", parse_mode='html')
     await users_catcher_col.update_one({"user_id": user_id}, {"$set": {"fav_card": char_id}})
     await event.reply(f"⭐️ <b>{escape_html(card['name'])}</b> ({char_id}) is now your favourite card!", parse_mode='html')
+
 async def send_paginated_harem(client, chat_id, user_id, page=1, edit_msg_id=None):
     user_doc = await users_catcher_col.find_one({"user_id": user_id})
     if not user_doc or not user_doc.get("harem"):
-        msg = f"🎒 <b>Your vault is empty! Go catch some gadgets!</b>"
+        msg = f"<b>Your vault is empty! Go catch some charaters!</b>"
         if edit_msg_id: await client.edit_message(chat_id, edit_msg_id, msg, parse_mode='html')
         else: await client.send_message(chat_id, msg, parse_mode='html')
         return
@@ -2243,7 +2213,7 @@ async def send_paginated_harem(client, chat_id, user_id, page=1, edit_msg_id=Non
         filtered_harem = raw_harem
 
     if not filtered_harem:
-        msg = f"🎒 <b>No cards found with rarity filter.</b>\n"
+        msg = f"⚔️ <b>No cards found with rarity filter.</b>\n"
         msg += f"Use <code>/hmode</code> to change or clear filter."
         if edit_msg_id: await client.edit_message(chat_id, edit_msg_id, msg, parse_mode='html')
         else: await client.send_message(chat_id, msg, parse_mode='html')
@@ -2264,7 +2234,7 @@ async def send_paginated_harem(client, chat_id, user_id, page=1, edit_msg_id=Non
 
     owned_ids = list(harem_counts.keys())
     if not owned_ids:
-        msg = f"🎒 <b>No valid cards in vault.</b>"
+        msg = f"⚔️ <b>No valid cards in vault.</b>"
         if edit_msg_id: await client.edit_message(chat_id, edit_msg_id, msg, parse_mode='html')
         else: await client.send_message(chat_id, msg, parse_mode='html')
         return
@@ -2321,7 +2291,7 @@ async def send_paginated_harem(client, chat_id, user_id, page=1, edit_msg_id=Non
     except: fullname = "Hunter"
 
     mention = f"<a href='tg://user?id={user_id}'><b>{escape_html(fullname)}</b></a>"
-    output_text = f"🎒 {mention} <b>VAULT COLLECTION</b>"
+    output_text = f"⚔️ {mention} <b>VAULT COLLECTION</b>"
     if rarity_filter:
         output_text += f"\n🔍 <b>Filter:</b> {rarity_filter}"
     output_text += f"\n📑 <b>Page:</b> <code>{page}/{total_pages}</code> | <b>Total Unique:</b> <code>{len(lines)}</code> | <b>Total Cards:</b> <code>{len(filtered_harem)}</code>\n\n"
@@ -2329,19 +2299,19 @@ async def send_paginated_harem(client, chat_id, user_id, page=1, edit_msg_id=Non
     for l in page_lines:
         output_text += l + "\n"
     
-    output_text += f"\n⚡ ━━━━━⚡\n"
+    output_text += f"\n⚔️ ━━━━━━━━━━━━━━━━ ⚔️\n"
     output_text += f"<blockquote>💡 Use <code>/fav [BODxxxx]</code> to set a favourite card.</blockquote>"
     if rarity_filter:
         output_text += f"\n<i>Filter active. Use /hmode to change or clear.</i>"
     
+    # ⭐ BUTTONS SECTION – FIXED INDENTATION
     buttons = []
-         # ... existing code ...
-    # ⭐ "View All Cards" button with total count
+    
+    # View All Cards button with total count
     total_cards = len(filtered_harem)
-    view_all_button = [Button.inline(f"🖼️ View All Cards ({total_cards})", data=f"view_all_cards_{user_id}")]
-    buttons.append(view_all_button)
-
-# Add pagination buttons
+    buttons.append([Button.inline(f"🖼️ View All Cards ({total_cards})", data=f"view_all_cards_{user_id}")])
+    
+    # Pagination buttons
     nav_buttons = []
     if page > 1:
         nav_buttons.append(Button.inline("⬅️ Prev", data=f"hai_{page-1}_{user_id}"))
@@ -2349,14 +2319,11 @@ async def send_paginated_harem(client, chat_id, user_id, page=1, edit_msg_id=Non
         nav_buttons.append(Button.inline("Next ➡️", data=f"hai_{page+1}_{user_id}"))
     if nav_buttons:
         buttons.append(nav_buttons)
-
-# Add filter button
+    
+    # Filter buttons
     if rarity_filter:
         buttons.append([Button.inline("🔓 Clear Filter", data=f"hfilter_clear")])
     buttons.append([Button.inline("🎯 Change Rarity Filter", data="nav_hmode")])
-
-# ... rest of the function ...
-
     
     if not buttons:
         buttons = None
@@ -2394,6 +2361,7 @@ async def send_paginated_harem(client, chat_id, user_id, page=1, edit_msg_id=Non
         try:
             await client.send_message(chat_id, f"❌ <b>Vault Display Error:</b> <code>{escape_html(str(main_err))}</code>", parse_mode='html')
         except: pass
+                              
 @bot1.on(events.CallbackQuery(pattern=r'^view_all_cards_(\d+)$'))
 async def view_all_cards_callback(event):
     user_id = int(event.pattern_match.group(1))
