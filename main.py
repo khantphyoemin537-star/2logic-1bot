@@ -568,63 +568,6 @@ async def daily_couple_matcher():
             except Exception as e:
                 print(f"Daily couple error in {chat_id}: {e}")
 
-@bot1.on(events.CallbackQuery(pattern=r'^couple_(accept|reject)_(.+)$'))
-async def couple_callback_handler(event):
-    action = event.pattern_match.group(1)
-    proposal_id = event.pattern_match.group(2)
-    user_id = event.sender_id
-
-    proposal = await proposals_col.find_one({"proposal_id": proposal_id})
-    if not proposal:
-        await event.answer("❌ This proposal no longer exists.", alert=True)
-        return
-
-    if proposal["status"] != "pending":
-        await event.answer("❌ This proposal has already been handled.", alert=True)
-        return
-
-    # သတ်မှတ်ထားတဲ့ နှစ်ယောက်ထဲက တစ်ယောက်မှ မဟုတ်ရင် ခွင့်မပြု
-    if user_id not in (proposal["user1_id"], proposal["user2_id"]):
-        await event.answer("⚠️ This proposal is not for you.", alert=True)
-        return
-
-    chat_id = proposal["chat_id"]
-    user1_id = proposal["user1_id"]
-    user2_id = proposal["user2_id"]
-
-    if action == "accept":
-        # အတွဲဖြစ်သွားပြီဆိုရင် DB ထဲသိမ်း
-        await couples_col.insert_one({
-            "chat_id": chat_id,
-            "user1_id": user1_id,
-            "user2_id": user2_id,
-            "accepted_date": datetime.now(TZ),
-            "custom_date": None,  # နောက်မှ သတ်မှတ်နိုင်
-            "status": "active"
-        })
-        # Proposal ကို ပြီးဆုံးအောင် သတ်မှတ်
-        await proposals_col.update_one({"proposal_id": proposal_id}, {"$set": {"status": "accepted"}})
-
-        # အောင်မြင်ကြောင်း စာသားပြန်ပို့
-        await event.edit(
-            f"💕 **Congratulations!**\n"
-            f"You are now a couple! 🎉\n"
-            f"Use /mycouple to see your partner."
-        )
-        await event.answer("🎉 You accepted! You are now a couple.", alert=True)
-
-        # နှစ်ယောက်စလုံးကို Notify
-        try:
-            await bot1.send_message(user1_id, "🎉 Your couple request has been accepted! You are now officially a couple.")
-            await bot1.send_message(user2_id, "🎉 Your couple request has been accepted! You are now officially a couple.")
-        except:
-            pass
-
-    else:  # reject
-        await proposals_col.update_one({"proposal_id": proposal_id}, {"$set": {"status": "rejected"}})
-        await event.edit("❌ The proposal has been rejected.")
-        await event.answer("❌ You rejected the proposal.", alert=True)
-
 @bot1.on(events.NewMessage(pattern=r'^/couple(?:@\w+)?(?:\s+(.*))?'))
 async def couple_handler(event):
     chat_id = event.chat_id
@@ -635,17 +578,17 @@ async def couple_handler(event):
         try:
             reply_msg = await event.get_reply_message()
             if not reply_msg:
-                return await event.reply("❌ Could not get reply message. Please try again.")
+                return await event.reply("💕 Doraemon couldn't read your reply! Please try again, love is waiting! 🐱")
                 
             target_user_id = reply_msg.sender_id
             
             # မိမိကိုယ်ကို ကမ်းလှမ်းလို့မရ
             if target_user_id == user_id:
-                return await event.reply("❌ You cannot propose to yourself.")
+                return await event.reply("💕 You can't propose to yourself! Doraemon wants you to find love, but you're already perfect as you are! 🐱")
             
             # Owner ကို ကမ်းလှမ်းလို့မရ
             if target_user_id == OWNER_ID:
-                return await event.reply("❌ You cannot propose to the bot owner.")
+                return await event.reply("💕 Oh! You're aiming high! But the bot owner is already married to the code! 😹")
 
             # ကိုယ်တိုင် အတွဲရှိပြီးသားလား?
             sender_couple = await couples_col.find_one({
@@ -661,8 +604,8 @@ async def couple_handler(event):
                 except:
                     partner_name = "Unknown"
                 return await event.reply(
-                    f"❌ You are already in a couple with **{partner_name}**! 💕\n"
-                    f"Use `/mycouple` to see your partner."
+                    f"💕 Oh my! You already have a special someone, **{partner_name}**! 🥰\n"
+                    f"Doraemon is so happy for you! Use `/mycouple` to see your love story! 🌸"
                 )
 
             # ကမ်းလှမ်းခံရသူမှာ အတွဲရှိပြီးသားလား?
@@ -673,7 +616,8 @@ async def couple_handler(event):
             })
             if target_couple:
                 return await event.reply(
-                    f"❌ Sorry, {reply_msg.sender.first_name or 'They'} is already in a couple with someone else! 💔"
+                    f"💕 Aww, {reply_msg.sender.first_name or 'They'} already has a love story with someone else! 💔\n"
+                    f"Doraemon believes your special someone is out there! Keep hoping! 🌟"
                 )
 
             # သူတို့နှစ်ယောက်ကြား အတွဲရှိပြီးသားလား?
@@ -686,7 +630,10 @@ async def couple_handler(event):
                 "status": "active"
             })
             if existing:
-                return await event.reply("❌ You are already a couple with this person.")
+                return await event.reply(
+                    "💕 You two are already a beautiful couple! Doraemon is blushing! 🥰\n"
+                    "Use `/mycouple` to see your love story!"
+                )
 
             # ⭐ အားလုံးအဆင်ပြေရင် Proposal ဖန်တီးခြင်း
             proposal_id = f"manual_{chat_id}_{int(time.time())}_{random.randint(1000,9999)}"
@@ -713,49 +660,119 @@ async def couple_handler(event):
                 img_file.name = "couple_proposal.png"
             except Exception as img_err:
                 print(f"Image generation error: {img_err}")
-                # ပုံမရရင် စာသားနဲ့ပဲ ပို့မယ်
                 img_file = None
 
             caption = (
+                f"💕 Doraemon sees a spark between you two! ✨\n"
                 f"🐱 {sender.first_name} wants to be your couple!\n"
-                f"Will you accept?"
+                f"🌸 Will you accept this love? 💕"
             )
             buttons = [
-                [Button.inline("✅ Accept", data=f"couple_accept_{proposal_id}"),
-                 Button.inline("❌ Reject", data=f"couple_reject_{proposal_id}")]
+                [Button.inline("💕 Yes! I Accept!", data=f"couple_accept_{proposal_id}"),
+                 Button.inline("💔 No, Thank You", data=f"couple_reject_{proposal_id}")]
             ]
             
             if img_file:
-                await event.reply(file=img_file, caption=caption, buttons=buttons, parse_mode='html')
+                await bot1.send_file(
+                    chat_id,
+                    file=img_file,
+                    caption=caption,
+                    buttons=buttons,
+                    parse_mode='html',
+                    reply_to=event.id
+                )
             else:
                 await event.reply(caption, buttons=buttons, parse_mode='html')
                 
         except Exception as e:
             print(f"Couple reply error: {e}")
-            await event.reply(f"❌ Something went wrong: {str(e)}")
+            await event.reply(f"💕 Oops! Something went wrong! Doraemon is fixing it... 🐱\nError: {str(e)}")
         return
 
     # ---- Case 2: အတွဲများကို ပြသခြင်း (group အတွင်း) ----
     try:
         couples = await couples_col.find({"chat_id": chat_id, "status": "active"}).to_list(length=None)
         if not couples:
-            await event.reply("💔 No couples in this group yet.\nUse `/couple` with reply to propose to someone.")
+            await event.reply(
+                "💕 No couples in this group yet! 🌸\n"
+                "Use `/couple` with reply to propose to someone special!\n"
+                "Doraemon believes in love! 🐱"
+            )
             return
 
-        msg = "💕 **Active Couples in this Group:**\n\n"
+        msg = "🌸 **Love Stories in this Group:** 💕\n━━━━━━━━━━━━━━━━━━━━\n"
         for c in couples:
             try:
                 u1 = await bot1.get_entity(c["user1_id"])
                 u2 = await bot1.get_entity(c["user2_id"])
                 date = c.get("custom_date") or c.get("accepted_date")
                 date_str = date.strftime("%Y-%m-%d") if date else "Unknown"
-                msg += f"• {u1.first_name} 💕 {u2.first_name} (since {date_str})\n"
+                msg += f"💕 {u1.first_name} ✨ {u2.first_name}\n   📅 Since: {date_str}\n\n"
             except:
-                msg += f"• Couple (ID: {c['_id']})\n"
+                msg += f"💕 A beautiful couple (ID: {c['_id']})\n\n"
+        msg += "🐱 Doraemon loves seeing happy couples! 🌸"
         await event.reply(msg, parse_mode='html')
     except Exception as e:
         print(f"Couple list error: {e}")
-        await event.reply(f"❌ Error loading couples: {str(e)}")
+        await event.reply(f"💕 Doraemon couldn't load the couples! 🐱\nError: {str(e)}")
+
+@bot1.on(events.CallbackQuery(pattern=r'^couple_(accept|reject)_(.+)$'))
+async def couple_callback_handler(event):
+    action = event.pattern_match.group(1)
+    proposal_id = event.pattern_match.group(2)
+    user_id = event.sender_id
+
+    proposal = await proposals_col.find_one({"proposal_id": proposal_id})
+    if not proposal:
+        await event.answer("💕 This love story has already ended! 🌸", alert=True)
+        return
+
+    if proposal["status"] != "pending":
+        await event.answer("💕 This proposal has already been answered! 🌸", alert=True)
+        return
+
+    if user_id not in (proposal["user1_id"], proposal["user2_id"]):
+        await event.answer("💕 This love letter is not for you! 🌸", alert=True)
+        return
+
+    chat_id = proposal["chat_id"]
+    user1_id = proposal["user1_id"]
+    user2_id = proposal["user2_id"]
+
+    if action == "accept":
+        await couples_col.insert_one({
+            "chat_id": chat_id,
+            "user1_id": user1_id,
+            "user2_id": user2_id,
+            "accepted_date": datetime.now(TZ),
+            "custom_date": None,
+            "status": "active"
+        })
+        await proposals_col.update_one({"proposal_id": proposal_id}, {"$set": {"status": "accepted"}})
+
+        await event.edit(
+            f"💕 **Congratulations!** 🎉\n"
+            f"🌸 You are now a beautiful couple!\n"
+            f"🐱 Doraemon is so happy for you!\n\n"
+            f"💕 Use /mycouple to see your love story!\n"
+            f"📅 Use /coupledate [2026.6.17] to set your special day!"
+        )
+        await event.answer("💕 You said YES! Love is beautiful! 🌸", alert=True)
+
+        try:
+            await bot1.send_message(user1_id, "💕 YOUR LOVE STORY BEGINS! 🎉\nYou are now officially a couple! Doraemon is overjoyed! 🌸")
+            await bot1.send_message(user2_id, "💕 YOUR LOVE STORY BEGINS! 🎉\nYou are now officially a couple! Doraemon is overjoyed! 🌸")
+        except:
+            pass
+
+    else:  # reject
+        await proposals_col.update_one({"proposal_id": proposal_id}, {"$set": {"status": "rejected"}})
+        await event.edit(
+            f"💔 That's okay! Love takes time! 🌸\n"
+            f"🐱 Doraemon believes the right person will come along!\n"
+            f"🌟 Keep your heart open!"
+        )
+        await event.answer("💔 You said no. That's okay! Love will find you! 🌸", alert=True)
     
 @bot1.on(events.NewMessage(pattern=r'^/mycouple(?:@\w+)?$'))
 async def my_couple_handler(event):
