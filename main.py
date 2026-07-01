@@ -1,7 +1,5 @@
 #############
 import io
-import imageio
-import numpy as np
 import asyncio
 import logging
 import random
@@ -12,12 +10,11 @@ import time
 import urllib.request
 import json
 import pytz
+from PIL import Image, ImageDraw, ImageFont
 from collections import Counter
 from telethon.tl.functions.channels import GetParticipantsRequest
-from datetime import datetime, timedelta, date
-from flask import Flask, jsonify, render_template_string
-from PIL import Image, ImageDraw, ImageFont
-from html.parser import HTMLParser
+from datetime import datetime, timedelta
+from flask import Flask
 from motor.motor_asyncio import AsyncIOMotorClient
 from pymongo import ReturnDocument
 from html import escape as escape_html
@@ -26,6 +23,7 @@ from telethon import TelegramClient, events, types, Button, errors
 from collections import defaultdict
 from telethon.tl.types import ChannelParticipantsAdmins
 from telethon.extensions import html
+
 # ==========================================
 # ⚡ PREMIUM MATHEMATICAL BOLD SERIF FONT CONVERTER
 # ==========================================
@@ -34,7 +32,7 @@ def f(text):
     normal = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789"
     elegant = "𝖠𝖡𝖢𝖣𝖤𝖥𝖦𝖧𝖨𝖩𝖪𝖫𝖬𝖭𝖮𝖯𝖰𝖱𝖲𝖳𝖴𝖵𝖶𝖷𝖸𝖹𝖺𝖻𝖼𝖽𝖾𝖿𝗀𝗁𝗂𝗃𝗄𝗅𝗆𝗇𝗈𝗉𝗊𝗋𝗌𝗍𝗎𝗏𝗐𝗑𝗒𝗓𝟢𝟣𝟤𝟥𝟦𝟧𝟨𝟩𝟪𝟫"
     trans = str.maketrans(normal, elegant)
-    return text.translate(trans) 
+    return text.translate(trans)
 
 async def ensure_user_registered(user_id, fullname):
     """Auto‑register user with welcome bonus (Doraemon’s gift)"""
@@ -64,7 +62,6 @@ async def ensure_user_registered(user_id, fullname):
 # 🛡️ FLOOD WAIT PROTECTION ENGINE
 # ==========================================
 async def send_safe_message(client, chat_id, text, **kwargs):
-    """FloodWait safe sender"""
     while True:
         try:
             return await client.send_message(chat_id, text, **kwargs)
@@ -76,7 +73,6 @@ async def send_safe_message(client, chat_id, text, **kwargs):
             raise e
 
 async def send_safe_file(client, chat_id, file, **kwargs):
-    """FloodWait safe file sender"""
     while True:
         try:
             return await client.send_file(chat_id, file, **kwargs)
@@ -88,15 +84,16 @@ async def send_safe_file(client, chat_id, file, **kwargs):
             raise e
 
 # ==========================================
-# 🧵 NON-BLOCKING EXECUTOR BRIDGE
+# 🧵 NON-BLOCKING EXECUTOR BRIDGE (for weather API calls)
 # ==========================================
 async def run_blocking(func, *args, **kwargs):
-    """Run CPU‑heavy functions in thread pool to avoid blocking the event loop."""
+    """Run blocking functions (like weather API) in thread pool."""
     loop = asyncio.get_running_loop()
     if kwargs:
         return await loop.run_in_executor(None, lambda: func(*args, **kwargs))
     return await loop.run_in_executor(None, func, *args)
-# 🚀 ADVANCED SYSTEM LOGIC 2: COMMAND COOLDOWN RATE-LIMITER
+
+# 🚀 COOLDOWN RATE-LIMITER
 async def is_on_cooldown(user_id, command_name, cooldown_seconds=3):
     if user_id == OWNER_ID: return False, 0
     now = time.time()
@@ -108,7 +105,7 @@ async def is_on_cooldown(user_id, command_name, cooldown_seconds=3):
     user_cooldowns[cache_key] = now
     return False, 0
 
-# 🚀 ADVANCED SYSTEM LOGIC: REAL-TIME USER METRICS TRACKER
+# 🚀 REAL-TIME USER METRICS TRACKER
 def track_user_metrics(user_id, username, first_name):
     async def _track_bg():
         try:
@@ -131,7 +128,7 @@ def track_user_metrics(user_id, username, first_name):
     except Exception:
         pass
 
-# 🚀 ADVANCED SYSTEM LOGIC 3: CENTRALIZED ERROR NOTIFICATION TO OWNER DM
+# 🚀 CENTRALIZED ERROR NOTIFICATION
 async def report_system_error(location, error_msg):
     try:
         alert_text = (
@@ -153,7 +150,7 @@ async def register_temporary_mute(chat_id, user_id, duration_minutes=60):
     )
 
 # ==========================================
-# 🔍 SMART TEXT NORMALIZER FOR TEXT MATCHING
+# 🔍 SMART TEXT NORMALIZER
 # ==========================================
 def normalize_name(text):
     if not text: return ""
@@ -179,13 +176,9 @@ logging.basicConfig(format='%(asctime)s - %(levelname)s - %(message)s', level=lo
 # ⚙️ SYSTEM CONFIGURATIONS & CREDENTIALS
 # ==========================================
 def _require_env(name):
-    """Read required environment variable"""
     value = os.environ.get(name)
     if not value:
-        raise RuntimeError(
-            f"❌ Missing required environment variable: {name}. "
-            f"Set it in Render → Environment tab before starting the bot."
-        )
+        raise RuntimeError(f"❌ Missing required environment variable: {name}.")
     return value
 
 OWNER_ID = int(_require_env("OWNER_ID"))
@@ -196,6 +189,8 @@ MAIN_BOT_TOKEN = _require_env("MAIN_BOT_TOKEN")
 SPECIFIC_CONTROL_GROUP = int(_require_env("SPECIFIC_CONTROL_GROUP"))
 SPECIFIC_GROUP = int(_require_env("SPECIFIC_GROUP"))
 TZ = pytz.timezone('Asia/Yangon')
+STORAGE_CHANNEL = SPECIFIC_CONTROL_GROUP  # For filter storage
+
 # ==========================================
 # 🗄️ DATABASE CONNECTION MATRIX
 # ==========================================
@@ -223,7 +218,9 @@ groups_counters_col = db["groups_msg_counters"]
 groups_config_col = db["groups_catcher_config"]   
 marketplace_col = db["marketplace_data"]
 guilds_col = db["guilds_data"]
-
+# အောက်ပါ collection များကို DB connection ရဲ့အောက်မှာ ထည့်ပါ
+couples_col = db["couples"]           # အတွဲဖြစ်ပြီးသား သိမ်းရန်
+proposals_col = db["proposals"]       # ဆိုင်းငံ့ထားတဲ့ ကမ်းလှမ်းချက်များ
 
 async def create_indexes():
     print("⚡ Creating Database Indexes...")
@@ -238,6 +235,10 @@ async def create_indexes():
     await muted_registry_col.create_index([("chat_id", 1), ("user_id", 1)])
     await user_game_profiles_col.create_index("user_id", unique=True)
     await characters_col.create_index("name", unique=True)
+    await couples_col.create_index([("chat_id", 1), ("user1_id", 1), ("user2_id", 1)])
+    await couples_col.create_index("status")
+    await proposals_col.create_index("status")
+    await proposals_col.create_index("timestamp")
     print("Database Indexes synchronized! ✔️")
 
 bot1 = TelegramClient('bot_main_session', APP_ID, APP_HASH)
@@ -276,10 +277,9 @@ user_cooldowns = {}
 def bq(text): return f"<blockquote><b>{text}</b></blockquote>"
 
 def owner_tag():
-    return f"<a href='https://t.me/{OWNER_USERNAME}'>@{OWNER_USERNAME}</a>"
+    return f"<a href='tg://user?id={OWNER_ID}'><b>Owner</b></a>"
 
-# 🎭 RARITY MAPPING MATRIX (NEON GACHA EDITION 🔥)
-# ==========================================
+# 🎭 RARITY MAPPING MATRIX
 RARITY_NUM_MAP = {
     "1": {"name": f"👑 {f('LEGENDARY')}", "value": 1000},  
     "2": {"name": f"💎 {f('LIMITED')}", "value": 750},   
@@ -290,60 +290,8 @@ RARITY_NUM_MAP = {
 }
 
 # ==========================================
-# 🖼️ STATIC CALM GIF GENERATOR
+# 🧠 HELPER FUNCTIONS
 # ==========================================
-def generate_static_golden_image(title, lines, width=650, height=450):
-    """
-    Generate a static (single-frame) image with golden text on dark background.
-    No animation, no matrix rain – just clean, elegant text.
-    """
-    try:
-        # Bold fonts with anti-aliasing (PIL handles this)
-        font_title = ImageFont.truetype("DejaVuSans-Bold.ttf", 44)
-        font_body = ImageFont.truetype("DejaVuSans-Bold.ttf", 28)
-    except:
-        # Fallback – may be less pretty but still works
-        font_title = ImageFont.load_default()
-        font_body = ImageFont.load_default()
-
-    # Dark background (very dark blue-black)
-    img = Image.new('RGB', (width, height), color=(8, 8, 20))
-    draw = ImageDraw.Draw(img)
-
-    # Golden border (subtle)
-    draw.rectangle([(10, 10), (width-10, height-10)], outline=(255, 215, 0), width=2)
-
-    # ---- Title (centered) ----
-    try:
-        bbox = draw.textbbox((0, 0), title, font=font_title)
-        tw = bbox[2] - bbox[0]
-    except AttributeError:
-        tw, _ = draw.textsize(title, font=font_title)
-    x_title = (width - tw) // 2
-    y_title = 50
-
-    # Glow effect – draw shadow then main text
-    draw.text((x_title+3, y_title+3), title, fill=(100, 80, 0), font=font_title)  # dark shadow
-    draw.text((x_title, y_title), title, fill=(255, 215, 0), font=font_title)    # bright gold
-
-    # ---- Body lines (left-aligned) ----
-    y = 130
-    for line in lines:
-        draw.text((25, y), line, fill=(255, 235, 150), font=font_body)  # soft golden
-        y += 50
-
-    # Small decorative dot at bottom-right
-    draw.ellipse([(width-40, height-40), (width-20, height-20)], fill=(255, 215, 0))
-
-    # Save as single‑frame GIF (fps=1, so it appears static)
-    gif_buffer = io.BytesIO()
-    imageio.mimsave(gif_buffer, [np.array(img)], format='GIF', fps=1)
-    gif_buffer.seek(0)
-    return gif_buffer 
-# ==========================================
-# (Old generator functions are kept but no longer used; we replace their calls with the new one)
-# ==========================================
-
 async def get_html_mention(event, user_id=None):
     if not user_id: user_id = event.sender_id
     try:
@@ -355,26 +303,91 @@ async def get_html_mention(event, user_id=None):
     except:
         fullname = f"Agent {user_id}"
     return f"<a href='tg://user?id={user_id}'><b>{escape_html(fullname)}</b></a>"
+
+async def generate_couple_proposal_image(user1, user2, bot_avatar=None):
+    """
+    user1, user2: telethon User objects
+    bot_avatar: bot's profile photo (optional background)
+    Returns: BytesIO of the image
+    """
+    # ပုံအရွယ်အစား
+    W, H = 600, 400
+    img = Image.new('RGB', (W, H), color=(20, 20, 40))
+    draw = ImageDraw.Draw(img)
+
+    # Bot ရဲ့ profile ပုံကို background အဖြစ်သုံးမယ် (ရှိရင်)
+    if bot_avatar:
+        try:
+            bg = Image.open(io.BytesIO(bot_avatar))
+            bg = bg.resize((W, H))
+            img.paste(bg, (0, 0))
+        except:
+            pass
+
+    # နှစ်ယောက်ရဲ့ ပုံကို ဆွဲယူခြင်း
+    def get_circle_avatar(user, size=150):
+        try:
+            # profile photo ကို download လုပ်
+            photo = await bot1.download_profile_photo(user, bytesio=True)
+            if photo:
+                avatar = Image.open(photo)
+                avatar = avatar.resize((size, size))
+                # အဝိုင်းဖြတ်ခြင်း
+                mask = Image.new('L', (size, size), 0)
+                draw_mask = ImageDraw.Draw(mask)
+                draw_mask.ellipse((0, 0, size, size), fill=255)
+                output = Image.new('RGBA', (size, size), (0,0,0,0))
+                output.paste(avatar, (0,0), mask)
+                return output
+        except:
+            pass
+        # fallback – ပုံမရရင် emoji သုံး
+        return None
+
+    avatar1 = get_circle_avatar(user1)
+    avatar2 = get_circle_avatar(user2)
+
+    # ပုံတွေကို နေရာချခြင်း
+    if avatar1:
+        img.paste(avatar1, (100, 100), avatar1)
+    else:
+        draw.text((140, 150), "👤", fill=(255,255,255), font=ImageFont.truetype("DejaVuSans-Bold.ttf", 60))
+    if avatar2:
+        img.paste(avatar2, (350, 100), avatar2)
+    else:
+        draw.text((390, 150), "👤", fill=(255,255,255), font=ImageFont.truetype("DejaVuSans-Bold.ttf", 60))
+
+    # နှလုံးသင်္ကေတ
+    draw.text((280, 170), "❤️", fill=(255,0,0), font=ImageFont.truetype("DejaVuSans-Bold.ttf", 50))
+
+    # စာသား
+    try:
+        font = ImageFont.truetype("DejaVuSans-Bold.ttf", 28)
+    except:
+        font = ImageFont.load_default()
+    draw.text((50, 320), f"{user1.first_name or 'User1'} & {user2.first_name or 'User2'}", fill=(255,215,0), font=font)
+    draw.text((180, 360), "Doraemon wants to match you!", fill=(200,200,255), font=font)
+
+    # Image → BytesIO
+    buf = io.BytesIO()
+    img.save(buf, format='PNG')
+    buf.seek(0)
+    return buf
 # ==========================================
 # ⚔️ ALL GROUPS COMMAND INTERCEPTOR (AUTO ACC OPENER)
 # ==========================================
 @bot1.on(events.NewMessage(pattern=r'^/'))
 async def global_slash_cmd_acc_opener(event):
-    """Auto‑register user on any slash command"""
     user_id = event.sender_id
-    if not user_id:
-        return
-        
+    if not user_id: return
     try:
         user_entity = await event.get_sender()
         first_name = getattr(user_entity, 'first_name', '') or ''
         last_name = getattr(user_entity, 'last_name', '') or ''
         fullname = f"{first_name} {last_name}".strip()
-        if not fullname:
-            fullname = getattr(user_entity, 'username', '') or f"User {user_id}"
+        if not fullname: fullname = getattr(user_entity, 'username', '') or f"User {user_id}"
     except:
         fullname = f"User {user_id}"
-        
     await ensure_user_registered(user_id, fullname)
 
 # ==========================================
@@ -416,10 +429,9 @@ async def update_admin_cache(client, chat_id):
         return set()
 
 # ==========================================
-# 🧠 OPTIMIZED TRIGGER-RESPONSES SMART REPLY ENGINE
+# 🧠 OPTIMIZED SMART REPLY ENGINE
 # ==========================================
 async def fetch_optimized_smart_reply(user_text):
-    # unchanged logic
     reply_text = None
     user_text_clean = user_text.strip().lower()
 
@@ -440,9 +452,7 @@ async def fetch_optimized_smart_reply(user_text):
                 {"$gte": [{"$indexOfCP": [user_text_clean, {"$toLower": "$trigger"}]}, 0]}
             ]
         }},
-        {"$addFields": {
-            "weight": {"$strLenCP": "$trigger"}
-        }},
+        {"$addFields": {"weight": {"$strLenCP": "$trigger"}}},
         {"$sort": {"weight": -1}},
         {"$limit": 5}
     ]
@@ -450,17 +460,14 @@ async def fetch_optimized_smart_reply(user_text):
     try:
         cursor = reply_save_col.aggregate(match_pipeline)
         matched_docs = await cursor.to_list(length=5)
-        
         if matched_docs:
             valid_choices = []
             max_weight = matched_docs[0]["weight"]
             best_docs = [d for d in matched_docs if d["weight"] == max_weight]
-            
             for doc in best_docs:
                 if doc.get("responses") and isinstance(doc["responses"], list):
                     choices = [c for c in doc["responses"] if not ('@' in str(c) or 't.me/' in str(c))]
                     valid_choices.extend(choices)
-            
             if valid_choices: 
                 reply_text = random.choice(valid_choices)
     except Exception as e:
@@ -468,159 +475,371 @@ async def fetch_optimized_smart_reply(user_text):
 
     return reply_text
 
-# ==========================================
+async def daily_couple_matcher():
+    """ညသန်းခေါင်မှာ Group တိုင်းအတွက် ကျပန်းတွဲတစ်တွဲ ရွေးပြီး Proposal ပို့ပေးမယ်"""
+    while True:
+        now = datetime.now(TZ)
+        # ည ၁၂ နာရီ ၅ မိနစ်မှာ စစ်ဆေးမယ် (နေ့စဉ် ပြောင်းဖို့)
+        next_run = now.replace(hour=0, minute=5, second=0, microsecond=0) + timedelta(days=1)
+        if now > next_run:
+            next_run += timedelta(days=1)
+        await asyncio.sleep((next_run - now).total_seconds())
 
-COLLECTIONS_LIST = [
-    {"col": "custom_filters", "name": "Custom Filters"},
-    {"col": "filters", "name": "Filters Main"},
-    {"col": "allowed_users", "name": "Allowed Users"},
-    {"col": "active_groups", "name": "Active Groups"},
-    {"col": "random_talk", "name": "Random Talk (talk_col)"},
-    {"col": "talker", "name": "Talker Database"},
-    {"col": "custom_welcome", "name": "Custom Welcome"},
-    {"col": "chatbot_answers", "name": "Chatbot Answers"},
-    {"col": "morgan_talk", "name": "Morgan Talk"},
-    {"col": "rank_col", "name": "Rank Collection"},
-    {"col": "system_col", "name": "System Config"},
-    {"col": "reply_save_col", "name": "Smart Reply Save"},
-    {"col": "users", "name": "Core Users"},
-    {"col": "user_game_profiles", "name": "Game Profiles"},
-    {"col": "characters", "name": "Game Characters"},
-    {"col": "muted_registry", "name": "Muted Registry"},
-    {"col": "characters_base_data", "name": "Characters Base Data"},
-    {"col": "users_catcher_data", "name": "Users Catcher Data"},
-    {"col": "groups_msg_counters", "name": "Groups Msg Counters"},
-    {"col": "groups_catcher_config", "name": "Groups Catcher Config"},
-    {"col": "marketplace_data", "name": "Marketplace Data"}
-]
-
-def format_size(bytes_size):
-    for unit in ['B', 'KB', 'MB', 'GB']:
-        if bytes_size < 1024.0:
-            return f"{bytes_size:.2f} {unit}"
-        bytes_size /= 1024.0
-    return f"{bytes_size:.2f} TB"
-
-async def build_db_stats_message(page=1):
-    try:
-        db_stats = await db.command("dbStats")
-        total_data_size = format_size(db_stats.get("dataSize", 0))
-        total_storage_size = format_size(db_stats.get("storageSize", 0))
-        total_index_size = format_size(db_stats.get("indexSize", 0))
-        all_collections_count = db_stats.get("collections", 0)
-        
-        text = "🤖 <b>[ DORAEMON’S DATABASE MONITOR ]</b> 📊\n"
-        text += "====================================\n"
-        text += f"👑 <b>Database:</b> <code>telegram_bot</code>\n"
-        text += f"📦 <b>Total Data Size:</b> <code>{total_data_size}</code>\n"
-        text += f"💾 <b>Storage Size:</b> <code>{total_storage_size}</code>\n"
-        text += f"🔑 <b>Index Size:</b> <code>{total_index_size}</code>\n"
-        text += f"📂 <b>Total Collections:</b> <code>{all_collections_count}</code>\n"
-        text += "====================================\n\n"
-        
-        start_idx = 0 if page == 1 else 11
-        end_idx = 11 if page == 1 else len(COLLECTIONS_LIST)
-        target_cols = COLLECTIONS_LIST[start_idx:end_idx]
-        
-        text += f"📝 <b>Collection Details (Page {page}/2):</b>\n"
-        text += "------------------------------------\n"
-        
-        for item in target_cols:
-            col_name = item["col"]
-            display_name = item["name"]
-            
+        # Group အားလုံးကို ရယူခြင်း
+        groups = await groups_col.find().to_list(length=None)
+        for group in groups:
+            chat_id = group["chat_id"]
             try:
-                coll_stats = await db.command("collStats", col_name)
-                doc_count = coll_stats.get("count", 0)
-                storage_size = format_size(coll_stats.get("storageSize", 0))
-            except Exception:
-                doc_count = 0
-                storage_size = "0.00 B"
-                
-            text += f"🔹 <b>{display_name}</b>\n"
-            text += f" ├ 📄 Docs: <code>{doc_count:,}</code> | 💾 Size: <code>{storage_size}</code>\n"
-            text += f" └ 🏷️ <i>Key: {col_name}</i>\n\n"
-            
-        text += f"🕒 <i>Last Checked UTC: {datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')}</i>"
-        return text
-    except Exception as e:
-        return f"❌ DB Stats Fetch Failed: {str(e)}"
+                # Group ထဲက Members အကုန်ရယူ (admin + regular)
+                participants = await bot1.get_participants(chat_id)
+                # Bot နဲ့ Owner ကိုဖယ်
+                bot_me = await bot1.get_me()
+                members = [p for p in participants if not p.bot and p.id != bot_me.id and p.id != OWNER_ID]
+                if len(members) < 2:
+                    continue
 
+                # ဒီနေ့ ဘယ်သူတွေ လက်ခံပြီးသား / ငြင်းပြီးသား ကို စစ်ထုတ်မယ် (optional)
+                # ရိုးရှင်းအောင် ကျပန်းနှစ်ယောက်ရွေး
+                random.shuffle(members)
+                user1 = members[0]
+                user2 = members[1]
+
+                # Proposal ထည့်သွင်းခြင်း
+                proposal_id = f"daily_{chat_id}_{int(time.time())}"
+                await proposals_col.insert_one({
+                    "proposal_id": proposal_id,
+                    "chat_id": chat_id,
+                    "user1_id": user1.id,
+                    "user2_id": user2.id,
+                    "user1_name": user1.first_name or "User1",
+                    "user2_name": user2.first_name or "User2",
+                    "timestamp": time.time(),
+                    "status": "pending",  # pending, accepted, rejected
+                    "type": "daily"
+                })
+
+                # ပုံဖန်တီးခြင်း
+                bot_avatar = None  # လိုချင်ရင် bot ရဲ့ profile photo ကိုယူ
+                img_bytes = await generate_couple_proposal_image(user1, user2, bot_avatar)
+                img_file = io.BytesIO(img_bytes.getvalue())
+                img_file.name = "couple_proposal.png"
+
+                # စာသားနဲ့အတူ ပို့ခြင်း
+                caption = (
+                    f"🐱 Doraemon says: I want to match you two!\n"
+                    f"👤 {user1.first_name} 💕 {user2.first_name}\n"
+                    f"Do you accept this couple?"
+                )
+                buttons = [
+                    [Button.inline("✅ Accept", data=f"couple_accept_{proposal_id}"),
+                     Button.inline("❌ Reject", data=f"couple_reject_{proposal_id}")]
+                ]
+                await bot1.send_file(chat_id, img_file, caption=caption, buttons=buttons, parse_mode='html')
+            except Exception as e:
+                print(f"Daily couple error in {chat_id}: {e}")
+
+@bot1.on(events.CallbackQuery(pattern=r'^couple_(accept|reject)_(.+)$'))
+async def couple_callback_handler(event):
+    action = event.pattern_match.group(1)
+    proposal_id = event.pattern_match.group(2)
+    user_id = event.sender_id
+
+    proposal = await proposals_col.find_one({"proposal_id": proposal_id})
+    if not proposal:
+        await event.answer("❌ This proposal no longer exists.", alert=True)
+        return
+
+    if proposal["status"] != "pending":
+        await event.answer("❌ This proposal has already been handled.", alert=True)
+        return
+
+    # သတ်မှတ်ထားတဲ့ နှစ်ယောက်ထဲက တစ်ယောက်မှ မဟုတ်ရင် ခွင့်မပြု
+    if user_id not in (proposal["user1_id"], proposal["user2_id"]):
+        await event.answer("⚠️ This proposal is not for you.", alert=True)
+        return
+
+    chat_id = proposal["chat_id"]
+    user1_id = proposal["user1_id"]
+    user2_id = proposal["user2_id"]
+
+    if action == "accept":
+        # အတွဲဖြစ်သွားပြီဆိုရင် DB ထဲသိမ်း
+        await couples_col.insert_one({
+            "chat_id": chat_id,
+            "user1_id": user1_id,
+            "user2_id": user2_id,
+            "accepted_date": datetime.now(TZ),
+            "custom_date": None,  # နောက်မှ သတ်မှတ်နိုင်
+            "status": "active"
+        })
+        # Proposal ကို ပြီးဆုံးအောင် သတ်မှတ်
+        await proposals_col.update_one({"proposal_id": proposal_id}, {"$set": {"status": "accepted"}})
+
+        # အောင်မြင်ကြောင်း စာသားပြန်ပို့
+        await event.edit(
+            f"💕 **Congratulations!**\n"
+            f"You are now a couple! 🎉\n"
+            f"Use /mycouple to see your partner."
+        )
+        await event.answer("🎉 You accepted! You are now a couple.", alert=True)
+
+        # နှစ်ယောက်စလုံးကို Notify
+        try:
+            await bot1.send_message(user1_id, "🎉 Your couple request has been accepted! You are now officially a couple.")
+            await bot1.send_message(user2_id, "🎉 Your couple request has been accepted! You are now officially a couple.")
+        except:
+            pass
+
+    else:  # reject
+        await proposals_col.update_one({"proposal_id": proposal_id}, {"$set": {"status": "rejected"}})
+        await event.edit("❌ The proposal has been rejected.")
+        await event.answer("❌ You rejected the proposal.", alert=True)
+
+@bot1.on(events.NewMessage(pattern=r'^/couple(?:@\w+)?(?:\s+(.*))?'))
+async def couple_handler(event):
+    chat_id = event.chat_id
+    user_id = event.sender_id
+
+    # ---- Case 1: Reply ပါရင် manual proposal (သို့) တစ်ယောက်ယောက်ကို ကမ်းလှမ်းခြင်း ----
+    if event.is_reply:
+        reply_msg = await event.get_reply_message()
+        target_user_id = reply_msg.sender_id
+        
+        # မိမိကိုယ်ကို ကမ်းလှမ်းလို့မရ
+        if target_user_id == user_id:
+            return await event.reply("❌ You cannot propose to yourself.")
+        
+        # Owner ကို ကမ်းလှမ်းလို့မရ
+        if target_user_id == OWNER_ID:
+            return await event.reply("❌ You cannot propose to the bot owner.")
+
+        # ⭐ ပထမဆုံး စစ်ဆေးရမှာ – ကိုယ်တိုင်က တစ်ခြားသူနဲ့ အတွဲရှိပြီးသားလား?
+        sender_couple = await couples_col.find_one({
+            "$or": [{"user1_id": user_id}, {"user2_id": user_id}],
+            "chat_id": chat_id,
+            "status": "active"
+        })
+        if sender_couple:
+            partner_id = sender_couple["user1_id"] if sender_couple["user2_id"] == user_id else sender_couple["user2_id"]
+            try:
+                partner = await bot1.get_entity(partner_id)
+                partner_name = partner.first_name or "Partner"
+            except:
+                partner_name = "Unknown"
+            return await event.reply(
+                f"❌ You are already in a couple with **{partner_name}**! 💕\n"
+                f"Use `/mycouple` to see your partner.\n"
+                f"Use `/coupledate` to manage your relationship."
+            )
+
+        # ⭐ ဒုတိယ – ကိုယ်ကမ်းလှမ်းချင်တဲ့သူမှာ အတွဲရှိပြီးသားလား?
+        target_couple = await couples_col.find_one({
+            "$or": [{"user1_id": target_user_id}, {"user2_id": target_user_id}],
+            "chat_id": chat_id,
+            "status": "active"
+        })
+        if target_couple:
+            return await event.reply(
+                f"❌ Sorry, {reply_msg.sender.first_name or 'They'} is already in a couple with someone else! 💔\n"
+                f"Please respect their relationship."
+            )
+
+        # ⭐ တတိယ – သူတို့နှစ်ယောက်ကြား အတွဲရှိပြီးသားလား? (အပေါ်က စစ်ပြီးသားမို့ ထပ်မစစ်ရင် ရပြီ)
+        # (ဒါပေမယ့် ထပ်စစ်ထားတယ်)
+        existing = await couples_col.find_one({
+            "$or": [
+                {"user1_id": user_id, "user2_id": target_user_id},
+                {"user1_id": target_user_id, "user2_id": user_id}
+            ],
+            "chat_id": chat_id,
+            "status": "active"
+        })
+        if existing:
+            return await event.reply("❌ You are already a couple with this person.")
+
+        # ⭐ အားလုံးအဆင်ပြေရင် Proposal ဖန်တီးခြင်း
+        proposal_id = f"manual_{chat_id}_{int(time.time())}"
+        await proposals_col.insert_one({
+            "proposal_id": proposal_id,
+            "chat_id": chat_id,
+            "user1_id": user_id,
+            "user2_id": target_user_id,
+            "user1_name": (await event.get_sender()).first_name or "User1",
+            "user2_name": (await bot1.get_entity(target_user_id)).first_name or "User2",
+            "timestamp": time.time(),
+            "status": "pending",
+            "type": "manual"
+        })
+
+        # ပုံဖန်တီးခြင်း
+        sender = await event.get_sender()
+        target = await bot1.get_entity(target_user_id)
+        img_bytes = await generate_couple_proposal_image(sender, target)
+        img_file = io.BytesIO(img_bytes.getvalue())
+        img_file.name = "couple_proposal.png"
+
+        caption = (
+            f"🐱 {sender.first_name} wants to be your couple!\n"
+            f"Will you accept?"
+        )
+        buttons = [
+            [Button.inline("✅ Accept", data=f"couple_accept_{proposal_id}"),
+             Button.inline("❌ Reject", data=f"couple_reject_{proposal_id}")]
+        ]
+        await event.reply(file=img_file, caption=caption, buttons=buttons, parse_mode='html')
+        return
+
+    # ---- Case 2: အတွဲများကို ပြသခြင်း (group အတွင်း) ----
+    couples = await couples_col.find({"chat_id": chat_id, "status": "active"}).to_list(length=None)
+    if not couples:
+        await event.reply("💔 No couples in this group yet.\nUse `/couple` with reply to propose to someone.")
+        return
+
+    msg = "💕 **Active Couples in this Group:**\n\n"
+    for c in couples:
+        try:
+            u1 = await bot1.get_entity(c["user1_id"])
+            u2 = await bot1.get_entity(c["user2_id"])
+            date = c.get("custom_date") or c.get("accepted_date")
+            date_str = date.strftime("%Y-%m-%d") if date else "Unknown"
+            msg += f"• {u1.first_name} 💕 {u2.first_name} (since {date_str})\n"
+        except:
+            msg += f"• Couple (ID: {c['_id']})\n"
+    await event.reply(msg, parse_mode='html')
+    
+@bot1.on(events.NewMessage(pattern=r'^/mycouple(?:@\w+)?$'))
+async def my_couple_handler(event):
+    user_id = event.sender_id
+    chat_id = event.chat_id
+
+    # ကိုယ်တွဲဖက်ကို ရှာဖွေ
+    couple = await couples_col.find_one({
+        "$or": [{"user1_id": user_id}, {"user2_id": user_id}],
+        "chat_id": chat_id,
+        "status": "active"
+    })
+    if not couple:
+        return await event.reply("💔 You are not in a couple yet. Use /couple to propose or wait for daily match.")
+
+    partner_id = couple["user1_id"] if couple["user2_id"] == user_id else couple["user2_id"]
+    partner = await bot1.get_entity(partner_id)
+    me = await bot1.get_entity(user_id)
+
+    # ပုံဖန်တီးခြင်း (အဝိုင်းပုံနှစ်ခု၊ Date)
+    img = Image.new('RGB', (600, 300), color=(30,30,50))
+    draw = ImageDraw.Draw(img)
+
+    def get_circle(user, size=120):
+        try:
+            photo = await bot1.download_profile_photo(user, bytesio=True)
+            if photo:
+                avatar = Image.open(photo).resize((size, size))
+                mask = Image.new('L', (size, size), 0)
+                draw_mask = ImageDraw.Draw(mask)
+                draw_mask.ellipse((0,0,size,size), fill=255)
+                output = Image.new('RGBA', (size,size), (0,0,0,0))
+                output.paste(avatar, (0,0), mask)
+                return output
+        except:
+            pass
+        return None
+
+    av1 = get_circle(me)
+    av2 = get_circle(partner)
+    if av1: img.paste(av1, (100, 60), av1)
+    else: draw.text((140, 100), "👤", fill=(255,255,255), font=ImageFont.truetype("DejaVuSans-Bold.ttf", 50))
+    if av2: img.paste(av2, (380, 60), av2)
+    else: draw.text((420, 100), "👤", fill=(255,255,255), font=ImageFont.truetype("DejaVuSans-Bold.ttf", 50))
+    draw.text((260, 130), "❤️", fill=(255,0,0), font=ImageFont.truetype("DejaVuSans-Bold.ttf", 40))
+
+    # Date
+    date_obj = couple.get("custom_date") or couple.get("accepted_date")
+    if date_obj:
+        date_str = date_obj.strftime("%Y-%m-%d")
+    else:
+        date_str = "Unknown"
+
+    try:
+        font = ImageFont.truetype("DejaVuSans-Bold.ttf", 24)
+    except:
+        font = ImageFont.load_default()
+    draw.text((200, 230), f"Couple since: {date_str}", fill=(255,215,0), font=font)
+
+    buf = io.BytesIO()
+    img.save(buf, format='PNG')
+    buf.seek(0)
+    img_file = io.BytesIO(buf.getvalue())
+    img_file.name = "my_couple.png"
+
+    caption = f"💕 **Your Couple:**\n{me.first_name} 💕 {partner.first_name}\nSince: {date_str}"
+    await event.reply(file=img_file, caption=caption, parse_mode='html')
+
+@bot1.on(events.NewMessage(pattern=r'^/coupledate(?:\s+(.+))?$'))
+async def set_couple_date(event):
+    user_id = event.sender_id
+    chat_id = event.chat_id
+    date_text = event.pattern_match.group(1)
+
+    # ကိုယ်အတွဲရှိမရှိစစ်
+    couple = await couples_col.find_one({
+        "$or": [{"user1_id": user_id}, {"user2_id": user_id}],
+        "chat_id": chat_id,
+        "status": "active"
+    })
+    if not couple:
+        return await event.reply("❌ You are not in a couple.")
+
+    if not date_text:
+        # လက်ရှိရက်ကိုပြပေးမယ်
+        current = couple.get("custom_date") or couple.get("accepted_date")
+        if current:
+            return await event.reply(f"📅 Current couple date: {current.strftime('%Y-%m-%d')}")
+        else:
+            return await event.reply("📅 No custom date set. Use /coupledate YYYY-MM-DD to set.")
+
+    # ရက်ကို parse လုပ်ပြီး update
+    try:
+        new_date = datetime.strptime(date_text.strip(), "%Y-%m-%d").replace(tzinfo=TZ)
+    except:
+        return await event.reply("❌ Invalid format. Use YYYY-MM-DD, e.g. /coupledate 2025-01-01")
+
+    await couples_col.update_one({"_id": couple["_id"]}, {"$set": {"custom_date": new_date}})
+    await event.reply(f"✅ Couple date updated to {new_date.strftime('%Y-%m-%d')}")
+
+async def anniversary_checker():
+    """နေ့တိုင်း စစ်ဆေးပြီး လပြည့် အထိမ်းအမှတ် သတိပေးချက် ပို့မယ်"""
+    while True:
+        now = datetime.now(TZ)
+        # နေ့တိုင်း မနက် ၈ နာရီမှာ စစ်ဆေးမယ်
+        next_run = now.replace(hour=8, minute=0, second=0, microsecond=0)
+        if now > next_run:
+            next_run += timedelta(days=1)
+        await asyncio.sleep((next_run - now).total_seconds())
+
+        # အတွဲအကုန်လုံးကို ယူ
+        all_couples = await couples_col.find({"status": "active"}).to_list(length=None)
+        for c in all_couples:
+            base_date = c.get("custom_date") or c.get("accepted_date")
+            if not base_date:
+                continue
+            # လအရေအတွက် တွက်ချက်
+            months = (now.year - base_date.year) * 12 + (now.month - base_date.month)
+            if months > 0 and now.day == base_date.day:
+                # လပြည့်နေ့
+                user1_id = c["user1_id"]
+                user2_id = c["user2_id"]
+                # နှစ်ယောက်စလုံးကို သတိပေး
+                msg = f"🎉 Happy {months}-month anniversary to your couple! 💕\nDoraemon sends you love!"
+                try:
+                    await bot1.send_message(user1_id, msg)
+                    await bot1.send_message(user2_id, msg)
+                except:
+                    pass
 # ==========================================
-# 📥 TELETHON EVENT HANDLERS (COMMAND & CALLBACK)
+# 📥 TELETHON EVENT HANDLERS
 # ==========================================
 
-@bot1.on(events.NewMessage(pattern='/checkdb', incoming=True))
-async def check_db_command_handler(event):
-    if not event.is_private:
-        return
-        
-    if event.sender_id != OWNER_ID:
-        await event.respond("🚷 <b>Error:</b> This command is for the owner only.")
-        return
-
-    waiting_msg = await event.respond("⏳ Scanning Doraemon’s database... please wait...")
-    
-    stats_text = await build_db_stats_message(page=1)
-    
-    buttons = [
-        [
-            Button.inline("➡️ Page 2", data="db_page_2")
-        ],
-        [
-            Button.inline("🔄 Refresh Stats", data="db_refresh_1")
-        ]
-    ]
-    
-    await waiting_msg.delete()
-    await event.respond(stats_text, parse_mode='html', buttons=buttons)
-
-
-@bot1.on(events.CallbackQuery(pattern=r'^db_'))
-async def db_stats_callback_handler(event):
-    if event.sender_id != OWNER_ID:
-        await event.answer("⚠️ You are not authorised to press this button!", alert=True)
-        return
-        
-    action = event.data.decode('utf-8')
-    
-    await event.answer("🔄 Updating Stats...")
-    
-    if action == "db_page_1":
-        stats_text = await build_db_stats_message(page=1)
-        buttons = [
-            [Button.inline("➡️ Page 2", data="db_page_2")],
-            [Button.inline("🔄 Refresh Stats", data="db_refresh_1")]
-        ]
-        await event.edit(stats_text, parse_mode='html', buttons=buttons)
-        
-    elif action == "db_page_2":
-        stats_text = await build_db_stats_message(page=2)
-        buttons = [
-            [Button.inline("⬅️ Page 1", data="db_page_1")],
-            [Button.inline("🔄 Refresh Stats", data="db_refresh_2")]
-        ]
-        await event.edit(stats_text, parse_mode='html', buttons=buttons)
-        
-    elif action == "db_refresh_1":
-        stats_text = await build_db_stats_message(page=1)
-        buttons = [
-            [Button.inline("➡️ Page 2", data="db_page_2")],
-            [Button.inline("🔄 Refresh Stats", data="db_refresh_1")]
-        ]
-        await event.edit(stats_text, parse_mode='html', buttons=buttons)
-        
-    elif action == "db_refresh_2":
-        stats_text = await build_db_stats_message(page=2)
-        buttons = [
-            [Button.inline("⬅️ Page 1", data="db_page_1")],
-            [Button.inline("🔄 Refresh Stats", data="db_refresh_2")]
-        ]
-        await event.edit(stats_text, parse_mode='html', buttons=buttons)
-
-# ====================================================================================
-# 🛡️ SYSTEM COMMANDS & NAVIGATION HANDLERS (START, HELP, GAME)
-# ====================================================================================
+# ---- SYSTEM START / HELP / GAME ----
 @bot1.on(events.NewMessage(pattern=r'^/start(?:\s+(\S+))?$'))
 async def system_start_router(event):
     is_cd, rem = await is_on_cooldown(event.sender_id, "start", 2)
@@ -715,48 +934,29 @@ async def system_callback_router(event):
     elif data == "nav_game_main":
         game_text = (
             f"🎮 <b><u>Doraemon’s Game Console</u></b>\n\n"
-            f"⭐ <code>/checkp</code>\n"
-            f"<blockquote>Check your wallet balance.</blockquote>\n\n"
-            f"⭐ <code>/daily</code>\n"
-            f"<blockquote>Claim your daily bonus (streak rewards!).</blockquote>\n\n"
-            f"⭐ <code>/hunt</code>\n"
-            f"<blockquote>Go on a hunting adventure for extra cash.</blockquote>\n\n"
-            f"⭐ <code>/pay [Amount] [Username/ID]</code>\n"
-            f"<blockquote>Send money to another player.</blockquote>\n\n"
-            f"⭐ <code>/game</code>\n"
-            f"<blockquote>View all available mini‑games.</blockquote>"
+            f"⭐ <code>/checkp</code>\n<blockquote>Check your wallet balance.</blockquote>\n\n"
+            f"⭐ <code>/daily</code>\n<blockquote>Claim your daily bonus (streak rewards!).</blockquote>\n\n"
+            f"⭐ <code>/hunt</code>\n<blockquote>Go on a hunting adventure for extra cash.</blockquote>\n\n"
+            f"⭐ <code>/pay [Amount] [Username/ID]</code>\n<blockquote>Send money to another player.</blockquote>\n\n"
+            f"⭐ <code>/game</code>\n<blockquote>View all available mini‑games.</blockquote>"
         )
         return await event.edit(bq(game_text), parse_mode='html', buttons=[[Button.inline("🔙 Back", data="nav_back_home")]])
 
-# ====================================================================================
-# 🔢 ADVANCED SYSTEM LOGIC 5: SECURE ARITHMETIC CALCULATOR
-# ====================================================================================
+# ---- CALCULATOR ----
 @bot1.on(events.NewMessage)
 async def auto_calculator_handler(event):
-    if event.text.startswith('/'):
-        return
-        
+    if event.text.startswith('/'): return
     text = event.text.strip()
-    
     if re.match(r'^[\d\.\s\+\-\*\/\(\)\*\*]+$', text):
         if any(op in text for op in ['+', '-', '*', '/']):
-            if len(text) > 50 or (text.count('**') > 1):
-                return
+            if len(text) > 50 or (text.count('**') > 1): return
             try:
                 result = eval(text, {"__builtins__": None}, {})
-                gif_display_text = f"{text} = {result}"
-                gif_file = await run_blocking(generate_simple_static_gif, gif_display_text)
-                gif_file.name = "math_processing.gif"
-                await event.client.send_file(
-                    event.chat_id, 
-                    gif_file, 
-                    reply_to=event.id
-                )
+                await event.reply(f"🧮 <b>Result:</b>\n<code>{text} = {result}</code>", parse_mode='html')
             except Exception:
                 pass
 
-
-
+# ---- INFO ----
 @bot1.on(events.NewMessage(pattern=r'(?i)^/info'))
 async def info_handler(event):
     try:
@@ -782,43 +982,19 @@ async def info_handler(event):
             full_name = f"{target_user.first_name or ''} {target_user.last_name or ''}".strip() or "User"
             username = f"@{target_user.username}" if target_user.username else "None"
             
-            # Animated Matrix GIF
-            gif_lines = [
-                f"Name: {full_name}",
-                f"ID: {target_id}",
-                f"User: {username}"
-            ]
-            gif_file = await run_blocking(
-                generate_matrix_animated_gif, 
-                "ℹ️ INFO MATRIX", 
-                gif_lines, 
-                500, 320, 3, 12
-            )
-            gif_file.name = "info_matrix.gif"
-            
-            # Caption with full details
             info_caption = (
-                f"✨ <b>USER INFO</b> ✨\n"
-                f"───────────\n"
+                f"✨ <b>USER INFO</b> ✨\n───────────\n"
                 f"🦖 <b>Full Name:</b> {full_name}\n"
                 f"🍄 <b>User ID:</b> <code>{target_id}</code> (tap to copy)\n"
                 f"🦦 <b>Username:</b> {username}\n"
                 f"🌏 <b>Chat ID:</b> <code>{event.chat_id}</code> (tap to copy)\n"
-                f"───────────\n"
-                f"<i>Click to copy</i>"
+                f"───────────\n<i>Click to copy</i>"
             )
-            
-            await event.client.send_file(
-                event.chat_id, 
-                gif_file, 
-                caption=info_caption, 
-                reply_to=event.id, 
-                parse_mode='html'
-            )
+            await event.reply(info_caption, parse_mode='html')
     except Exception as e:
         print(f"Error in /info: {e}")
-# ==========================================
-# ⚙️ CHAT ACTIONS & WELCOME MATRIX
+
+# ---- WELCOME / GOODBYE (NO GIF) ----
 @bot1.on(events.ChatAction)
 async def welcome_goodbye(event):
     try:
@@ -827,46 +1003,30 @@ async def welcome_goodbye(event):
         group_name = chat.title
         target_ids = event.user_ids or [event.user_id]
 
-        # ---- Member count ကို ပိုတိကျအောင် ဆွဲယူခြင်း ----
         member_count = "N/A"
         try:
-            # ပထမ ကြိုးစား – chat object ကနေ တိုက်ရိုက်ယူ
             if hasattr(chat, 'participants_count') and chat.participants_count:
                 members_cnt = chat.participants_count
             else:
-                # get_full_chat ကို သုံးပြီး သေချာဆွဲယူ
                 full_chat = await event.client.get_full_chat(chat.id)
-                # full_chat မှာ participants_count ရှိတယ်
                 if hasattr(full_chat, 'participants_count'):
                     members_cnt = full_chat.participants_count
                 else:
                     members_cnt = None
             if members_cnt:
                 member_count = f"{members_cnt:,}"
-        except Exception as e:
-            # ဘာမှမရရင် "N/A" ပဲထား
+        except Exception:
             member_count = "N/A"
 
         if event.user_added or event.user_joined:
-            # Bot ကိုယ်တိုင် ထည့်ခံရရင်
             if any(uid == bot_me.id for uid in target_ids if uid):
                 await groups_col.update_one({"chat_id": chat.id}, {"$set": {"title": chat.title, "joined_at": datetime.now(TZ)}}, upsert=True)
-
-                lines = [
-                    f"Group: {group_name}",
-                    f"Members: {member_count}",
-                    "Doraemon is online!"
-                ]
-                gif_file = await run_blocking(generate_matrix_animated_gif, "🤖 BOT ACTIVATED", lines, 550, 350, 12, 24)
-                gif_file.name = "bot_joined.gif"
-                await bot1.send_file(chat.id, gif_file, caption="🐱 I'm ready to help!")
-
+                await bot1.send_message(chat.id, "🐱 I'm ready to help!")
+                
                 bot_mention = f"<a href='tg://user?id={bot_me.id}'>{escape_html(bot_me.first_name)}</a>"
                 msg2 = f"Hello {escape_html(group_name)}!\n{bot_mention} added.\nGroup ID: <code>{chat.id}</code>\nMembers: {member_count}"
                 await bot1.send_message(SPECIFIC_GROUP, bq(msg2), parse_mode='html')
-
             else:
-                # အသုံးပြုသူအသစ် ဝင်လာ
                 for uid in target_ids:
                     if uid and uid != bot_me.id:
                         try:
@@ -874,36 +1034,22 @@ async def welcome_goodbye(event):
                         except:
                             continue
                         track_user_metrics(u.id, u.username, u.first_name)
-
                         user_first_name = u.first_name or "User"
                         mention = f"<a href='tg://user?id={uid}'><b>{escape_html(user_first_name)}</b></a>"
-
-                        # GIF အတွက် စာကြောင်းများ
-                        lines = [
-                            f"{user_first_name}",
-                            f"joined {escape_html(group_name)}!",
-                            f"👥 Members: {member_count}"
-                        ]
-                        gif_file = await run_blocking(generate_static_golden_image, "🎉 WELCOME", lines, 550, 350)
-                        gif_file.name = "welcome.gif"
-
-                        # 🌟 ပိုလှအောင် Blockquote နဲ့ Bold သုံးထားတဲ့ Caption
+                        
                         caption = (
-                            f"<b>🎉 Welcome {mention} to {escape_html(group_name)}!</b>\n"
-                            f"👥 <b>Members:</b> <code>{member_count}</code>\n"
-                            f"🐱 <i>Doraemon is happy to see you!</i>"
+                            f"🎉 Welcome {mention} to {escape_html(group_name)}!\n"
+                            f"👥 Members: {member_count}\n🐱 Doraemon is happy to see you!"
                         )
-                        await bot1.send_file(
+                        await bot1.send_message(
                             event.chat_id,
-                            gif_file,
-                            caption=bq(caption),  # Blockquote wrapper
+                            caption,
                             buttons=[
                                 [Button.url("Bot OWNER DM", "t.me/Hello_Im_DexterMorgan")],
                                 [Button.url("Join our Community", "https://t.me/Comeback_BoD")]
                             ],
                             parse_mode='html'
                         )
-
         elif event.user_kicked or event.user_left:
             if event.user_id == bot_me.id:
                 await groups_col.delete_one({"chat_id": chat.id})
@@ -912,20 +1058,14 @@ async def welcome_goodbye(event):
                     u = await bot1.get_entity(event.user_id)
                     user_first_name = u.first_name or "User"
                     mention = f"<a href='tg://user?id={event.user_id}'><b>{escape_html(user_first_name)}</b></a>"
-
-                    caption = (
-                        f"<b>👋 Goodbye {mention}!</b>\n"
-                        f"We'll miss you.\n"
-                        f"👥 <b>Members:</b> <code>{member_count}</code>"
-                    )
-                    await bot1.send_file(event.chat_id, gif_file, caption=bq(caption), parse_mode='html')
+                    caption = f"👋 Goodbye {mention}!\nWe'll miss you.\n👥 Members: {member_count}"
+                    await bot1.send_message(event.chat_id, caption, parse_mode='html')
                 except:
                     pass
     except Exception as e:
-        await report_system_error("Welcome Goodbye Event", e)                      
+        await report_system_error("Welcome Goodbye Event", e)
 
-
-# 💬 AUTOMATIC CHAT RESPONDER & DYNAMIC TRAFFIC INTERCEPTOR
+# ---- AUTO RESPONDER ----
 @bot1.on(events.NewMessage(incoming=True))
 async def chatbot_auto_responder(event):
     if event.sender_id:
@@ -944,9 +1084,7 @@ async def chatbot_auto_responder(event):
                 await event.reply(bq(random.choice(responses)), parse_mode='html')
                 break
 
-# ====================================================================================
-# 📊 PRECISE REAL-TIME METRICS INTEGRATION DASHBOARD
-# ====================================================================================
+# ---- MAU STATS ----
 @bot1.on(events.NewMessage(pattern=r'^/mau$'))
 async def system_analytics_matrix(event):
     if event.sender_id != OWNER_ID: return
@@ -955,7 +1093,6 @@ async def system_analytics_matrix(event):
     try:
         total_tracked_users = await users_col.count_documents({})
         total_active_groups = await groups_col.count_documents({})
-        
         day_ago = datetime.now(TZ) - timedelta(days=1)
         active_24h_users = await users_col.count_documents({"last_active": {"$gte": day_ago}})
         
@@ -964,49 +1101,41 @@ async def system_analytics_matrix(event):
             f"👥 <b>Total Managed Users:</b> <code>{total_tracked_users} 👤</code>\n"
             f"🔥 <b>Active Users (24H):</b> <code>{active_24h_users} 🔥</code>\n"
             f"📍 <b>Active Groups:</b> <code>{total_active_groups} 🪐</code>\n"
-            f"⚙️ <b>Engine Status:</b> <code>Doraemon’s pocket is ready!</code>\n"
-            f"💡 <i>All data is real‑time from internal matrix.</i>"
+            f"⚙️ <b>Engine Status:</b> <code>Doraemon’s pocket is ready!</code>"
         )
         await loading.edit(bq(metrics_layout), parse_mode='html')
     except Exception as e:
         await loading.edit(bq(f"❌ Analytics Error: {e}"), parse_mode='html')
 
+# ---- RARITY MIGRATION ----
 @bot1.on(events.NewMessage(pattern=r'^/migrate_rarity$'))
 async def migrate_rarity_handler(event):
     if event.sender_id != OWNER_ID:
         return await event.reply("❌ Owner only command.")
     
     status_msg = await event.reply("⏳ Migrating rarity emojis... Please wait.")
-    
-    # Old -> New mapping (ခင်ဗျားတို့ ပြောင်းလိုက်တဲ့အတိုင်း)
     rarity_mapping = {
         "🌌 LEGENDARY": "👑 LEGENDARY",
         "🎴 LIMITED": "💎 LIMITED",
         "🌀 MYTHIC": "🌟 MYTHIC",
         "🔥 EPIC": "⚡ EPIC",
         "💠 RARE": "🍀 RARE",
-        "🃏 COMMON": "🃏 COMMON"  # ဒီဟာက အတူတူပဲ၊ ထည့်ထားပေမယ့် ဘာမှမပြောင်းပါဘူး။
+        "🃏 COMMON": "🃏 COMMON"
     }
     
     updated_base = 0
     updated_users = 0
     
-    # ၁။ characters_base_data ထဲက Rarity တွေကို အသစ်ပြောင်းခြင်း
     for old_rarity, new_rarity in rarity_mapping.items():
         if old_rarity != new_rarity:
-            result = await characters_base_col.update_many(
-                {"rarity": old_rarity},
-                {"$set": {"rarity": new_rarity}}
-            )
+            result = await characters_base_col.update_many({"rarity": old_rarity}, {"$set": {"rarity": new_rarity}})
             updated_base += result.modified_count
     
-    # ၂။ ကစားသမားအားလုံးရဲ့ harem ထဲက Rarity တွေကို အသစ်ပြောင်းခြင်း
     users = await users_catcher_col.find({}).to_list(length=None)
     for user in users:
         harem = user.get("harem", [])
         modified = False
         new_harem = []
-        
         for item in harem:
             if isinstance(item, dict):
                 old_rarity = item.get("rarity")
@@ -1014,24 +1143,18 @@ async def migrate_rarity_handler(event):
                     item["rarity"] = rarity_mapping[old_rarity]
                     modified = True
             new_harem.append(item)
-        
         if modified:
-            await users_catcher_col.update_one(
-                {"_id": user["_id"]},
-                {"$set": {"harem": new_harem}}
-            )
+            await users_catcher_col.update_one({"_id": user["_id"]}, {"$set": {"harem": new_harem}})
             updated_users += 1
     
     await status_msg.edit(
         f"✅ <b>Rarity Migration Complete!</b>\n"
         f"━━━━━━━━━━━━━━━━━━━━\n"
         f"📦 <b>Base Characters Updated:</b> <code>{updated_base}</code>\n"
-        f"👥 <b>User Inventories Updated:</b> <code>{updated_users}</code>\n\n"
-        f"💡 Now <code>/hai</code> and <code>/profile</code> will show the new emojis consistently!"
+        f"👥 <b>User Inventories Updated:</b> <code>{updated_users}</code>"
     )
-# ==========================================
-# 🛡️ ANTISPAM MECHANISMS (STICKER & CHARACTER)
-# ==========================================
+
+# ---- SPAM FILTERS ----
 @bot1.on(events.NewMessage)
 async def sticker_spam_(event):
     if not event.sticker or event.is_private: return
@@ -1063,10 +1186,10 @@ async def sticker_spam_(event):
             mention = f"<a href='tg://user?id={sender_id}'>{escape_html(sender.first_name)}</a>"
 
             if is_admin:
-                action_msg = f"⚠️ Admin {mention}, please refrain from spamming stickers. Doraemon had to clean them up."
+                action_msg = f"⚠️ Admin {mention}, please refrain from spamming stickers."
             else:
                 await bot1.edit_permissions(chat_id, sender_id, send_stickers=False)
-                action_msg = f"{mention} has been restricted from sending stickers due to spam. Doraemon is watching! 🐱"
+                action_msg = f"{mention} has been restricted from sending stickers due to spam."
             
             await event.respond(bq(action_msg), parse_mode='html')
             del sticker_spam_data[sender_id]
@@ -1112,11 +1235,11 @@ async def character_spam_filter(event):
             mention = f"<a href='tg://user?id={sender_id}'>{escape_html(sender.first_name)}</a>"
 
             if is_admin:
-                action_msg = f"⚠️ Admin {mention}, Doraemon suggests you stop spamming short messages."
+                action_msg = f"⚠️ Admin {mention}, please stop spamming short messages."
             else:
                 await register_temporary_mute(chat_id, sender_id, duration_minutes=5)
                 await bot1.edit_permissions(chat_id, sender_id, until_date=datetime.now() + timedelta(minutes=5), send_messages=False)
-                action_msg = f"🚫 {mention} has been muted for 5 minutes due to spam. Doraemon’s patience is not infinite! 😾"
+                action_msg = f"🚫 {mention} has been muted for 5 minutes due to spam."
             
             await event.respond(bq(action_msg), parse_mode='html')
             del char_spam_data[sender_id]
@@ -1128,10 +1251,11 @@ async def character_spam_filter(event):
             await bot1.delete_messages(chat_id, recent_ids)
             sender = await event.get_sender()
             mention = f"<a href='tg://user?id={sender_id}'>{escape_html(sender.first_name)}</a>"
-            warn_msg = f"⚠️ {mention}, Doraemon warns you: stop spam or you’ll be muted for 5 minutes! 🐱"
+            warn_msg = f"⚠️ {mention}, stop spam or you’ll be muted for 5 minutes!"
             await event.respond(bq(warn_msg), parse_mode='html')
         except Exception as e: print(f"Char Spam Warn Error: {e}")
 
+# ---- FILTERS ----
 @bot1.on(events.NewMessage(pattern=r'^[/.]f\s+(.*)'))
 async def add_filter(event):
     if not await check_admin(event.chat_id, event.sender_id): return
@@ -1146,15 +1270,13 @@ async def add_filter(event):
                 {"$set": {"type": "storage_msg", "msg_id": forwarded.id, "chat_id": "global"}},
                 upsert=True
             )
-            await event.reply(bq(f"✅ Filter '{keyword}' has been saved in Doraemon’s cloud with premium emojis!"), parse_mode='html')
+            await event.reply(bq(f"✅ Filter '{keyword}' has been saved!"), parse_mode='html')
         except Exception as e:
             await event.reply(bq(f"❌ Error saving filter: {e}"), parse_mode='html')
     else:
         await event.reply(bq("⚠️ Reply to a message with the content you want to save as a filter."), parse_mode='html')
 
-# ====================================================================================
-# 🆔 IDENTITY MATRIX SYSTEM
-# ====================================================================================
+# ---- ID ----
 @bot1.on(events.NewMessage(pattern=r'(?i)^/id'))
 async def id_handler(event):
     try:
@@ -1180,45 +1302,20 @@ async def id_handler(event):
             first_name = target_user.first_name or "User"
             username = f"@{target_user.username}" if target_user.username else "None"
             
-            # Animated Matrix GIF
-            gif_lines = [
-                f"User: {first_name}",
-                f"ID: {target_id}"
-            ]
-            gif_file = await run_blocking(
-                generate_matrix_animated_gif, 
-                "🆔 ID MATRIX", 
-                gif_lines, 
-                500, 300, 3, 10
-            )
-            gif_file.name = "id_matrix.gif"
-            
-            # Caption with full details (tap to copy)
             id_caption = (
                 f"👤 <b>Name:</b> {first_name}\n"
                 f"🆔 <b>User ID:</b> <code>{target_id}</code> (tap to copy)\n"
                 f"🦦 <b>Username:</b> {username}\n"
                 f"🌏 <b>Chat ID:</b> <code>{event.chat_id}</code> (tap to copy)"
             )
-            
-            await event.client.send_file(
-                event.chat_id, 
-                gif_file, 
-                caption=id_caption, 
-                reply_to=event.id, 
-                parse_mode='html'
-            )
+            await event.reply(id_caption, parse_mode='html')
     except Exception as e:
         print(f"Error in /id: {e}")
 
-
-# ==========================================
-# 🚫 TELEGRAM PERMANENT ASCII MUTE ENGINE (now using calm GIF)
-# ==========================================
+# ---- MUTE / UNMUTE / BAN / UNBAN / KICK (NO GIF) ----
 @bot1.on(events.NewMessage(pattern=r'^/mute(?:@\w+)?(?:\s+(.+))?'))
 async def permanent_ascii_mute_handler(event):
-    if not await check_admin(event.chat_id, event.sender_id):
-        return
+    if not await check_admin(event.chat_id, event.sender_id): return
 
     target_id = None
     args_text = event.pattern_match.group(1)
@@ -1253,26 +1350,12 @@ async def permanent_ascii_mute_handler(event):
             event.chat_id, target_id, 
             send_messages=False, send_media=False, send_stickers=False, send_gifs=False
         )
-        
         user_entity = await event.client.get_entity(target_id)
         target_name = f"{user_entity.first_name} {user_entity.last_name or ''}".strip()
-        
-        gif_file = await run_blocking(generate_simple_static_gif, "MUTED", width=400, height=150)
-        gif_file.name = "mute.gif"
-        
-        await event.client.send_file(
-            event.chat_id, 
-            gif_file, 
-            caption=f"🌌 <b>MUTE OPERATION SUCCESS!</b>\n🤫 <b>{target_name}</b> has been silenced <b>Permanently</b>.", 
-            parse_mode='html'
-        )
-
+        await event.reply(f"🌌 <b>MUTE OPERATION SUCCESS!</b>\n🤫 <b>{target_name}</b> has been silenced <b>Permanently</b>.", parse_mode='html')
     except Exception as e:
         await event.reply(f"❌ Error: {str(e)}")
 
-# ==========================================
-# 🔊 UNMUTE COMMAND
-# ==========================================
 @bot1.on(events.NewMessage(pattern=r'^/unmute(?:@\w+)?(?:\s+(.*))?'))
 async def unmute_user(event):
     if not await check_ban_rights(event.chat_id, event.sender_id): return
@@ -1282,25 +1365,11 @@ async def unmute_user(event):
     try:
         await bot1.edit_permissions(event.chat_id, target_user.id, send_messages=True)
         await muted_registry_col.delete_one({"chat_id": event.chat_id, "user_id": target_user.id})
-        
         target_name = f"{getattr(target_user, 'first_name', 'User')} {getattr(target_user, 'last_name', '') or ''}".strip()
         mention = f"<a href='tg://user?id={target_user.id}'>{escape_html(target_name)}</a>"
-        
-        gif_file = await run_blocking(generate_simple_static_gif, "UNMUTED", width=400, height=150)
-        gif_file.name = "unmute.gif"
-        
-        unmute_text = (
-            f"🌌 <b>UNMUTE OPERATION</b>\n"
-            f"🔊 <b>Target:</b> {mention}\n"
-            f"🆔 <b>User ID:</b> <code>{target_user.id}</code>\n"
-            f"⚡ <b>Status:</b> <code>Voice Restored</code>"
-        )
-        await event.client.send_file(event.chat_id, gif_file, caption=bq(unmute_text), parse_mode='html')
+        await event.reply(f"🌌 <b>UNMUTE OPERATION</b>\n🔊 <b>Target:</b> {mention}\n⚡ <b>Status:</b> <code>Voice Restored</code>", parse_mode='html')
     except Exception as e: print(f"Unmute Error: {e}")
 
-# ==========================================
-# 🚫 BAN COMMAND
-# ==========================================
 @bot1.on(events.NewMessage(pattern=r'^/ban(?:@\w+)?(?:\s+(.*))?'))
 async def ban_user(event):
     if not await check_ban_rights(event.chat_id, event.sender_id): return
@@ -1309,25 +1378,11 @@ async def ban_user(event):
 
     try:
         await bot1.edit_permissions(event.chat_id, target_user.id, view_messages=False)
-        
         target_name = f"{getattr(target_user, 'first_name', 'User')} {getattr(target_user, 'last_name', '') or ''}".strip()
         mention = f"<a href='tg://user?id={target_user.id}'>{escape_html(target_name)}</a>"
-        
-        gif_file = await run_blocking(generate_simple_static_gif, "BANNED", width=400, height=150)
-        gif_file.name = "ban.gif"
-        
-        ban_text = (
-            f"🌌 <b>BAN OPERATION</b>\n"
-            f"🚫 <b>Target:</b> {mention}\n"
-            f"🆔 <b>User ID:</b> <code>{target_user.id}</code>\n"
-            f"⚡ <b>Status:</b> <code>Exiled / Perm-Banned</code>"
-        )
-        await event.client.send_file(event.chat_id, gif_file, caption=bq(ban_text), parse_mode='html')
+        await event.reply(f"🌌 <b>BAN OPERATION</b>\n🚫 <b>Target:</b> {mention}\n⚡ <b>Status:</b> <code>Exiled / Perm-Banned</code>", parse_mode='html')
     except Exception as e: print(f"Ban Error: {e}")
 
-# ==========================================
-# ✅ UNBAN COMMAND
-# ==========================================
 @bot1.on(events.NewMessage(pattern=r'^/unban(?:@\w+)?(?:\s+(.*))?'))
 async def unban_user(event):
     if not await check_ban_rights(event.chat_id, event.sender_id): return
@@ -1336,25 +1391,11 @@ async def unban_user(event):
 
     try:
         await bot1.edit_permissions(event.chat_id, target_user.id, view_messages=True)
-        
         target_name = f"{getattr(target_user, 'first_name', 'User')} {getattr(target_user, 'last_name', '') or ''}".strip()
         mention = f"<a href='tg://user?id={target_user.id}'>{escape_html(target_name)}</a>"
-        
-        gif_file = await run_blocking(generate_simple_static_gif, "UNBANNED", width=400, height=150)
-        gif_file.name = "unban.gif"
-        
-        unban_text = (
-            f"🌌 <b>UNBAN OPERATION</b>\n"
-            f"✅ <b>Target:</b> {mention}\n"
-            f"🆔 <b>User ID:</b> <code>{target_user.id}</code>\n"
-            f"⚡ <b>Status:</b> <code>Ban Lifted</code>"
-        )
-        await event.client.send_file(event.chat_id, gif_file, caption=bq(unban_text), parse_mode='html')
+        await event.reply(f"🌌 <b>UNBAN OPERATION</b>\n✅ <b>Target:</b> {mention}\n⚡ <b>Status:</b> <code>Ban Lifted</code>", parse_mode='html')
     except Exception as e: print(f"Unban Error: {e}")
 
-# ==========================================
-# 💨 KICK COMMAND
-# ==========================================
 @bot1.on(events.NewMessage(pattern=r'^/kick(?:@\w+)?(?:\s+(.*))?'))
 async def kick_user(event):
     if not await check_ban_rights(event.chat_id, event.sender_id): return
@@ -1364,25 +1405,25 @@ async def kick_user(event):
     try:
         await bot1.edit_permissions(event.chat_id, target_user.id, view_messages=False)
         await bot1.edit_permissions(event.chat_id, target_user.id, view_messages=True)
-        
         target_name = f"{getattr(target_user, 'first_name', 'User')} {getattr(target_user, 'last_name', '') or ''}".strip()
         mention = f"<a href='tg://user?id={target_user.id}'>{escape_html(target_name)}</a>"
-        
-        gif_file = await run_blocking(generate_simple_static_gif, "KICKED", width=400, height=150)
-        gif_file.name = "kick.gif"
-        
-        kick_text = (
-            f"🌌 <b>KICK OPERATION</b>\n"
-            f"💨 <b>Target:</b> {mention}\n"
-            f"🆔 <b>User ID:</b> <code>{target_user.id}</code>\n"
-            f"⚡ <b>Status:</b> <code>Removed / Kicked</code>"
-        )
-        await event.client.send_file(event.chat_id, gif_file, caption=bq(kick_text), parse_mode='html')
+        await event.reply(f"🌌 <b>KICK OPERATION</b>\n💨 <b>Target:</b> {mention}\n⚡ <b>Status:</b> <code>Removed / Kicked</code>", parse_mode='html')
     except Exception as e: print(f"Kick Error: {e}")
 
-# ==========================================
-# 📥 1. PERMANENT DATABASE ADDER
-# ==========================================
+async def get_target_user(event, arg):
+    if event.is_reply:
+        reply_msg = await event.get_reply_message()
+        return await event.client.get_entity(reply_msg.sender_id)
+    if arg:
+        try:
+            return await event.client.get_entity(arg)
+        except:
+            await event.reply("⚠️ User not found.")
+            return None
+    await event.reply("⚠️ Reply to a user or provide username/ID.")
+    return None
+
+# ---- ADD CHARACTER ----
 @bot1.on(events.NewMessage(pattern=r'^/addchar(?:\s+(.+))?'))
 async def add_character(event):
     if event.sender_id != OWNER_ID: return
@@ -1391,7 +1432,6 @@ async def add_character(event):
     if not input_text or '|' not in input_text:
         await event.reply(
             f"⚠️ <b>{f('Invalid format!')}</b>\n"
-            f"⚡ ━━━━━━━━━━━━━━━━━━━━ ⚡\n"
             f"📌 <b>{f('Usage')}:</b>\n"
             f"<code>/addchar Name | Category | Rarity_Number</code>\n"
             f"<i>(Reply to a media file)</i>\n\n"
@@ -1401,9 +1441,7 @@ async def add_character(event):
             f"<code>3</code> = 🌟 MYTHIC (500 MMK)\n"
             f"<code>4</code> = ⚡ EPIC (300 MMK)\n"
             f"<code>5</code> = 🍀 RARE (150 MMK)\n"
-            f"<code>6</code> = 🃏 COMMON (50 MMK)\n"
-            f"⚡ ━━━━━━━━━━━━━━━━━━━━ ⚡\n"
-            f"💡 <b>{f('Example')}:</b> <code>/addchar Doraemon | 22nd Century | 1</code>",
+            f"<code>6</code> = 🃏 COMMON (50 MMK)",
             parse_mode='html'
         )
         return
@@ -1413,10 +1451,8 @@ async def add_character(event):
         return await event.reply(f"❌ <b>{f('Need 3 parts separated by |')}</b>", parse_mode='html')
 
     char_name, category_name, rarity_num = parts[0], parts[1], parts[2]
-    
     if rarity_num not in RARITY_NUM_MAP:
         return await event.reply(f"❌ <b>{f('Rarity must be 1-6')}</b>", parse_mode='html')
-
     if not event.is_reply: 
         return await event.reply(f"❌ <b>{f('Reply to a media file')}</b>", parse_mode='html')
 
@@ -1428,11 +1464,9 @@ async def add_character(event):
         forwarded_msg = await send_safe_message(bot1, SPECIFIC_CONTROL_GROUP, "", file=reply_msg.media)
         storage_id = forwarded_msg.id
         r_info = RARITY_NUM_MAP[rarity_num]
-        
-        while True:
+        char_id = f"BOD{random.randint(1, 9999)}"
+        while await characters_base_col.find_one({"char_id": char_id}):
             char_id = f"BOD{random.randint(1, 9999)}"
-            exists = await characters_base_col.find_one({"char_id": char_id})
-            if not exists: break
 
         character_data = {
             "char_id": char_id,
@@ -1443,66 +1477,48 @@ async def add_character(event):
             "currency_value": r_info["value"],
             "spawn_count": 0
         }
-
         await characters_base_col.insert_one(character_data)
-        
-        success_msg = (
+        await event.reply(
             f"🔥 <b>{f('DATABASE INJECTED')}</b>\n"
             f"🆔 <b>{f('Character ID')}:</b> <code>{char_id}</code>\n"
             f"👤 <b>{f('Name')}:</b> <code>{char_name}</code>\n"
-            f"🌐 <b>{f('Category')}:</b> <code>{category_name}</code>\n"
             f"🌟 <b>{f('Rarity')}:</b> {r_info['name']}\n"
-            f"💎 <b>{f('Worth')}:</b> <code>{r_info['value']} MMK</code>\n"
-            f"<blockquote><b>{f('Status')}:</b> Character added to Doraemon’s database!</blockquote>"
+            f"💎 <b>{f('Worth')}:</b> <code>{r_info['value']} MMK</code>",
+            parse_mode='html'
         )
-        await event.reply(success_msg, parse_mode='html')
     except Exception as e:
         await event.reply(f"❌ <b>Database Inject Error</b>: <code>{escape_html(str(e))}</code>", parse_mode='html')
-# ==========================================
-# 🗑️ OWNER-ONLY CHARACTER DELETE COMMAND
-# ==========================================
+
+# ---- DELETE CHARACTER ----
 @bot1.on(events.NewMessage(pattern=r'^/(delchar|removechar)(?:\s+(\S+))?(?:@\w+)?$'))
 async def delete_character_by_owner(event):
-    if event.sender_id != OWNER_ID: 
-        return
-        
+    if event.sender_id != OWNER_ID: return
     char_id = event.pattern_match.group(2)
     if not char_id:
-        await event.reply(f"❌ Please provide the Character ID to delete, Chief!\nExample: `/delchar BOD789`")
+        await event.reply(f"❌ Please provide the Character ID to delete.\nExample: `/delchar BOD789`")
         return
-        
     query = {"$or": [{"id": char_id}, {"char_id": char_id}]}
-    
     res1 = await db["characters"].delete_many(query)
     res2 = await db["characters_base_data"].delete_many(query)
-    
     if res1.deleted_count > 0 or res2.deleted_count > 0:
-        reply_msg = (
-            f"🔥 {f('DATABASE REMOVED')}\n"
-            f"🆔 {f('Character ID')}: {char_id}\n\n"
-            f"Status: Character permanently deleted from Doraemon’s records."
-        )
-        await event.reply(reply_msg)
+        await event.reply(f"🔥 {f('DATABASE REMOVED')}\n🆔 {f('Character ID')}: {char_id}\nStatus: Deleted.")
     else:
-        await event.reply(f"❌ No character found with ID `{char_id}` in Doraemon’s database.")
+        await event.reply(f"❌ No character found with ID `{char_id}`.")
 
+# ---- HAICLEAN ----
 @bot1.on(events.NewMessage(pattern=r'^/haiclean$'))
 async def haiclean_handler(event):
-    if event.sender_id != OWNER_ID:
-        return await event.reply("❌ This command is for the owner only.")
-    
-    progress_msg = await event.reply("⏳ Doraemon is cleaning the database...")
-    
+    if event.sender_id != OWNER_ID: return await event.reply("❌ This command is for the owner only.")
+    progress_msg = await event.reply("⏳ Cleaning database...")
     try:
         await db["characters_base_data"].delete_many({})
         await db["users_catcher_data"].delete_many({})
         await db["marketplace_data"].delete_many({})
-        
-        await progress_msg.edit("🧹 All three databases have been completely wiped clean! Ready for a fresh start.")
-        
+        await progress_msg.edit("🧹 All three databases have been completely wiped clean!")
     except Exception as e:
         await progress_msg.edit(f"❌ Error: {e}")
 
+# ---- ADM ----
 @bot1.on(events.NewMessage(pattern=r'^/adm(?:\s+(.*))?'))
 async def tag_admins(event):
     if event.is_private: return
@@ -1512,26 +1528,17 @@ async def tag_admins(event):
     try:
         admins = await bot1.get_participants(event.chat_id, filter=ChannelParticipantsAdmins)
         admin_mentions = []
-        
         for a in admins:
-            if a.bot or getattr(a, 'deleted', False):
-                continue
+            if a.bot or getattr(a, 'deleted', False): continue
             full_name = f"{a.first_name or ''} {a.last_name or ''}".strip() or "Admin"
             mention = f"<a href='tg://user?id={a.id}'><b>{escape_html(full_name)}</b></a>"
             admin_mentions.append(mention)
-        
-        # Join with bullet points (or any separator you like)
         compact_admin_list = "  •  ".join(admin_mentions)
-        
-        adm_signal_text = (
-            f"<b>{escape_html(text)}</b>\n\n"
-            f"🐱 <b>Admins, please pay attention!</b>\n"
-            f"{compact_admin_list}"
-        )
-        await event.respond(bq(adm_signal_text), parse_mode='html')
+        await event.respond(bq(f"<b>{escape_html(text)}</b>\n\n🐱 <b>Admins, please pay attention!</b>\n{compact_admin_list}"), parse_mode='html')
     except Exception as e:
         print(f"Admin Tag System Error: {e}")
 
+# ---- BROADCAST ----
 @bot1.on(events.NewMessage(pattern=r'^/send(?:@\w+)?(?:\s+(.*))?'))
 async def broadcast(event):
     if event.sender_id != OWNER_ID: return
@@ -1540,8 +1547,7 @@ async def broadcast(event):
     if not reply_msg and not command_text: return
     
     success, fail = 0, 0
-    init_text = f"🐱 <b>DORAEMON BROADCAST INITIATED</b>\n⚡ <b>Status:</b> <code>Deploying signals...</code>"
-    status_msg = await event.respond(bq(init_text), parse_mode='html')
+    status_msg = await event.respond(bq("🐱 <b>BROADCAST INITIATED</b>"), parse_mode='html')
     groups = await groups_col.find().to_list(length=None)
 
     for g in groups:
@@ -1551,7 +1557,7 @@ async def broadcast(event):
             else: await bot1.send_message(chat_id, command_text, parse_mode='html')
             success += 1
             await asyncio.sleep(4) 
-        except errors.rpcerrorlist.FloodWaitError as e:
+        except FloodWaitError as e:
             await asyncio.sleep(e.seconds + 2)
             try:
                 if reply_msg: await bot1.forward_messages(chat_id, reply_msg)
@@ -1560,9 +1566,9 @@ async def broadcast(event):
             except: fail += 1
         except Exception: fail += 1
             
-    report_text = f"🐱 <b>BROADCAST COMPLETE</b>\n✅ <b>Success:</b> <code>{success}</code>\n❌ <b>Failed:</b>  <code>{fail}</code>"
-    await status_msg.edit(bq(report_text), parse_mode='html')
+    await status_msg.edit(bq(f"🐱 <b>BROADCAST COMPLETE</b>\n✅ <b>Success:</b> <code>{success}</code>\n❌ <b>Failed:</b>  <code>{fail}</code>"), parse_mode='html')
 
+# ---- PROTECTION LOGIC (BIO/LINK) ----
 @bot1.on(events.NewMessage())
 async def protection_logic(event):
     if event.is_private: return
@@ -1581,12 +1587,11 @@ async def protection_logic(event):
                 except: pass
             asyncio.create_task(delay_delete())
 
-            msg_template = "<b>{type} command detected</b> {mention}\nDoraemon deleted it to keep the chat clean."
-            warn_msg = await event.respond(bq(msg_template.format(type=cmd_type, mention=mention)), parse_mode='html')
-            for i in range(2, -1, -1):
+            warn_msg = await event.respond(bq(f"<b>{cmd_type} command detected</b> {mention}\nDeleted to keep chat clean."), parse_mode='html')
+            for i in range(2, 0, -1):
                 await asyncio.sleep(1)
-                if i == 0: await warn_msg.delete(); break
-                await warn_msg.edit(bq(msg_template.format(type=cmd_type, mention=mention) + f"\n\nDeleting in {i} seconds..."), parse_mode='html')
+                await warn_msg.edit(bq(f"<b>{cmd_type} command detected</b> {mention}\nDeleting in {i} seconds..."), parse_mode='html')
+            await warn_msg.delete()
             return 
         except: pass
 
@@ -1597,12 +1602,9 @@ async def protection_logic(event):
         if any(key in text_lower for key in BIO_KEYWORDS) and not await check_admin(chat_id, sender_id):
             try:
                 await event.delete()
-                sender = await event.get_sender()
                 first_name = sender.first_name if sender else "User"
                 mention = f"<a href='tg://user?id={sender_id}'>{escape_html(first_name)}</a>"
-                
-                warn_text = f"⚠️ <b>BIO ALERT</b>\n{mention}, Doraemon doesn’t allow bio links here.\n\n⚡ <b>Status:</b> <blockquote expandable>Message deleted 🗑️</blockquote>"
-                await event.respond(bq(warn_text), parse_mode='html')
+                await event.respond(bq(f"⚠️ <b>BIO ALERT</b>\n{mention}, bio links are not allowed.\n⚡ <b>Status:</b> <blockquote expandable>Message deleted 🗑️</blockquote>"), parse_mode='html')
                 return 
             except Exception as e: print(f"Bio Filter Error: {e}")
 
@@ -1619,9 +1621,10 @@ async def protection_logic(event):
             try:
                 await event.delete() 
                 mention = f"<a href='tg://user?id={sender_id}'>{escape_html(sender.first_name)}</a>"
-                await event.respond(bq(f"🔗 {mention}, Doraemon says no links allowed! I deleted it."), parse_mode='html')
+                await event.respond(bq(f"🔗 {mention}, no links allowed! Deleted."), parse_mode='html')
             except: pass
 
+# ---- PLAY / MUSIC ----
 play_blocks = {}
 
 @bot1.on(events.NewMessage(pattern=r'^/play(?:\s+(.*))?'))
@@ -1644,16 +1647,13 @@ async def play_response(event):
     if session_key not in play_blocks:
         play_blocks[session_key] = {"msg_id": None, "songs": []}
 
-    # Add new song
     current_song_entry = {"title": song_title.strip(), "by": mention}
     play_blocks[session_key]["songs"].append(current_song_entry)
 
-    # Build playlist text (max 30)
     playlist_text = ""
     for index, s in enumerate(play_blocks[session_key]["songs"][-30:], start=1):
         playlist_text += f"{index} 💿 <code>/play {escape_html(s['title'])}</code> — {s['by']}\n"
 
-    # Get owner name
     try:
         owner_entity = await bot1.get_entity(OWNER_ID)
         owner_fullname = f"{owner_entity.first_name or ''} {owner_entity.last_name or ''}".strip() or "Khant Thu Rain"
@@ -1664,9 +1664,8 @@ async def play_response(event):
         f"🐱 <b>Doraemon's Music System</b>\n"
         f"💿 <b>Now Playing:</b> <code>{escape_html(song_title.strip())}</code>\n"
         f"✨ <b>Requested By:</b> {mention}\n\n"
-        f"💎 <b>Your Playlist (max 30):</b>\n"
-        f"{playlist_text}"
-        f"💡 <i>Doraemon keeps your last 30 songs. Just tap /play again to add more!</i>"
+        f"💎 <b>Your Playlist (max 30):</b>\n{playlist_text}"
+        f"💡 <i>Doraemon keeps your last 30 songs.</i>"
     )
 
     inline_buttons = [
@@ -1676,39 +1675,22 @@ async def play_response(event):
 
     try:
         last_msg_id = play_blocks[session_key]["msg_id"]
-        
-        # Try to edit existing message first
         if last_msg_id:
             try:
-                await bot1.edit_message(
-                    entity=chat_id,
-                    message=last_msg_id,
-                    text=bq(msg_template),
-                    parse_mode='html',
-                    buttons=inline_buttons
-                )
-                # Delete the command message
-                try:
-                    await event.delete()
-                except:
-                    pass
+                await bot1.edit_message(entity=chat_id, message=last_msg_id, text=bq(msg_template), parse_mode='html', buttons=inline_buttons)
+                try: await event.delete()
+                except: pass
                 return
-            except Exception as edit_error:
-                # If edit fails (message deleted, etc.), send new message
-                print(f"Edit failed, sending new: {edit_error}")
+            except Exception:
                 last_msg_id = None
 
-        # If no existing message or edit failed, send new
         if not last_msg_id:
             new_msg = await event.respond(bq(msg_template), parse_mode='html', buttons=inline_buttons)
             play_blocks[session_key]["msg_id"] = new_msg.id
-            try:
-                await event.delete()
-            except:
-                pass
-
+            try: await event.delete()
+            except: pass
     except Exception as e:
-        print(f"Multimedia Play System Error: {e}")
+        print(f"Play System Error: {e}")
 
 @bot1.on(events.CallbackQuery(pattern=r'^save_pl_(\d+)$'))
 async def close_playlist_callback(event):
@@ -1720,65 +1702,47 @@ async def close_playlist_callback(event):
         return await event.answer("❌ This is not your playlist!", alert=True)
     
     session_key = (chat_id, target_user_id)
-    
     try:
-        # Get current message
         msg = await event.get_message()
         current_text = msg.text or ""
-        
-        # Remove the save button and show locked state
-        locked_buttons = [
-            [Button.url("Join Our Group", "https://t.me/Comeback_BoD")],
-            [Button.inline("🔒 Playlist Saved ✓", data="playlist_frozen_done")]
-        ]
-        
-        # Edit the message to show it's saved
-        await event.edit(
-            current_text,
-            parse_mode='html',
-            buttons=locked_buttons
-        )
-        
-        # Remove the playlist from memory (cleanup)
-        if session_key in play_blocks:
-            del play_blocks[session_key]
-        
+        locked_buttons = [[Button.url("Join Our Group", "https://t.me/Comeback_BoD")], [Button.inline("🔒 Playlist Saved ✓", data="playlist_frozen_done")]]
+        await event.edit(current_text, parse_mode='html', buttons=locked_buttons)
+        if session_key in play_blocks: del play_blocks[session_key]
         await event.answer("💾 Playlist saved successfully!", alert=True)
-        
     except Exception as e:
         print(f"Callback Error: {e}")
         await event.answer("❌ Error saving playlist!", alert=True)
 
+# ---- SHADOW BAN ----
 @bot1.on(events.NewMessage(pattern=r'^/shadow(?:@\w+)?$'))
 async def set_shadow_ban(event):
     if not await is_allowed(event.sender_id): return
     reply = await event.get_reply_message()
     if not reply or reply.sender_id == OWNER_ID: return
     dark_passenger_targets[event.chat_id] = reply.sender_id
-    await event.respond(bq("Shadow ban activated. Doraemon is watching."))
+    await event.respond(bq("Shadow ban activated."))
 
 @bot1.on(events.NewMessage(pattern=r'^/unshadow(?:@\w+)?$'))
 async def remove_shadow_ban(event):
     if not await is_allowed(event.sender_id): return
     if event.chat_id in dark_passenger_targets:
         del dark_passenger_targets[event.chat_id]
-        await event.respond(bq("Shadow ban removed. Doraemon looks away."))
+        await event.respond(bq("Shadow ban removed."))
 
+# ---- TALK ENGINE TOGGLES ----
 @bot1.on(events.NewMessage(pattern=r'^စကားဝင်ပြော$'))
 async def turn_on_talking(event):
     if event.sender_id != OWNER_ID or event.chat_id != SPECIFIC_CONTROL_GROUP: return
     global GLOBAL_TALK
     GLOBAL_TALK = True
-    on_text = f"🐱 <b>DORAEMON’S TALK ENGINE: ACTIVATED</b>\n🔊 Smart replies are now active in all groups."
-    await event.reply(bq(on_text), parse_mode='html')
+    await event.reply(bq("🐱 <b>TALK ENGINE: ACTIVATED</b>"), parse_mode='html')
 
 @bot1.on(events.NewMessage(pattern=r'^မပြောနဲ့တော့$'))
 async def turn_off_talking(event):
     if event.sender_id != OWNER_ID or event.chat_id != SPECIFIC_CONTROL_GROUP: return
     global GLOBAL_TALK
     GLOBAL_TALK = False
-    off_text = f"🔇 Doraemon’s talk engine is now in <b>Stealth Mode</b> – silent."
-    await event.reply(bq(off_text), parse_mode='html')
+    await event.reply(bq("🔇 <b>TALK ENGINE: DEACTIVATED</b>"), parse_mode='html')
 
 @bot1.on(events.NewMessage())
 async def dark_passenger_watcher(event):
@@ -1790,18 +1754,12 @@ async def dark_passenger_watcher(event):
                 await event.delete()
                 sender = await event.get_sender()
                 mention = f"<a href='tg://user?id={sender_id}'>{escape_html(sender.first_name if sender else 'Subject')}</a>"
-                insults = [
-                    f"🤫 <b>THE ILLUSION OF VOICE</b>\n\nDoraemon allows your keystrokes, but he owns the void.",
-                    f"💀 <b>DORAEMON’S ISOLATION CHAMBER</b>\n\nType all you want, {mention}, your messages vanish."
-                ]
-                insult_msg = await event.respond(bq(random.choice(insults)), parse_mode='html')
+                insult_msg = await event.respond(bq(f"🤫 <b>SHADOW BAN</b>\n{mention}, your message has been erased."), parse_mode='html')
                 await asyncio.sleep(4.0)
                 await insult_msg.delete()
             except: pass
 
-# ====================================================================================
-# 🌐 LANGUAGE & FLOOD CONTROL INCOMING GLOBAL COUNTERS
-# ====================================================================================
+# ---- LANGUAGE & FORWARD FILTER ----
 FORBIDDEN_SCRIPTS = re.compile(r'[\u4e00-\u9fff\u3400-\u4dbf\u3040-\u309f\u30a0-\u30ff\u0e00-\u0e7f\u0600-\u06ff\uac00-\ud7af]')
 
 @bot1.on(events.NewMessage(incoming=True))
@@ -1818,8 +1776,7 @@ async def global_traffic_processing_matrix(event):
                 await event.delete()
                 sender = await event.get_sender()
                 mention = f"<a href='tg://user?id={sender_id}'>{escape_html(sender.first_name if sender else 'User')}</a>"
-                warn_text = f"⚠️ <b>LANGUAGE SECURITY</b>\nHey {mention}, only <b>Burmese, English</b> and <b>Numbers</b> are allowed.\n\n⚡ <b>Action:</b> Message deleted by Doraemon."
-                return await event.respond(bq(warn_text), parse_mode='html')
+                await event.respond(bq(f"⚠️ <b>LANGUAGE SECURITY</b>\n{mention}, only <b>Burmese, English</b> and <b>Numbers</b> are allowed. Message deleted."), parse_mode='html')
             except Exception: pass
 
     if event.fwd_from and isinstance(event.fwd_from.from_id, types.PeerChannel):
@@ -1828,11 +1785,10 @@ async def global_traffic_processing_matrix(event):
                 await event.delete()
                 sender = await event.get_sender()
                 mention = f"<a href='tg://user?id={sender_id}'>{escape_html(sender.first_name if sender else 'User')}</a>"
-                warn_msg = f"🚫 <b>CHANNEL FORWARD NOT ALLOWED!</b>\n\n{mention} <b>[Deleted]</b>"
-                return await event.respond(bq(warn_msg), parse_mode='html')
+                await event.respond(bq(f"🚫 <b>CHANNEL FORWARD NOT ALLOWED!</b>\n{mention} <b>[Deleted]</b>"), parse_mode='html')
             except Exception: pass
 
-
+# ---- SMART REPLY TOGGLES ----
 @bot1.on(events.NewMessage(pattern=r'^/ktr(?:\s+(\d+))?$'))
 async def turn_on_reply_save_match(event):
     global IS_REPLY_ACTIVE, REPLY_INTERVAL
@@ -1840,17 +1796,14 @@ async def turn_on_reply_save_match(event):
     IS_REPLY_ACTIVE = True
     interval_arg = event.pattern_match.group(1)
     if interval_arg: REPLY_INTERVAL = int(interval_arg)
-        
-    ktr_on_text = f"🐱 <b>DORAEMON’S REPLY MATCH ENGINE: ACTIVATED</b>\n🎯 Smart responses will be injected every <code>{REPLY_INTERVAL}</code> messages."
-    await event.reply(bq(ktr_on_text), parse_mode='html')
+    await event.reply(bq(f"🐱 <b>REPLY ENGINE ACTIVATED</b>\nEvery <code>{REPLY_INTERVAL}</code> messages."), parse_mode='html')
 
 @bot1.on(events.NewMessage(pattern=r'^/ktrr$'))
 async def turn_off_reply_save_match(event):
     global IS_REPLY_ACTIVE
     if event.sender_id != OWNER_ID: return
     IS_REPLY_ACTIVE = False
-    ktr_off_text = f"⛔ Doraemon’s reply engine is now offline."
-    await event.reply(bq(ktr_off_text), parse_mode='html')
+    await event.reply(bq("⛔ Reply engine offline."), parse_mode='html')
 
 async def processed_background_reply(event, user_text, as_reply=True):
     chat_entity = await event.get_input_chat()
@@ -1861,7 +1814,7 @@ async def processed_background_reply(event, user_text, as_reply=True):
                 await asyncio.sleep(random.uniform(0.5, 1.5))
             if as_reply: await event.reply(smart_reply, parse_mode='html')
             else: await event.respond(smart_reply, parse_mode='html')
-        except errors.rpcerrorlist.FloodWaitError as e: await asyncio.sleep(e.seconds + 1)
+        except FloodWaitError as e: await asyncio.sleep(e.seconds + 1)
         except Exception: pass
 
 @bot1.on(events.NewMessage(incoming=True))
@@ -1891,8 +1844,9 @@ async def global_talk_counter_handler(event):
     if group_msg_counters[chat_id] >= GLOBAL_TALK_INTERVAL:
         group_msg_counters[chat_id] = 0
         asyncio.create_task(processed_background_reply(event, event.text.strip(), as_reply=False))
+
 # ==========================================
-# 💰 OWNER WALLET CONTROL COMMANDS (/take, /giveall, /give, /takeall)
+# 💰 OWNER WALLET CONTROL
 # ==========================================
 @bot1.on(events.NewMessage(pattern=r'^/take\s+(\d+)'))
 async def take_mmk_telethon(event):
@@ -1905,9 +1859,9 @@ async def take_mmk_telethon(event):
             {"$inc": {"wallet_balance": amount}, "$setOnInsert": {"total_caught": 0, "harem": [], "fullname": mention}},
             upsert=True
         )
-        await event.reply(f"💰 Added <code>{amount:,} MMK</code> to Doraemon’s owner wallet.", parse_mode='html')
+        await event.reply(f"💰 Added <code>{amount:,} MMK</code> to owner wallet.", parse_mode='html')
     except Exception as e:
-        await event.reply(f"❌ <b>Database Error:</b> <code>{e}</code>", parse_mode='html')
+        await event.reply(f"❌ Error: <code>{e}</code>", parse_mode='html')
 
 @bot1.on(events.NewMessage(pattern=r'^/giveall\s+(\d+)'))
 async def give_all_players_mmk(event):
@@ -1915,36 +1869,25 @@ async def give_all_players_mmk(event):
     amount = int(event.pattern_match.group(1))
     try:
         result = await users_catcher_col.update_many({}, {"$inc": {"wallet_balance": amount}})
-        success_text = (
-            f"🎁 <b>{f('GLOBAL BOUNTY DISTRIBUTED')}</b>\n"
-            f"⚡ ━━━━━━━━━━━━━━━━━━━━ ⚡\n"
-            f"<blockquote>Doraemon gave <code>{amount:,} MMK</code> to every player. Total players: <code>{result.modified_count}</code></blockquote>"
-        )
-        await event.reply(success_text, parse_mode='html')
+        await event.reply(f"🎁 <b>GLOBAL BOUNTY</b>\nDoraemon gave <code>{amount:,} MMK</code> to every player. Total: <code>{result.modified_count}</code>", parse_mode='html')
     except Exception as e:
-        await event.reply(f"❌ <b>Global Distribution Error:</b> <code>{e}</code>", parse_mode='html')
+        await event.reply(f"❌ Error: <code>{e}</code>", parse_mode='html')
 
 @bot1.on(events.NewMessage(pattern=r'^/give\s+(\d+)'))
 async def give_money_to_user(event):
     if event.sender_id != OWNER_ID: return
     if not event.is_reply:
-        return await event.reply("⚠️ <b>Reply to the user you want to give money to.</b>", parse_mode='html')
-    
+        return await event.reply("⚠️ Reply to the user you want to give money to.", parse_mode='html')
     amount = int(event.pattern_match.group(1))
     reply_msg = await event.get_reply_message()
     target_user_id = reply_msg.sender_id
-    
     target_mention = await get_html_mention(event, target_user_id)
     await ensure_user_registered(target_user_id, target_mention)
-    
     try:
-        await users_catcher_col.update_one(
-            {"user_id": target_user_id},
-            {"$inc": {"wallet_balance": amount}, "$set": {"fullname": target_mention}}
-        )
-        await event.reply(f"💸 {target_mention} <b>received</b> <code>{amount:,} MMK</code> from Doraemon’s pocket.", parse_mode='html')
+        await users_catcher_col.update_one({"user_id": target_user_id}, {"$inc": {"wallet_balance": amount}, "$set": {"fullname": target_mention}})
+        await event.reply(f"💸 {target_mention} received <code>{amount:,} MMK</code> from Doraemon’s pocket.", parse_mode='html')
     except Exception as e:
-        await event.reply(f"❌ <b>Give System Fault:</b> <code>{e}</code>", parse_mode='html')
+        await event.reply(f"❌ Error: <code>{e}</code>", parse_mode='html')
 
 @bot1.on(events.NewMessage(pattern=r'^/takeall\s+(\d+)'))
 async def take_money_from_everyone(event):
@@ -1955,16 +1898,12 @@ async def take_money_from_everyone(event):
             {},
             [{"$set": {"wallet_balance": {"$max": [0, {"$subtract": ["$wallet_balance", amount]}]}}}]
         )
-        text = (
-            f"🚨 <b>{f('SYSTEM DEDUCTION')}</b>\n"
-            f"<blockquote>Doraemon deducted <code>{amount:,} MMK</code> from every player. Total affected: <code>{result.modified_count}</code></blockquote>"
-        )
-        await event.reply(text, parse_mode='html')   
+        await event.reply(f"🚨 <b>SYSTEM DEDUCTION</b>\nDoraemon deducted <code>{amount:,} MMK</code> from every player. Affected: <code>{result.modified_count}</code>", parse_mode='html')   
     except Exception as e:
-        await event.reply(f"❌ <b>Takeall System Fault:</b> <code>{e}</code>", parse_mode='html')
+        await event.reply(f"❌ Error: <code>{e}</code>", parse_mode='html')
 
 # ==========================================
-# 🛰️ 2. OVERRIDE FORCE SPAWN ENGINE (/fspawn & /haii)
+# 🛰️ FORCE SPAWN
 # ==========================================
 @bot1.on(events.NewMessage(pattern=r'^/(fspawn|haii)(?:@\w+)?$'))
 async def force_spawn_by_owner(event):
@@ -1972,13 +1911,12 @@ async def force_spawn_by_owner(event):
     await trigger_dynamic_spawn(event.chat_id)
 
 # ==========================================
-# 📢 3. AUTOMATIC SPAWN PROCESSOR (RARITY WEIGHTED)
+# 📢 AUTOMATIC SPAWN PROCESSOR
 # ==========================================
 @bot1.on(events.NewMessage(incoming=True))
 async def global_message_counter_handler(event):
     if event.is_private or event.chat_id == SPECIFIC_CONTROL_GROUP: return
     chat_id = event.chat_id
-    
     if chat_id in active_group_spawns: return
 
     group_config = await groups_config_col.find_one({"chat_id": chat_id})
@@ -2022,14 +1960,12 @@ async def trigger_dynamic_spawn(chat_id):
         
         await characters_base_col.update_one({"char_id": chosen_char["char_id"]}, {"$inc": {"spawn_count": 1}})
         
-        # Show rarity in spawn message
         rarity_display = chosen_char.get("rarity", "Unknown")
         spawn_msg = await bot1.send_message(
             chat_id, 
             f"🎃 <b>Doraemon’s gadget appeared!</b>\n"
             f"🌟 <b>Rarity:</b> {rarity_display}\n"
-            f"<blockquote>Who is this? Reply with <code>/who</code> to reveal!</blockquote>\n"
-            f"If you don’t know how, reply with <code>/help</code>.",
+            f"<blockquote>Who is this? Reply with <code>/who</code> to reveal!</blockquote>",
             parse_mode='html',
             file=storage_msg.media
         )
@@ -2048,6 +1984,9 @@ async def trigger_dynamic_spawn(chat_id):
     except Exception as e:
         print(f"Spawn Error Tracker: {e}")
 
+# ==========================================
+# 🕵️ /who (NO GIF, NO INLINE KEYBOARD)
+# ==========================================
 @bot1.on(events.NewMessage(pattern=r'^/who$'))
 async def who_reveal_handler(event):
     if event.is_private: return
@@ -2065,46 +2004,20 @@ async def who_reveal_handler(event):
         return await event.reply(f"⚠️ <b>Reply directly to the spawn message to reveal!</b>", parse_mode='html')
         
     try:
-        # Animated Matrix GIF
-        gif_lines = [
-            f"Name: {spawn_data['name']}",
-            f"Rarity: {spawn_data['rarity']}",
-            f"Category: {spawn_data['category']}"
-        ]
-        gif_file = await run_blocking(generate_static_golden_image, "🕵️ IDENTITY REVEAL", gif_lines, 500, 320)
-        )
-        gif_file.name = "identity_reveal.gif"
-        
         reveal_text = (
             f"🌟 <b>Name:</b> {spawn_data['name']}\n"
             f"🌟 <b>Rarity:</b> {spawn_data['rarity']}\n"
             f"🌐 <b>Category:</b> {spawn_data['category']}\n\n"
-            f"👉 Click the button below to catch it instantly!"
+            f"👉 <code>/catch {spawn_data['name']}</code>"
         )
-        
-        # Inline button to catch
-        buttons = [
-            [Button.inline("⚡ Catch this Character!", data=f"catch_now_{chat_id}")]
-        ]
-        
-        await event.client.send_file(
-            event.chat_id,
-            gif_file,
-            caption=reveal_text,
-            reply_to=event.id,
-            parse_mode='html',
-            buttons=buttons
-        )
-        
+        await event.reply(reveal_text, parse_mode='html')
     except Exception as e:
         print(f"Error in /who command: {e}")
 
-# ===========
-async def perform_catch(chat_id, user_id, spawn_data, event, reply_to_msg=None, is_callback=False):
-    """
-    Shared catch logic for both /catch command and inline button.
-    Returns True if successful, False otherwise.
-    """
+# ==========================================
+# ⚡ CATCH LOGIC (NO GIF)
+# ==========================================
+async def perform_catch(chat_id, user_id, spawn_data, event, reply_to_msg=None, is_callback=False, temp_msg_id=None):
     if chat_id not in active_group_spawns:
         if is_callback:
             await event.answer("🛸 Nothing to catch here!", alert=True)
@@ -2140,7 +2053,6 @@ async def perform_catch(chat_id, user_id, spawn_data, event, reply_to_msg=None, 
         await ensure_user_registered(user_id, mention)
         
         try:
-            # Update user's inventory
             await users_catcher_col.update_one(
                 {"user_id": user_id},
                 {
@@ -2162,7 +2074,6 @@ async def perform_catch(chat_id, user_id, spawn_data, event, reply_to_msg=None, 
                 upsert=True
             )
             
-            # Guild XP
             guild_levelup_msg = ""
             user_guild = await guilds_col.find_one({"members": user_id})
             if user_guild:
@@ -2176,23 +2087,6 @@ async def perform_catch(chat_id, user_id, spawn_data, event, reply_to_msg=None, 
             
             character_name = spawn_data['name']
             
-            # Animated Matrix GIF
-            gif_lines = [
-                f"Character: {character_name}",
-                f"Rarity: {spawn_data['rarity']}",
-                f"Bounty: +{spawn_data['value']} MMK"
-            ]
-            gif_file = await run_blocking(
-                generate_matrix_animated_gif,
-                "⚡ CATCH SUCCESS",
-                gif_lines,
-                550, 350, 3, 12
-            )
-            gif_file.name = "catch_success.gif"
-            
-            del active_group_spawns[chat_id]
-            if chat_id in spawn_locks: del spawn_locks[chat_id]
-            
             success_msg = (
                 f"👤 <b>Hunter:</b> {mention}, you caught it! 🎉\n"
                 f"🃏 <b>Character:</b> <b>{escape_html(character_name)}</b>\n"
@@ -2204,14 +2098,19 @@ async def perform_catch(chat_id, user_id, spawn_data, event, reply_to_msg=None, 
             if guild_levelup_msg:
                 success_msg += guild_levelup_msg
                 
-            # Send result using bot1 (works for both command and callback)
-            await bot1.send_file(
-                chat_id,
-                gif_file,
-                caption=success_msg,
-                reply_to=reply_to_msg or event.id,
-                parse_mode='html'
-            )
+            if temp_msg_id:
+                try:
+                    await bot1.delete_messages(chat_id, temp_msg_id)
+                except:
+                    pass
+            
+            del active_group_spawns[chat_id]
+            if chat_id in spawn_locks: del spawn_locks[chat_id]
+            
+            if is_callback:
+                await bot1.send_message(chat_id, success_msg, reply_to=reply_to_msg or event.message_id, parse_mode='html')
+            else:
+                await event.reply(success_msg, parse_mode='html')
             return True
             
         except Exception as e:
@@ -2223,45 +2122,6 @@ async def perform_catch(chat_id, user_id, spawn_data, event, reply_to_msg=None, 
             else:
                 await event.reply(error_msg, parse_mode='html')
             return False
-
-@bot1.on(events.CallbackQuery(pattern=r'^catch_now_(\d+)$'))
-async def catch_button_callback(event):
-    chat_id = int(event.pattern_match.group(1))
-    user_id = event.sender_id
-    
-    if chat_id not in active_group_spawns:
-        await event.answer("❌ No gadget available!", alert=True)
-        return
-        
-    spawn_data = active_group_spawns[chat_id]
-    if spawn_data["claimed"]:
-        await event.answer("❌ Already caught!", alert=True)
-        return
-    
-    # Show loading
-    await event.answer("🎯 Catching...", alert=False)
-    
-    # Use the shared catch logic with is_callback=True
-    success = await perform_catch(chat_id, user_id, spawn_data, event, reply_to_msg=event.message_id, is_callback=True)
-    
-    if success:
-        await event.answer("🎉 Caught successfully!", alert=True)
-        # Edit the original /who message to show it's been caught
-        try:
-            # Get the original message that had the button
-            original_msg = await event.get_message()
-            if original_msg:
-                # Edit it to show caught status
-                new_text = original_msg.text or ""
-                # Add a note at the top
-                await event.edit(
-                    f"✅ **This gadget has been caught!**\n\n{new_text}",
-                    parse_mode='markdown'
-                )
-        except Exception as e:
-            print(f"Could not edit original message: {e}")
-    else:
-        await event.answer("❌ Failed to catch!", alert=True)
 
 @bot1.on(events.NewMessage(pattern=r'^/catch\s+(.*)$'))
 async def catch_handler(event):
@@ -2284,25 +2144,53 @@ async def catch_handler(event):
     if normalize_name(catch_name) != normalize_name(spawn_data["name"]):
         return await event.reply(f"❌ <b>Wrong name! Use the exact name shown in /who.</b>", parse_mode='html')
     
-    # Use shared helper
-    await perform_catch(chat_id, user_id, spawn_data, event)
+    temp_msg = await event.reply("🐱 Catching...")
+    await perform_catch(chat_id, user_id, spawn_data, event, reply_to_msg=event.id, is_callback=False, temp_msg_id=temp_msg.id)
+
+# (Callback is kept just in case, but /who no longer uses it)
+@bot1.on(events.CallbackQuery(pattern=r'^catch_now_(\d+)$'))
+async def catch_button_callback(event):
+    chat_id = int(event.pattern_match.group(1))
+    user_id = event.sender_id
+    
+    if chat_id not in active_group_spawns:
+        await event.answer("❌ No gadget available!", alert=True)
+        return
+        
+    spawn_data = active_group_spawns[chat_id]
+    if spawn_data["claimed"]:
+        await event.answer("❌ Already caught!", alert=True)
+        return
+    
+    temp_msg = await bot1.send_message(chat_id, "🐱 Catching...", reply_to=event.message_id)
+    await event.answer("🎯 Catching...", alert=False)
+    
+    success = await perform_catch(chat_id, user_id, spawn_data, event, reply_to_msg=event.message_id, is_callback=True, temp_msg_id=temp_msg.id)
+    
+    if success:
+        await event.answer("🎉 Caught successfully!", alert=True)
+        try:
+            original_msg = await event.get_message()
+            if original_msg:
+                await event.edit("✅ This gadget has been caught! Check your inventory with /hai")
+        except Exception as e:
+            print(f"Could not edit original message: {e}")
+    else:
+        await event.answer("❌ Failed to catch!", alert=True)
+
 # ==========================================
-# 🎒 6. INVENTORY PAGINATION ENGINE (/fav & /hai)
+# 🎒 INVENTORY / HAI
 # ==========================================
 @bot1.on(events.NewMessage(pattern=r'^/fav\s+([a-zA-Z0-9_]+)$'))
 async def set_favorite_card(event):
     user_id = event.sender_id
     char_id = event.pattern_match.group(1).upper()
-    
     card = await characters_base_col.find_one({"char_id": char_id})
     if not card: return await event.reply(f"❌ <b>Card not found!</b>", parse_mode='html')
-        
     user_doc = await users_catcher_col.find_one({"user_id": user_id})
     user_harem = user_doc.get("harem", []) if user_doc else []
-    
     owns_card = any(isinstance(x, dict) and x.get("char_id") == char_id for x in user_harem)
     if not owns_card: return await event.reply(f"❌ <b>You don’t own this card!</b>", parse_mode='html')
-        
     await users_catcher_col.update_one({"user_id": user_id}, {"$set": {"fav_card": char_id}})
     await event.reply(f"⭐️ <b>{escape_html(card['name'])}</b> ({char_id}) is now your favourite card!", parse_mode='html')
 
@@ -2337,10 +2225,7 @@ async def send_paginated_harem(client, chat_id, user_id, page=1, edit_msg_id=Non
         if "COMMON" in rarity_str: return 1
         return 0
 
-    db_chars = sorted(
-        db_chars, 
-        key=lambda x: (-get_rarity_weight(x.get("rarity", "")), x.get("name", "").lower())
-    )
+    db_chars = sorted(db_chars, key=lambda x: (-get_rarity_weight(x.get("rarity", "")), x.get("name", "").lower()))
     
     lines = []
     for card in db_chars:
@@ -2388,12 +2273,10 @@ async def send_paginated_harem(client, chat_id, user_id, page=1, edit_msg_id=Non
     if page > 1: nav_buttons.append(Button.inline("⬅️ Prev", data=f"hai_{page-1}_{user_id}"))
     if page < total_pages: nav_buttons.append(Button.inline("Next ➡️", data=f"hai_{page+1}_{user_id}"))
     if nav_buttons: buttons.append(nav_buttons)
-    
     if not buttons: buttons = None
     
     fav_card_id = user_doc.get("fav_card")
     fav_media = None
-    
     target_display_id = fav_card_id
     if not target_display_id and owned_ids:
         target_display_id = random.choice(owned_ids)
@@ -2423,9 +2306,9 @@ async def send_paginated_harem(client, chat_id, user_id, page=1, edit_msg_id=Non
 @bot1.on(events.NewMessage(pattern=r'^/hai(?:@\w+)?$'))
 async def display_harem_list(event):
     await send_paginated_harem(bot1, event.chat_id, event.sender_id, page=1)
-    
+
 # ==========================================
-# 🗛️ 7. UNIFIED CALLBACK QUERY MATRIX PROCESSOR
+# 🔗 UNIFIED CALLBACK HANDLER
 # ==========================================
 @bot1.on(events.CallbackQuery)
 async def unified_callback_handler(event):
@@ -2446,22 +2329,17 @@ async def unified_callback_handler(event):
     elif action_type == "mktbuy":
         listing_id = data_parts[1]
         buyer_id = event.sender_id
-        
         listing = await marketplace_col.find_one({"listing_id": listing_id})
         if not listing: return await event.answer("❌ This listing no longer exists.", alert=True)
-            
         price = listing["price"]
         seller_id = listing["seller_id"]
         char_id = listing["char_id"]
         if buyer_id == seller_id: return await event.answer("⚠️ You cannot buy your own item!", alert=True)
-            
         buyer_doc = await users_catcher_col.find_one({"user_id": buyer_id})
         if not buyer_doc or buyer_doc.get("wallet_balance", 0) < price:
             return await event.answer(f"❌ Insufficient balance! Need {price} MMK", alert=True)
-            
         char_data = await characters_base_col.find_one({"char_id": char_id})
         char_rarity = char_data.get("rarity", "Unknown") if char_data else "Unknown"
-        
         seller_doc = await users_catcher_col.find_one({"user_id": seller_id})
         seller_harem = seller_doc.get("harem", []) if seller_doc else []
         item_to_remove = next((x for x in seller_harem if isinstance(x, dict) and x.get("char_id") == char_id and x.get("status") == "market"), None)
@@ -2475,44 +2353,36 @@ async def unified_callback_handler(event):
             }
         )
         if res.modified_count == 0: return await event.answer("❌ Transaction failed!", alert=True)
-            
         await users_catcher_col.update_one({"user_id": seller_id}, {"$set": {"harem": seller_harem}, "$inc": {"wallet_balance": price}})
         await marketplace_col.delete_one({"listing_id": listing_id})
         await event.answer("🎉 Purchase successful!", alert=True)
-        await event.edit(f"🤝 <b>{f('DEAL SECURED')}</b>\n\nYou successfully bought the card from the market.", parse_mode='html')
+        await event.edit(f"🤝 <b>DEAL SECURED</b>\n\nYou successfully bought the card.", parse_mode='html')
 
+    # ... (tr, cardjoin, hilo handlers kept as before but text-only)
     elif action_type == "tr":
         sub_action = data_parts[1]
         sender_id = int(data_parts[2])
         target_id = int(data_parts[3])
-        
         if sub_action == "canc":
             if event.sender_id in [sender_id, target_id]:
                 await event.answer("❌ Transaction cancelled")
                 await event.edit(f"❌ <b>Trade contract voided.</b>", parse_mode='html')
             else: await event.answer("⚠️ You are not involved in this trade.", alert=True)
             return
-            
         if sub_action == "conf":
-            if event.sender_id != target_id: return await event.answer("⚠️ You are not the recipient of this trade.", alert=True)
+            if event.sender_id != target_id: return await event.answer("⚠️ You are not the recipient.", alert=True)
             await event.answer("⚡ Finalising trade...")
             my_char_id, their_char_id = data_parts[4], data_parts[5]
-            
             s_doc = await users_catcher_col.find_one({"user_id": sender_id})
             t_doc = await users_catcher_col.find_one({"user_id": target_id})
             s_harem = s_doc.get("harem", []) if s_doc else []
             t_harem = t_doc.get("harem", []) if t_doc else []
-            
             s_item = next((x for x in s_harem if isinstance(x, dict) and x.get("char_id") == my_char_id and x.get("status") != "market"), None)
             t_item = next((x for x in t_harem if isinstance(x, dict) and x.get("char_id") == their_char_id and x.get("status") != "market"), None)
-            
-            if not s_item or not t_item: return await event.edit(f"❌ <b>Trade failed – one of the cards is no longer available.</b>", parse_mode='html')
-                
-            s_harem.remove(s_item)
-            t_harem.remove(t_item)
+            if not s_item or not t_item: return await event.edit(f"❌ <b>Trade failed – card unavailable.</b>", parse_mode='html')
+            s_harem.remove(s_item); t_harem.remove(t_item)
             s_harem.append({"char_id": their_char_id, "caught_date": time.time(), "rarity": t_item.get("rarity", "Unknown"), "status": "vault"})
             t_harem.append({"char_id": my_char_id, "caught_date": time.time(), "rarity": s_item.get("rarity", "Unknown"), "status": "vault"})
-            
             await users_catcher_col.update_one({"user_id": sender_id}, {"$set": {"harem": s_harem}})
             await users_catcher_col.update_one({"user_id": target_id}, {"$set": {"harem": t_harem}})
             await event.edit(f"🤝 <b>Trade concluded successfully!</b>", parse_mode='html')
@@ -2521,15 +2391,12 @@ async def unified_callback_handler(event):
         g_chat_id = int(data_parts[1])
         p_id = event.sender_id
         if g_chat_id not in active_card_games: return await event.answer("❌ This game lobby no longer exists.", alert=True)
-            
         game = active_card_games[g_chat_id]
-        if game["status"] != "lobby": return await event.answer("❌ Game has already started!", alert=True)
-        if p_id in game["players"]: return await event.answer("⚠️ You are already in the game.", alert=True)
-            
+        if game["status"] != "lobby": return await event.answer("❌ Game started!", alert=True)
+        if p_id in game["players"]: return await event.answer("⚠️ Already in game.", alert=True)
         user_doc = await users_catcher_col.find_one({"user_id": p_id})
         balance = user_doc.get("wallet_balance", 0) if user_doc else 0
         if balance < game["bet"]: return await event.answer(f"❌ Insufficient balance! Need {game['bet']} MMK", alert=True)
-            
         await users_catcher_col.update_one({"user_id": p_id}, {"$inc": {"wallet_balance": -game["bet"]}})
         try:
             p_ent = await event.client.get_entity(p_id)
@@ -2537,21 +2404,13 @@ async def unified_callback_handler(event):
             l_n = getattr(p_ent, 'last_name', '') or ''
             fullname = f"{f_n} {l_n}".strip() or getattr(p_ent, 'username', '') or f"Agent {p_id}"
         except: fullname = f"Agent {p_id}"
-            
         game["players"][p_id] = fullname
         host_mention = f"<a href='tg://user?id={game['host_id']}'><b>{escape_html(game['players'][game['host_id']])}</b></a>"
-        
-        lobby_text = (
-            f"🃏 <b>HIGH CARD DRAW - MULTIPLAYER</b> 🃏\n"
-            f"👑 <b>Host:</b> {host_mention}\n"
-            f"💵 <b>Bet:</b> <code>{game['bet']} MMK</code>\n\n"
-            f"👥 <b>Players ({len(game['players'])}):</b>\n"
-        )
+        lobby_text = f"🃏 <b>HIGH CARD DRAW</b>\n👑 <b>Host:</b> {host_mention}\n💵 <b>Bet:</b> <code>{game['bet']} MMK</code>\n\n👥 <b>Players ({len(game['players'])}):</b>\n"
         for idx, (pid, name) in enumerate(game["players"].items(), start=1):
             p_mention = f"<a href='tg://user?id={pid}'><b>{escape_html(name)}</b></a>"
             lobby_text += f" {idx}. {p_mention}\n"
-            
-        lobby_text += f"\n📌 <i>Host can type <code>/startgame</code> to begin.</i>"
+        lobby_text += f"\n📌 <i>Host: <code>/startgame</code></i>"
         buttons = [[Button.inline("🃏 Join", data=f"cardjoin_{g_chat_id}")]]
         await event.edit(lobby_text, parse_mode='html', buttons=buttons)
         await event.answer("🎉 You joined the game!")
@@ -2562,23 +2421,16 @@ async def unified_callback_handler(event):
         bet_amount = int(data_parts[3])
         target_user_id = int(data_parts[4])
         if event.sender_id != target_user_id: return await event.answer("⚠️ This is not your game.", alert=True)
-            
         user_doc = await users_catcher_col.find_one({"user_id": target_user_id})
         balance = user_doc.get("wallet_balance", 0) if user_doc else 0
         if balance < bet_amount: return await event.answer("❌ Insufficient balance.", alert=True)
-            
         await event.answer("🎲 Shuffling...")
         new_card = random.randint(1, 13)
         while new_card == base_card: new_card = random.randint(1, 13)
-            
         card_map = {1: "A", 11: "J", 12: "Q", 13: "K"}
         base_display = card_map.get(base_card, str(base_card))
         new_display = card_map.get(new_card, str(new_card))
-        
-        is_win = False
-        if choice == "HIGH" and new_card > base_card: is_win = True
-        elif choice == "LOW" and new_card < base_card: is_win = True
-            
+        is_win = (choice == "HIGH" and new_card > base_card) or (choice == "LOW" and new_card < base_card)
         mention = await get_html_mention(event, target_user_id)
         if is_win:
             await users_catcher_col.update_one({"user_id": target_user_id}, {"$inc": {"wallet_balance": bet_amount}})
@@ -2586,20 +2438,11 @@ async def unified_callback_handler(event):
         else:
             await users_catcher_col.update_one({"user_id": target_user_id}, {"$inc": {"wallet_balance": -bet_amount}})
             status_text = f"💸 <b>YOU LOSE... (-{bet_amount:,} MMK)</b>"
-            
-        result_text = (
-            f"🃏 <b>HI-LO RESULT</b>\n"
-            f"👤 <b>Player:</b> {mention}\n"
-            f"💵 <b>Bet:</b> <code>{bet_amount:,} MMK</code>\n\n"
-            f"🎴 Previous card: <b>[ {base_display} ]</b>\n"
-            f"🎲 New card: ✨ <b>[ {new_display} ]</b> ✨\n"
-            f"🎯 You chose: <code>{choice}</code>\n\n"
-            f"{status_text}"
-        )
+        result_text = f"🃏 <b>HI-LO RESULT</b>\n👤 <b>Player:</b> {mention}\n💵 <b>Bet:</b> <code>{bet_amount:,} MMK</code>\n\n🎴 Previous: <b>[{base_display}]</b>\n🎲 New: <b>[{new_display}]</b>\n🎯 You chose: <code>{choice}</code>\n\n{status_text}"
         await event.edit(result_text, parse_mode='html')
 
 # ==========================================
-# 📊 8. PROFILE SYSTEM CORE (/profile)
+# 📊 PROFILE
 # ==========================================
 @bot1.on(events.NewMessage(pattern=r'^/profile(?:@\w+)?$'))
 async def profile_handler(event):
@@ -2618,163 +2461,107 @@ async def profile_handler(event):
             if i.get("status") == "market": market_count += 1
             if "rarity" in i: counts[i["rarity"]] = counts.get(i["rarity"], 0) + 1
 
-    profile_text = (
-        f"🐱 <b>YOUR PROFILE</b>\n"
-        f"👤 <b>Agent:</b> {mention}\n"
-        f"🦦 <b>User ID:</b> <code>{user_id}</code>\n"
-        f"🪙 <b>Balance:</b> <code>{balance} MMK</code>\n"
-        f"🎒 <b>Total Caught:</b> <code>{total_caught} Cards</code>\n"
-        f"🛒 <b>On Market:</b> <code>{market_count} Cards</code>\n"
-    )
+    profile_text = f"🐱 <b>YOUR PROFILE</b>\n👤 <b>Agent:</b> {mention}\n🦦 <b>User ID:</b> <code>{user_id}</code>\n🪙 <b>Balance:</b> <code>{balance} MMK</code>\n🎒 <b>Total Caught:</b> <code>{total_caught} Cards</code>\n🛒 <b>On Market:</b> <code>{market_count} Cards</code>\n"
     if counts:
         profile_text += f"📊 <b>VAULT BREAKDOWN:</b>\n"
         for tier, qty in sorted(counts.items(), key=lambda x: x[1], reverse=True):
             profile_text += f" ├─➩ {tier}: <b>{qty} Cards</b>\n"
-        profile_text += f"⚡ DORAEMON’S POCKET ⚡\n"
     await event.reply(profile_text, parse_mode='html')
 
 # ==========================================
-# 🔗 REFERRAL SYSTEM (/referral)
+# 🔗 REFERRAL
 # ==========================================
 @bot1.on(events.NewMessage(pattern=r'^/referral(?:@\w+)?$'))
 async def referral_info_handler(event):
     user_id = event.sender_id
     mention = await get_html_mention(event, user_id)
     await ensure_user_registered(user_id, mention)
-
     user_doc = await users_catcher_col.find_one({"user_id": user_id})
     ref_count = user_doc.get("referral_count", 0) if user_doc else 0
-
     bot_me = await bot1.get_me()
     ref_link = f"https://t.me/{bot_me.username}?start=ref_{user_id}"
-
-    msg = (
-        f"🔗 <b>YOUR REFERRAL LINK</b>\n"
-        f"⚡ ━━━━━━━━━━━━━━━ ⚡\n"
-        f"Share this link with friends! When they join, you get <code>+2000 MMK</code> and they get <code>+1000 MMK</code> welcome bonus! 🎁\n\n"
-        f"🔗 <code>{ref_link}</code>\n\n"
-        f"👥 <b>Total Invited:</b> <code>{ref_count} Friends</code>"
-    )
+    msg = f"🔗 <b>YOUR REFERRAL LINK</b>\n⚡ ━━━━━━━━━━━━━━━ ⚡\nShare this link! You get <code>+2000 MMK</code>, friend gets <code>+1000 MMK</code>.\n\n🔗 <code>{ref_link}</code>\n\n👥 <b>Total Invited:</b> <code>{ref_count} Friends</code>"
     share_url = f"https://t.me/share/url?url={ref_link}&text=Join%20Doraemon%27s%20Bot%20now!"
     await event.reply(msg, parse_mode='html', buttons=[[Button.url("📤 Share Link", share_url)]])
 
 # ==========================================
-# 🔍 9. SPECIFIC CHARACTER METRICS ARCHIVE (/check)
+# 🔍 CHECK CHARACTER
 # ==========================================
 @bot1.on(events.NewMessage(pattern=r'^/check\s+([a-zA-Z0-9_]+)$'))
 async def check_character_id_handler(event):
     char_id = event.pattern_match.group(1).upper()
     character = await characters_base_col.find_one({"char_id": char_id})
     if not character: return await event.reply(f"❌ <b>Character ID not found!</b>", parse_mode='html')
-        
     spawn_count = character.get("spawn_count", 0)
     pipeline = [
         {"$match": {"harem.char_id": char_id}},
-        {"$project": {
-            "fullname": "$fullname", "user_id": "$user_id",
-            "count": {"$size": {"$filter": {"input": "$harem", "as": "item", "cond": {"$eq": ["$$item.char_id", char_id]}}}}
-        }},
+        {"$project": {"fullname": "$fullname", "user_id": "$user_id", "count": {"$size": {"$filter": {"input": "$harem", "as": "item", "cond": {"$eq": ["$$item.char_id", char_id]}}}}}},
         {"$sort": {"count": -1}}, {"$limit": 10}
     ]
     top_hunters = await users_catcher_col.aggregate(pipeline).to_list(length=10)
-    
     leaderboard_str = ""
     for idx, u in enumerate(top_hunters, start=1):
         uname = u.get("fullname") or f"Agent {u['user_id']}"
         leaderboard_str += f" <b>{idx}.</b> {uname} — <code>x{u['count']}</code>\n"
-        
     try:
         storage_msg = await bot1.get_messages(SPECIFIC_CONTROL_GROUP, ids=character["storage_msg_id"])
         media_file = storage_msg.media if storage_msg else None
     except: media_file = None
-        
-    info_text = (
-        f"⚜️ <b>CHARACTER ANALYTICS</b>\n"
-        f"🆔 <b>Asset ID:</b> <code>{character['char_id']}</code>\n"
-        f"👤 <b>Name:</b> <code>{character['name']}</code>\n"
-        f"🌐 <b>Category:</b> <code>{character['category']}</code>\n"
-        f"🌟 <b>Rarity:</b> {character['rarity']}\n"
-        f"📈 <b>Global Spawns:</b> <code>{spawn_count}</code>\n"
-        f"🏆 <b>TOP 10 COLLECTORS:</b>\n\n"
-        f"{leaderboard_str if leaderboard_str else 'No collectors yet.'}"
-    )
+    info_text = f"⚜️ <b>CHARACTER ANALYTICS</b>\n🆔 <b>Asset ID:</b> <code>{character['char_id']}</code>\n👤 <b>Name:</b> <code>{character['name']}</code>\n🌐 <b>Category:</b> <code>{character['category']}</code>\n🌟 <b>Rarity:</b> {character['rarity']}\n📈 <b>Global Spawns:</b> <code>{spawn_count}</code>\n🏆 <b>TOP 10 COLLECTORS:</b>\n\n{leaderboard_str if leaderboard_str else 'No collectors yet.'}"
     await event.reply(info_text, parse_mode='html', file=media_file)
 
 # ==========================================
-# 🛒 10. PREMIUM AUCTION MARKETPLACE ENGINE (/sell & /buy)
+# 🛒 MARKETPLACE
 # ==========================================
 @bot1.on(events.NewMessage(pattern=r'^/sell\s+([a-zA-Z0-9_]+)\s+(\d+)$'))
 async def sell_market_handler(event):
     user_id = event.sender_id
     char_id = event.pattern_match.group(1).upper()
     price = int(event.pattern_match.group(2))
-    
     if price <= 0: return await event.reply(f"❌ <b>Price must be at least 1 MMK.</b>", parse_mode='html')
-    
     user_doc = await users_catcher_col.find_one({"user_id": user_id})
     user_harem = user_doc.get("harem", []) if user_doc else []
-    
     char_item = next((x for x in user_harem if isinstance(x, dict) and x.get("char_id") == char_id and x.get("status") != "market"), None)
-    if not char_item: return await event.reply(f"❌ <b>You don’t have this card available to sell.</b>", parse_mode='html')
-        
+    if not char_item: return await event.reply(f"❌ <b>You don’t have this card available.</b>", parse_mode='html')
     char_data = await characters_base_col.find_one({"char_id": char_id})
     if not char_data: return await event.reply(f"❌ <b>Character ID not found.</b>", parse_mode='html')
-
     char_item["status"] = "market"
     await users_catcher_col.update_one({"user_id": user_id}, {"$set": {"harem": user_harem}})
-    
     listing_id = f"L{random.randint(1000, 9999)}"
     mention = await get_html_mention(event, user_id)
-    await marketplace_col.insert_one({
-        "listing_id": listing_id, "seller_id": user_id, "seller_name": mention,
-        "char_id": char_id, "char_name": char_data["name"], "price": price, "timestamp": time.time()
-    })
-    await event.reply(
-        f"🏪 <b>MARKET LISTING CREATED</b> 🛒\n"
-        f"🎫 <b>Listing ID:</b> <code>{listing_id}</code>\n"
-        f"👤 <b>Card:</b> <code>{char_data['name']}</code>\n"
-        f"💰 <b>Price:</b> <code>{price} MMK</code>",
-        parse_mode='html'
-    )
+    await marketplace_col.insert_one({"listing_id": listing_id, "seller_id": user_id, "seller_name": mention, "char_id": char_id, "char_name": char_data["name"], "price": price, "timestamp": time.time()})
+    await event.reply(f"🏪 <b>LISTING CREATED</b>\n🎫 <b>ID:</b> <code>{listing_id}</code>\n👤 <b>Card:</b> <code>{char_data['name']}</code>\n💰 <b>Price:</b> <code>{price} MMK</code>", parse_mode='html')
 
 @bot1.on(events.NewMessage(pattern=r'^/buy\s+([a-zA-Z0-9_]+)(?:\s+(\d+))?$'))
 async def buy_market_handler(event):
     buyer_id = event.sender_id
     char_id = event.pattern_match.group(1).upper()
     target_seller_id = event.pattern_match.group(2)
-    
     if target_seller_id:
         target_seller_id = int(target_seller_id)
         if buyer_id == target_seller_id: return await event.reply(f"❌ <b>You cannot buy your own card.</b>", parse_mode='html')
-            
         listing = await marketplace_col.find_one({"char_id": char_id, "seller_id": target_seller_id})
-        if not listing: return await event.reply(f"❌ <b>No listing found for this seller.</b>", parse_mode='html')
-            
+        if not listing: return await event.reply(f"❌ <b>No listing found.</b>", parse_mode='html')
         price = listing["price"]
         buyer_doc = await users_catcher_col.find_one({"user_id": buyer_id})
         if not buyer_doc or buyer_doc.get("wallet_balance", 0) < price: return await event.reply(f"❌ <b>Insufficient balance!</b>", parse_mode='html')
-            
         char_data = await characters_base_col.find_one({"char_id": char_id})
         char_rarity = char_data.get("rarity", "Unknown") if char_data else "Unknown"
-        
         seller_doc = await users_catcher_col.find_one({"user_id": target_seller_id})
         seller_harem = seller_doc.get("harem", []) if seller_doc else []
         item_to_remove = next((x for x in seller_harem if isinstance(x, dict) and x.get("char_id") == char_id and x.get("status") == "market"), None)
         if item_to_remove: seller_harem.remove(item_to_remove)
-
         res = await users_catcher_col.update_one(
             {"user_id": buyer_id, "wallet_balance": {"$gte": price}},
             {"$inc": {"wallet_balance": -price, "total_caught": 1}, "$push": {"harem": {"char_id": char_id, "caught_date": time.time(), "rarity": char_rarity, "status": "vault"}}}
         )
         if res.modified_count == 0: return await event.reply("❌ Transaction failed!")
-        
         await users_catcher_col.update_one({"user_id": target_seller_id}, {"$set": {"harem": seller_harem}, "$inc": {"wallet_balance": price}})
         await marketplace_col.delete_one({"listing_id": listing["listing_id"]})
         return await event.reply(f"🎉 <b>Purchase successful!</b>", parse_mode='html')
 
     listings = await marketplace_col.find({"char_id": char_id}).sort("price", 1).to_list(length=10)
     if not listings: return await event.reply(f"❌ <b>No listings for this card.</b>", parse_mode='html')
-        
     market_text = f"🛒 <b>LISTINGS FOR {char_id}</b>\n⚡ ━━━━ ⚡\n\n"
     buttons = []
     for item in listings:
@@ -2783,7 +2570,7 @@ async def buy_market_handler(event):
     await event.reply(market_text, parse_mode='html', buttons=buttons)
 
 # ==========================================
-# 🏆 11. LEADERBOARD SYSTEM (/top & /gtop)
+# 🏆 LEADERBOARDS
 # ==========================================
 @bot1.on(events.NewMessage(pattern=r'^/top(?:@\w+)?$'))
 async def local_group_top_handler(event):
@@ -2791,213 +2578,135 @@ async def local_group_top_handler(event):
     chat_id = event.chat_id
     cursor = users_catcher_col.find({f"group_catches.{str(chat_id)}": {"$gt": 0}}).sort(f"group_catches.{str(chat_id)}", -1).limit(10)
     top_users = await cursor.to_list(length=10)
-    
     if not top_users: return await event.reply(f"🏆 <b>No rank data in this group yet.</b>", parse_mode='html')
-        
     msg = f"🏆 <b>TOP 10 HUNTERS IN THIS GROUP</b>\n⚡ ━━━━⚡\n"
     for i, u in enumerate(top_users):
         count = u["group_catches"][str(chat_id)]
         user_display = u.get('fullname') or f"User {u['user_id']}"
         msg += f"<b>{i+1}.</b> {user_display} — <code>{count} cards</code>\n"
-    msg += f"\n🐱 DORAEMON’S LEADERBOARD"
     await event.reply(msg, parse_mode='html')
 
 @bot1.on(events.NewMessage(pattern=r'^/gtop(?:@\w+)?$'))
 async def global_top_handler(event):
     cursor = users_catcher_col.find({"total_caught": {"$gt": 0}}).sort("total_caught", -1).limit(10)
     top_users = await cursor.to_list(length=10)
-    
     if not top_users: return await event.reply(f"🏆 <b>No global ranking yet.</b>", parse_mode='html')
-        
     msg = f"🌐 <b>GLOBAL TOP 10 HUNTERS</b>\n"
     for i, u in enumerate(top_users):
         count = u.get("total_caught", 0)
         user_display = u.get('fullname') or f"User {u['user_id']}"
         msg += f"<b>{i+1}.</b> {user_display} — <code>{count} cards</code>\n"
-    msg += f"\n🐱 DORAEMON’S GLOBAL LEADERBOARD"
-    await event.reply(msg, parse_mode='html') 
+    await event.reply(msg, parse_mode='html')
 
 # ==========================================
-# 💰 12. WALLET BALANCE CHECKER (/checkp)
+# 💰 CHECKP
 # ==========================================
 @bot1.on(events.NewMessage(pattern=r'^/checkp(?:@\w+)?$'))
 async def check_points_balance(event):
     user_doc = await users_catcher_col.find_one({"user_id": event.sender_id})
     balance = user_doc.get("wallet_balance", 0) if user_doc else 0
-    await event.reply(
-        f"💰 <b>Your Balance:</b>\n"
-        f"<blockquote><code>{balance} MMK</code> 🪙</blockquote>\n"
-        f"Type <code>/game</code> to start playing!", parse_mode='html'
-    )
+    await event.reply(f"💰 <b>Your Balance:</b>\n<blockquote><code>{balance} MMK</code> 🪙</blockquote>", parse_mode='html')
 
 # ==========================================
-# 🎁 13. PEER-TO-PEER ASSET TRANSFER (/gift)
+# 🎁 GIFT
 # ==========================================
 @bot1.on(events.NewMessage(pattern=r'^/gift\s+(.+)$'))
 async def gift_asset_handler(event):
-    if not event.is_reply: return await event.reply(f"❌ <b>Reply to the user you want to gift the card to.</b>", parse_mode='html')
-        
+    if not event.is_reply: return await event.reply(f"❌ <b>Reply to the user you want to gift.</b>", parse_mode='html')
     char_id = event.pattern_match.group(1).strip().upper()
     sender_id = event.sender_id
     reply_msg = await event.get_reply_message()
     receiver_id = reply_msg.sender_id
-    
-    if sender_id == receiver_id: return await event.reply(f"❌ <b>You can’t gift to yourself!</b>", parse_mode='html')
-
+    if sender_id == receiver_id: return await event.reply(f"❌ <b>Can't gift to yourself!</b>", parse_mode='html')
     sender_doc = await users_catcher_col.find_one({"user_id": sender_id})
     sender_harem = sender_doc.get("harem", []) if sender_doc else []
-    
     char_item = next((x for x in sender_harem if isinstance(x, dict) and x.get("char_id") == char_id and x.get("status") != "market"), None)
-    if not char_item: return await event.reply(f"❌ <b>You don’t have this card available to gift.</b>", parse_mode='html')
-
+    if not char_item: return await event.reply(f"❌ <b>You don’t have this card.</b>", parse_mode='html')
     sender_harem.remove(char_item)
     await users_catcher_col.update_one({"user_id": sender_id}, {"$set": {"harem": sender_harem}})
-    
     r_mention = await get_html_mention(event, receiver_id)
     await users_catcher_col.update_one(
         {"user_id": receiver_id},
         {"$push": {"harem": {"char_id": char_id, "caught_date": time.time(), "rarity": char_item.get("rarity", "Unknown"), "status": "vault"}}, "$inc": {"total_caught": 1}, "$set": {"fullname": r_mention}},
         upsert=True
     )
-    await event.reply(
-        f"🎁 <b>GIFT SUCCESSFUL</b>\n"
-        f"<blockquote>Card <code>{char_id}</code> sent to {r_mention}!</blockquote>", parse_mode='html'
-    )
+    await event.reply(f"🎁 <b>GIFT SUCCESSFUL</b>\n<blockquote>Card <code>{char_id}</code> sent to {r_mention}!</blockquote>", parse_mode='html')
 
 # ==========================================
-# 🤝 14. PEER TRADE MATRIX (/trade)
+# 🤝 TRADE
 # ==========================================
 @bot1.on(events.NewMessage(pattern=r'^/trade\s+([a-zA-Z0-9_]+)\s+([a-zA-Z0-9_]+)$'))
 async def trade_proposal_handler(event):
     if not event.is_reply: return await event.reply(f"❌ <b>Reply to the user you want to trade with.</b>", parse_mode='html')
-    
     my_char_id = event.pattern_match.group(1).upper()
     their_char_id = event.pattern_match.group(2).upper()
     sender_id = event.sender_id
     reply_msg = await event.get_reply_message()
     target_user_id = reply_msg.sender_id
     if sender_id == target_user_id: return
-    
     s_doc = await users_catcher_col.find_one({"user_id": sender_id})
     t_doc = await users_catcher_col.find_one({"user_id": target_user_id})
     s_harem = s_doc.get("harem", []) if s_doc else []
     t_harem = t_doc.get("harem", []) if t_doc else []
-    
     s_has = any(isinstance(x, dict) and x.get("char_id") == my_char_id and x.get("status") != "market" for x in s_harem)
     t_has = any(isinstance(x, dict) and x.get("char_id") == their_char_id and x.get("status") != "market" for x in t_harem)
-    if not s_has: return await event.reply(f"❌ You don’t have card <code>{my_char_id}</code> available for trade.", parse_mode='html')
-    if not t_has: return await event.reply(f"❌ They don’t have card <code>{their_char_id}</code> available.", parse_mode='html')
-        
+    if not s_has: return await event.reply(f"❌ You don’t have <code>{my_char_id}</code> available.", parse_mode='html')
+    if not t_has: return await event.reply(f"❌ They don’t have <code>{their_char_id}</code> available.", parse_mode='html')
     s_char = await characters_base_col.find_one({"char_id": my_char_id})
     t_char = await characters_base_col.find_one({"char_id": their_char_id})
-    
-    trade_text = (
-        f"🤝 <b>TRADE CONTRACT</b>\n"
-        f"📤 <b>Your Offer:</b> <code>{s_char['name']}</code> ({my_char_id})\n"
-        f"📥 <b>Their Request:</b> <code>{t_char['name']}</code> ({their_char_id})\n"
-        f"⚡ ━━━━ ⚡\n"
-        f"<blockquote><b>Confirm or cancel – the decision is theirs.</b></blockquote>"
-    )
-    buttons = [[
-        Button.inline("🤝 Confirm", data=f"tr_conf_{sender_id}_{target_user_id}_{my_char_id}_{their_char_id}"),
-        Button.inline("❌ Cancel", data=f"tr_canc_{sender_id}_{target_user_id}")
-    ]]
+    trade_text = f"🤝 <b>TRADE CONTRACT</b>\n📤 <b>Your Offer:</b> <code>{s_char['name']}</code> ({my_char_id})\n📥 <b>Their Request:</b> <code>{t_char['name']}</code> ({their_char_id})\n⚡ ━━━━ ⚡\n<blockquote>Confirm or cancel – decision is theirs.</blockquote>"
+    buttons = [[Button.inline("🤝 Confirm", data=f"tr_conf_{sender_id}_{target_user_id}_{my_char_id}_{their_char_id}"), Button.inline("❌ Cancel", data=f"tr_canc_{sender_id}_{target_user_id}")]]
     await event.reply(trade_text, parse_mode='html', buttons=buttons)
 
 # ==========================================
-# 🎰 15. CASINO SYSTEMS MATRIX (🎰 /slot & 🃏 /cardgame & More)
-# ==========================================
-import random
-import asyncio
-from html import escape as escape_html
-from collections import Counter
-from datetime import timedelta
-
-# ==========================================
-# ၁။ SLOT GAME HANDLER
+# 🎰 CASINO GAMES (TEXT ONLY)
 # ==========================================
 @bot1.on(events.NewMessage(pattern=r'^/slot\s+(\d+)$'))
 async def slot_game_handler(event):
     user_id = event.sender_id
     bet = int(event.pattern_match.group(1))
     if bet <= 0: return await event.reply("❌ <b>Bet must be at least 1 MMK.</b>", parse_mode='html')
-        
     user_doc = await users_catcher_col.find_one({"user_id": user_id})
     balance = user_doc.get("wallet_balance", 0) if user_doc else 0
     if balance < bet: return await event.reply(f"❌ <b>Insufficient balance! You have {balance} MMK</b>", parse_mode='html')
-        
     await users_catcher_col.update_one({"user_id": user_id}, {"$inc": {"wallet_balance": -bet}})
     mention = await get_html_mention(event, user_id)
-    
-    gif_file = await run_blocking(generate_simple_static_gif, "SLOT SPINNING...", width=400, height=150)
-    gif_file.name = "slot_spinning.gif"
-    
     symbols = ["​🐯", "​🦁", "​🐃", "​🦓", "🦀", "🐄", "🦅"]
     res_syms = random.choices(symbols, k=7)
     res_str = " | ".join(res_syms)
-    
     counts = Counter(res_syms)
     most_common_sym, max_count = counts.most_common(1)[0]
     win_amount = 0
-    
-    if max_count == 7:
-        win_amount = bet * 77 if most_common_sym == "​🐃" else bet * 50
-        status_text = f"🥶 <b>GOD-TIER JACKPOT!!! (+{win_amount:,} MMK)</b>"
-    elif max_count == 6:
-        win_amount = bet * 25
-        status_text = f"💎 <b>MEGA MULTI-MATCH!!! (+{win_amount:,} MMK)</b>"
-    elif max_count == 5:
-        win_amount = bet * 12
-        status_text = f"⚡ <b>SUPER MULTI-MATCH!! (+{win_amount:,} MMK)</b>"
-    elif max_count == 4:
-        win_amount = bet * 5
-        status_text = f"😲 <b>QUADRA SYNC MATCH! (+{win_amount:,} MMK)</b>"
-    elif max_count == 3:
-        win_amount = int(bet * 2.5)
-        status_text = f"🤤 <b>TRIPLE COMBINATION. (+{win_amount:,} MMK)</b>"
-    elif max_count == 2:
-        win_amount = int(bet * .5)
-        status_text = f"🤣 <b>PAIR MATCH. (+{win_amount:,} MMK)</b>"
+    if max_count == 7: win_amount = bet * 77 if most_common_sym == "​🐃" else bet * 50; status_text = f"🥶 <b>GOD-TIER JACKPOT!!! (+{win_amount:,} MMK)</b>"
+    elif max_count == 6: win_amount = bet * 25; status_text = f"💎 <b>MEGA MULTI-MATCH!!! (+{win_amount:,} MMK)</b>"
+    elif max_count == 5: win_amount = bet * 12; status_text = f"⚡ <b>SUPER MULTI-MATCH!! (+{win_amount:,} MMK)</b>"
+    elif max_count == 4: win_amount = bet * 5; status_text = f"😲 <b>QUADRA SYNC MATCH! (+{win_amount:,} MMK)</b>"
+    elif max_count == 3: win_amount = int(bet * 2.5); status_text = f"🤤 <b>TRIPLE COMBINATION. (+{win_amount:,} MMK)</b>"
+    elif max_count == 2: win_amount = int(bet * .5); status_text = f"🤣 <b>PAIR MATCH. (+{win_amount:,} MMK)</b>"
     else: status_text = f"🤪 <b>No win this time. (-{bet:,} MMK)</b>"
-        
     if win_amount > 0: await users_catcher_col.update_one({"user_id": user_id}, {"$inc": {"wallet_balance": win_amount}})
-        
-    final_text = (
-        f"🎰 <b>SLOT MACHINE</b>\n🐱 DORAEMON’S CASINO\n"
-        f"👤 <b>Player:</b> {mention}\n💵 <b>Bet:</b> <code>{bet:,} MMK</code>\n\n🎰 <b>[ {res_str} ]</b>\n\n{status_text}"
-    )
-    await event.client.send_file(event.chat_id, gif_file, caption=final_text, reply_to=event.id, parse_mode='html')
+    final_text = f"🎰 <b>SLOT MACHINE</b>\n🐱 DORAEMON’S CASINO\n👤 <b>Player:</b> {mention}\n💵 <b>Bet:</b> <code>{bet:,} MMK</code>\n\n🎰 <b>[ {res_str} ]</b>\n\n{status_text}"
+    await event.reply(final_text, parse_mode='html')
 
-# ==========================================
-# ၂။ MULTIPLAYER CARD GAME SUITE
-# ==========================================
 @bot1.on(events.NewMessage(pattern=r'^/cardgame\s+(\d+)$'))
 async def create_cardgame_lobby(event):
     if event.is_private: return
     chat_id = event.chat_id
     bet = int(event.pattern_match.group(1))
     if bet < 100: return await event.reply("❌ <b>Minimum bet is 100 MMK.</b>", parse_mode='html')
-    if chat_id in active_card_games: return await event.reply("⚠️ <b>A game is already running in this chat.</b>", parse_mode='html')
-        
+    if chat_id in active_card_games: return await event.reply("⚠️ <b>A game is already running.</b>", parse_mode='html')
     host_id = event.sender_id
     user_doc = await users_catcher_col.find_one({"user_id": host_id})
     balance = user_doc.get("wallet_balance", 0) if user_doc else 0
     if balance < bet: return await event.reply(f"❌ <b>Insufficient balance! You have {balance} MMK</b>", parse_mode='html')
-        
     await users_catcher_col.update_one({"user_id": host_id}, {"$inc": {"wallet_balance": -bet}})
     try:
         sender = await event.get_sender()
         fullname = f"{getattr(sender, 'first_name', '')} {getattr(sender, 'last_name', '')}".strip() or getattr(sender, 'username', '') or "Host"
     except: fullname = "Host"
-        
     host_mention = f"<a href='tg://user?id={host_id}'><b>{escape_html(fullname)}</b></a>"
     active_card_games[chat_id] = {"host_id": host_id, "bet": bet, "players": {host_id: fullname}, "status": "lobby", "msg_id": None}
-    
-    lobby_text = (
-        f"🃏 <b>MULTIPLAYER CARD GAME</b> 🃏\n"
-        f"👑 <b>Host:</b> {host_mention}\n💵 <b>Bet:</b> <code>{bet} MMK</code>\n\n👥 <b>Players (1):</b>\n 1. {host_mention} (Host)\n\n"
-        f"📌 <i>At least 2 players required. Host can <code>/startgame</code> when ready.</i>"
-    )
+    lobby_text = f"🃏 <b>MULTIPLAYER CARD GAME</b>\n👑 <b>Host:</b> {host_mention}\n💵 <b>Bet:</b> <code>{bet} MMK</code>\n\n👥 <b>Players (1):</b>\n 1. {host_mention} (Host)\n\n📌 <i>At least 2 players. Host: <code>/startgame</code></i>"
     buttons = [[Button.inline("🃏 Join Game", data=f"cardjoin_{chat_id}")]]
     msg = await event.reply(lobby_text, parse_mode='html', buttons=buttons)
     active_card_games[chat_id]["msg_id"] = msg.id
@@ -3007,103 +2716,72 @@ async def start_cardgame_handler(event):
     if event.is_private: return
     chat_id = event.chat_id
     if chat_id not in active_card_games: return await event.reply("❌ <b>No game lobby to start.</b>", parse_mode='html')
-        
     game = active_card_games[chat_id]
     if game["status"] != "lobby": return
-    if event.sender_id != game["host_id"]: return await event.reply("❌ <b>Only the host can start the game.</b>", parse_mode='html')
-    if len(game["players"]) < 2: return await event.reply("👥 <b>Need at least 2 players to start.</b>", parse_mode='html')
-        
+    if event.sender_id != game["host_id"]: return await event.reply("❌ <b>Only the host can start.</b>", parse_mode='html')
+    if len(game["players"]) < 2: return await event.reply("👥 <b>Need at least 2 players.</b>", parse_mode='html')
     game["status"] = "playing"
     pool = game["bet"] * len(game["players"])
     results = {}
     max_score = -1
-    
     for pid, name in game["players"].items():
         card_score = random.randint(1, 10)
         results[pid] = {"name": name, "score": card_score}
         if card_score > max_score: max_score = card_score
-            
     winners = [pid for pid, data in results.items() if data["score"] == max_score]
     split_prize = pool // len(winners)
     for w_id in winners: await users_catcher_col.update_one({"user_id": w_id}, {"$inc": {"wallet_balance": split_prize}})
-        
-    gif_file = await run_blocking(generate_simple_static_gif, "CARD SHOWDOWN", width=500, height=200)
-    gif_file.name = "card_showdown.gif"
-
-    result_text = f"🃏 <b>GAME RESULTS</b> 🃏\n💰 <b>Prize Pool:</b> <code>{pool} MMK</code>\n⚡ ━━━━━━━━━━━━━━━━━━━━ ⚡\n\n"
+    result_text = f"🃏 <b>GAME RESULTS</b>\n💰 <b>Prize Pool:</b> <code>{pool} MMK</code>\n⚡ ━━━━━━━━━━━━━━━━━━━━ ⚡\n\n"
     for pid, data in results.items():
         p_mention = f"<a href='tg://user?id={pid}'><b>{escape_html(data['name'])}</b></a>"
         win_tag = " 🏆 (WINNER)" if pid in winners else ""
         result_text += f"🃏 {p_mention} drew card: <b>[{data['score']}/10]</b>{win_tag}\n"
-    result_text += f"😎💰\n"
     if len(winners) > 1: result_text += f"🤝 <b>Tie! Each winner gets <code>{split_prize} MMK</code></b>"
     else:
         winner_mention = f"<a href='tg://user?id={winners[0]}'><b>{escape_html(results[winners[0]]['name'])}</b></a>"
-        result_text += f"🎉 <b>{winner_mention} wins the entire pot of <code>{pool} MMK</code>!</b>"
-        
+        result_text += f"🎉 <b>{winner_mention} wins <code>{pool} MMK</code>!</b>"
     del active_card_games[chat_id]
-    await event.client.send_file(event.chat_id, gif_file, caption=result_text, parse_mode='html')
+    await event.reply(result_text, parse_mode='html')
 
 @bot1.on(events.NewMessage(pattern=r'^/cancelgame(?:@\w+)?$'))
 async def cancel_cardgame_handler(event):
     if event.is_private: return
     chat_id = event.chat_id
     if chat_id not in active_card_games: return await event.reply("❌ <b>No game to cancel.</b>", parse_mode='html')
-        
     game = active_card_games[chat_id]
     if event.sender_id != game["host_id"] and event.sender_id != OWNER_ID: return await event.reply("❌ <b>Only the host can cancel.</b>", parse_mode='html')
-        
     for pid in game["players"].keys(): await users_catcher_col.update_one({"user_id": pid}, {"$inc": {"wallet_balance": game["bet"]}})
     bet_amount = game["bet"]
     del active_card_games[chat_id] 
-    await event.reply(
-        f"🎯 <b>GAME CANCELLED</b>\n"
-        f"<blockquote>Refunded <code>{bet_amount} MMK</code> to all players.</blockquote>", parse_mode='html'
-    )
+    await event.reply(f"🎯 <b>GAME CANCELLED</b>\n<blockquote>Refunded <code>{bet_amount} MMK</code> to all players.</blockquote>", parse_mode='html')
 
-# ==========================================
-# ၃။ COIN FLIP HANDLER
-# ==========================================
 @bot1.on(events.NewMessage(pattern=r'^/flip\s+(ခေါင်း|ပန်း)\s+(\d+)$'))
 async def coin_flip_handler(event):
     user_id = event.sender_id
     choice = event.pattern_match.group(1)
     bet_amount = int(event.pattern_match.group(2))
-    
     user_data = await users_catcher_col.find_one({"user_id": user_id})
     if not user_data or user_data.get("wallet_balance", 0) < bet_amount: return await event.reply("❌ <b>Insufficient balance!</b>", parse_mode='html')
-    
-    gif_file = await run_blocking(generate_simple_static_gif, "FLIP...", width=400, height=150)
-    gif_file.name = "coin_flip.gif"
-    
     result = random.choice(["ခေါင်း", "ပန်း"])
     mention = await get_html_mention(event, user_id)
-    
     if choice == result:
         await users_catcher_col.update_one({"user_id": user_id}, {"$inc": {"wallet_balance": bet_amount}})
         caption_text = f"🪙 {mention} <b>YOU WON!</b>\n✨ Result: [ <b>{result}</b> ]\n🎉 You guessed right! <code>+{bet_amount} MMK</code>"
     else:
         await users_catcher_col.update_one({"user_id": user_id}, {"$inc": {"wallet_balance": -bet_amount}})
         caption_text = f"🪙 {mention} <b>YOU LOST.</b>\n💨 Result: [ <b>{result}</b> ]\n💸 You guessed wrong. <code>-{bet_amount} MMK</code>"
-        
-    await event.client.send_file(event.chat_id, gif_file, caption=caption_text, reply_to=event.id, parse_mode='html')
+    await event.reply(caption_text, parse_mode='html')
 
-# ==========================================
-# ၄။ DICE HANDLER
-# ==========================================
 @bot1.on(events.NewMessage(pattern=r'^/dice\s+(\d+)$'))
 async def dice_game_handler(event):
     user_id = event.sender_id
     bet_amount = int(event.pattern_match.group(1))
     chat_id = event.chat_id
-
     user_data = await users_catcher_col.find_one({"user_id": user_id})
     if not user_data or user_data.get("wallet_balance", 0) < bet_amount: return await event.reply("❌ <b>Insufficient balance!</b>", parse_mode='html')
-
     dice_msg = await bot1.send_message(chat_id, file=types.InputMediaDice(emoticon="🎲"))
     await asyncio.sleep(2)
     dice_value = dice_msg.media.value
-    
     if dice_value >= 4:  
         await users_catcher_col.update_one({"user_id": user_id}, {"$inc": {"wallet_balance": bet_amount}})
         await event.reply(f"🎉 <b>YOU WIN!</b> Dice: {dice_value}\n🪙 Added: <code>+{bet_amount} MMK</code>", parse_mode='html')
@@ -3111,180 +2789,100 @@ async def dice_game_handler(event):
         await users_catcher_col.update_one({"user_id": user_id}, {"$inc": {"wallet_balance": -bet_amount}})
         await event.reply(f"💸 <b>YOU LOSE!</b> Dice: {dice_value}\n🪙 Deducted: <code>-{bet_amount} MMK</code>", parse_mode='html')
 
-# ==========================================
-# ၅။ HI-LO INTERACTIVE HANDLER
-# ==========================================
 @bot1.on(events.NewMessage(pattern=r'^/hilo\s+(\d+)$'))
 async def hilo_game_handler(event):
     user_id = event.sender_id
     bet_amount = int(event.pattern_match.group(1))
     if bet_amount <= 0: return await event.reply("❌ <b>Bet must be at least 1 MMK.</b>", parse_mode='html')
-        
     user_doc = await users_catcher_col.find_one({"user_id": user_id})
     balance = user_doc.get("wallet_balance", 0) if user_doc else 0
     if balance < bet_amount: return await event.reply(f"❌ <b>Insufficient balance! You have {balance:,} MMK</b>", parse_mode='html')
-        
     base_card = random.randint(2, 12) 
     card_map = {11: "J", 12: "Q", 13: "K"}
     base_display = card_map.get(base_card, str(base_card))
-    buttons = [[
-        Button.inline("🔼 Higher", data=f"hilo_HIGH_{base_card}_{bet_amount}_{user_id}"),
-        Button.inline("🔽 Lower", data=f"hilo_LOW_{base_card}_{bet_amount}_{user_id}")
-    ]]
-    await event.reply(
-        f"🃏 <b>HI-LO GAME</b>\n🐱 DORAEMON’S CASINO\n"
-        f"💵 Bet: <code>{bet_amount:,} MMK</code>\n🎴 Current card: ✨ <b>[ {base_display} ]</b> ✨\n\n"
-        f"<blockquote>Will the next card be higher or lower? Choose!</blockquote>",
-        buttons=buttons, parse_mode='html'
-    )
+    buttons = [[Button.inline("🔼 Higher", data=f"hilo_HIGH_{base_card}_{bet_amount}_{user_id}"), Button.inline("🔽 Lower", data=f"hilo_LOW_{base_card}_{bet_amount}_{user_id}")]]
+    await event.reply(f"🃏 <b>HI-LO GAME</b>\n🐱 DORAEMON’S CASINO\n💵 Bet: <code>{bet_amount:,} MMK</code>\n🎴 Current card: ✨ <b>[ {base_display} ]</b> ✨\n\n<blockquote>Higher or lower? Choose!</blockquote>", buttons=buttons, parse_mode='html')
 
-# ==========================================
-# ၆။ DAILY BOUNTY COOLDOWN SYSTEM
-# ==========================================
 @bot1.on(events.NewMessage(pattern=r'^/daily(?:@\w+)?$'))
 async def daily_bounty_handler(event):
     user_id = event.sender_id
     mention = await get_html_mention(event, user_id)
     await ensure_user_registered(user_id, mention)
-
     user_doc = await users_catcher_col.find_one({"user_id": user_id})
     now = time.time()
     last_daily = user_doc.get("last_daily", 0)
     streak = user_doc.get("daily_streak", 0)
-
     if now - last_daily < 86400:
         rem_time = int(86400 - (now - last_daily))
-        return await event.reply(
-            f"⏳ {mention} <b>You already claimed today!</b> Next claim in {str(timedelta(seconds=rem_time))}.",
-            parse_mode='html'
-        )
-
-    if now - last_daily > 172800:
-        streak = 0
+        return await event.reply(f"⏳ {mention} <b>You already claimed today!</b> Next claim in {str(timedelta(seconds=rem_time))}.", parse_mode='html')
+    if now - last_daily > 172800: streak = 0
     new_streak = streak + 1
-
     base_bonus = random.randint(2000, 5000)
     streak_bonus = min(new_streak * 200, 3000)
     bonus = base_bonus + streak_bonus
+    await users_catcher_col.update_one({"user_id": user_id}, {"$inc": {"wallet_balance": bonus}, "$set": {"last_daily": now, "daily_streak": new_streak, "fullname": mention}})
+    await event.reply(f"🎁 {mention} <b>Daily bonus claimed! <code>+{bonus} MMK</code></b>\n🔥 <b>{new_streak} day streak</b> — Streak Bonus: <code>+{streak_bonus} MMK</code>", parse_mode='html')
 
-    await users_catcher_col.update_one(
-        {"user_id": user_id},
-        {
-            "$inc": {"wallet_balance": bonus},
-            "$set": {"last_daily": now, "daily_streak": new_streak, "fullname": mention}
-        }
-    )
-
-    gif_file = await run_blocking(generate_simple_static_gif, "DAILY BONUS", width=400, height=150)
-    gif_file.name = "daily_bounty.gif"
-
-    streak_line = f"🔥 <b>{new_streak} day streak</b> — Streak Bonus: <code>+{streak_bonus} MMK</code>"
-    success_text = (
-        f"🎁 {mention} <b>Daily bonus claimed! <code>+{bonus} MMK</code></b>\n"
-        f"{streak_line}"
-    )
-    await event.client.send_file(event.chat_id, gif_file, caption=success_text, reply_to=event.id, parse_mode='html')
-
-# ==========================================
-# ၇။ SYSTEM RICHEST LEADERBOARD
-# ==========================================
 @bot1.on(events.NewMessage(pattern=r'^/richest(?:@\w+)?$'))
 async def system_richest_leaderboard(event):
     cursor = users_catcher_col.find({"wallet_balance": {"$gt": 0}}).sort("wallet_balance", -1).limit(10)
     richest_users = await cursor.to_list(length=10)
-    
     if not richest_users: return await event.reply(f"🏆 <b>No wealthy players yet!</b>", parse_mode='html')
-        
-    gif_file = await run_blocking(generate_simple_static_gif, "RICHEST", width=400, height=150)
-    gif_file.name = "leaderboard.gif"
-
     msg = f"💰 <b>TOP 10 RICHEST PLAYERS</b>\n🐱 DORAEMON’S ECONOMY\n"
     for i, u in enumerate(richest_users):
         bal = u.get("wallet_balance", 0)
         user_display = u.get('fullname') or f"User {u['user_id']}"
         msg += f"<b>{i+1}.</b> {user_display} — <code>{bal:,} MMK</code> 🪙\n"
-    msg += f"\n🐱 DORAEMON’S BILLIONAIRE CLUB"
-    
-    await event.client.send_file(event.chat_id, gif_file, caption=msg, parse_mode='html')
+    await event.reply(msg, parse_mode='html')
 
-# ==========================================
-# ၈။ CARD SCRAP MELT ENGINE
-# ==========================================
 @bot1.on(events.NewMessage(pattern=r'^/scrap\s+([a-zA-Z0-9_]+)$'))
 async def scrap_card_handler(event):
     user_id = event.sender_id
     char_id = event.pattern_match.group(1).upper()
     mention = await get_html_mention(event, user_id)
-    
     user_doc = await users_catcher_col.find_one({"user_id": user_id})
     user_harem = user_doc.get("harem", []) if user_doc else []
-    
     char_item = next((x for x in user_harem if isinstance(x, dict) and x.get("char_id") == char_id and x.get("status") != "market"), None)
     if not char_item: return await event.reply("❌ <b>You don’t have this card.</b>", parse_mode='html')
-    
     char_data = await characters_base_col.find_one({"char_id": char_id})
-    if not char_data: return await event.reply("❌ <b>Character not found in database.</b>", parse_mode='html')
-    
+    if not char_data: return await event.reply("❌ <b>Character not found.</b>", parse_mode='html')
     melt_value = int(char_data.get("currency_value", 100) * 0.5)
-    
     user_harem.remove(char_item)
-    await users_catcher_col.update_one(
-        {"user_id": user_id},
-        {"$set": {"harem": user_harem}, "$inc": {"wallet_balance": melt_value}}
-    )
-    
-    gif_file = await run_blocking(generate_simple_static_gif, "SCRAPPED", width=400, height=150)
-    gif_file.name = "melt_engine.gif"
-    
-    response = f"♻️ {mention} melted <code>{char_data['name']}</code> and got <code>+{melt_value} MMK</code>."
-    await event.client.send_file(event.chat_id, gif_file, caption=response, reply_to=event.id, parse_mode='html')
+    await users_catcher_col.update_one({"user_id": user_id}, {"$set": {"harem": user_harem}, "$inc": {"wallet_balance": melt_value}})
+    await event.reply(f"♻️ {mention} melted <code>{char_data['name']}</code> and got <code>+{melt_value} MMK</code>.", parse_mode='html')
 
-# ==========================================
-# ၉။ HIGH RISK GAMBLE ENGINE (DOUBLE OR NOTHING)
-# ==========================================
 @bot1.on(events.NewMessage(pattern=r'^/gamble\s+(\d+)$'))
 async def high_risk_gamble_handler(event):
     user_id = event.sender_id
     bet = int(event.pattern_match.group(1))
     mention = await get_html_mention(event, user_id)
-    
     if bet < 50: return await event.reply("❌ <b>Minimum bet is 50 MMK.</b>", parse_mode='html')
     user_doc = await users_catcher_col.find_one({"user_id": user_id})
     balance = user_doc.get("wallet_balance", 0) if user_doc else 0
     if balance < bet: return await event.reply(f"❌ <b>Insufficient balance! You have {balance} MMK</b>", parse_mode='html')
-    
-    gif_file = await run_blocking(generate_simple_static_gif, "GAMBLE", width=400, height=150)
-    gif_file.name = "gamble_risk.gif"
-    
     if random.choice([True, False]):
         await users_catcher_col.update_one({"user_id": user_id}, {"$inc": {"wallet_balance": bet}})
         response = f"🔥 {mention} <b>RISK WON!</b> You doubled your bet! (+<code>{bet} MMK</code>)"
     else:
         await users_catcher_col.update_one({"user_id": user_id}, {"$inc": {"wallet_balance": -bet}})
         response = f"💸 {mention} <b>RISK LOST.</b> You lost your bet. (-<code>{bet} MMK</code>)"
-        
-    await event.client.send_file(event.chat_id, gif_file, caption=response, reply_to=event.id, parse_mode='html')
-        
+    await event.reply(response, parse_mode='html')
+
 @bot1.on(events.NewMessage(pattern=r'^/pay\s+(\d+)$'))
 async def peer_to_peer_payment(event):
     if not event.is_reply: return await event.reply("⚠️ <b>Reply to the user you want to pay.</b>", parse_mode='html')
     amount = int(event.pattern_match.group(1))
     sender_id = event.sender_id
-    
     reply_msg = await event.get_reply_message()
     receiver_id = reply_msg.sender_id
     if sender_id == receiver_id: return await event.reply("❌ <b>You can’t pay yourself.</b>", parse_mode='html')
-    
     s_doc = await users_catcher_col.find_one({"user_id": sender_id})
     if not s_doc or s_doc.get("wallet_balance", 0) < amount: return await event.reply("❌ <b>Insufficient balance.</b>", parse_mode='html')
-    
     r_mention = await get_html_mention(event, receiver_id)
     s_mention = await get_html_mention(event, sender_id)
     await ensure_user_registered(receiver_id, r_mention)
-    
     await users_catcher_col.update_one({"user_id": sender_id}, {"$inc": {"wallet_balance": -amount}})
     await users_catcher_col.update_one({"user_id": receiver_id}, {"$inc": {"wallet_balance": amount}})
-    
     await event.reply(f"💸 {s_mention} sent <code>{amount:,} MMK</code> to {r_mention}.", parse_mode='html')
 
 @bot1.on(events.NewMessage(pattern=r'^/hunt(?:@\w+)?$'))
@@ -3292,34 +2890,22 @@ async def text_adventure_hunt_handler(event):
     user_id = event.sender_id
     mention = await get_html_mention(event, user_id)
     user_doc = await users_catcher_col.find_one({"user_id": user_id})
-    
     current_time = time.time()
     last_hunt = user_doc.get("hunt_cooldown", 0) if user_doc else 0
     if current_time - last_hunt < 180:
-        return await event.reply(f"⏳ {mention} <b>You must wait {int(180 - (current_time - last_hunt))}s before hunting again.</b>", parse_mode='html')
-        
+        return await event.reply(f"⏳ {mention} <b>You must wait {int(180 - (current_time - last_hunt))}s.</b>", parse_mode='html')
     earned = random.randint(200, 80000)
-    events_pool = [
-        f"🌲 {mention} <b>found an ancient treasure chest! (+<code>{earned} MMK</code>)</b>",
-        f"⚔️ {mention} <b>defeated a rival gang and earned a bounty! (+<code>{earned} MMK</code>)</b>",
-        f"🌌 {mention} <b>collected quantum points! (+<code>{earned} MMK</code>)</b>"
-    ]
-    await users_catcher_col.update_one(
-        {"user_id": user_id},
-        {"$inc": {"wallet_balance": earned}, "$set": {"hunt_cooldown": current_time, "fullname": mention}},
-        upsert=True
-    )
+    events_pool = [f"🌲 {mention} <b>found treasure! (+<code>{earned} MMK</code>)</b>", f"⚔️ {mention} <b>defeated a rival! (+<code>{earned} MMK</code>)</b>", f"🌌 {mention} <b>collected quantum points! (+<code>{earned} MMK</code>)</b>"]
+    await users_catcher_col.update_one({"user_id": user_id}, {"$inc": {"wallet_balance": earned}, "$set": {"hunt_cooldown": current_time, "fullname": mention}}, upsert=True)
     await event.reply(random.choice(events_pool), parse_mode='html')
 
 @bot1.on(events.NewMessage(pattern=r'^/market(?:@\w+)?$'))
 async def global_market_catalog_viewer(event):
     listings = await marketplace_col.find().sort("timestamp", -1).limit(15).to_list(length=15)
     if not listings: return await event.reply(f"🏪 <b>No items on the market.</b>", parse_mode='html')
-    
     msg = f"🏪 <b>MARKETPLACE CATALOG</b>\n🐱 DORAEMON’S AUCTION\n"
     for item in listings:
         msg += f"📦 <b>Card:</b> <code>{item['char_name']}</code> [<code>{item['char_id']}</code>]\n ├─ 💰 <b>Price:</b> <code>{item['price']} MMK</code>\n └─ 👤 <b>Seller:</b> {item['seller_name']}\n\n"
-    msg += f"📌 <i>To buy: <code>/buy [Card_ID] [Seller_ID]</code></i>"
     await event.reply(msg, parse_mode='html')
 
 @bot1.on(events.NewMessage(pattern=r'^/stats(?:@\w+)?$'))
@@ -3327,117 +2913,31 @@ async def system_inflation_stats(event):
     pipeline = [{"$group": {"_id": None, "total_cash": {"$sum": "$wallet_balance"}, "total_cards": {"$sum": {"$size": "$harem"}}, "players_count": {"$sum": 1}}}]
     data = await users_catcher_col.aggregate(pipeline).to_list(length=1)
     base_cards_count = await characters_base_col.count_documents({})
-    
     if not data: return await event.reply("❌ <b>Statistical data not found!</b>", parse_mode='html')
     metrics = data[0]
-    
-    msg = (
-        f"📊 <b>GLOBAL ECONOMY STATS</b>\n"
-        f"👥 <b>Active Agents:</b> <code>{metrics['players_count']} Players</code>\n"
-        f"🪙 <b>Total Money:</b> <code>{metrics['total_cash']:,} MMK</code>\n"
-        f"🃏 <b>Total Cards:</b> <code>{metrics['total_cards']} Cards</code>\n"
-        f"🗄️ <b>Database Templates:</b> <code>{base_cards_count}</code>\n"
-        f"📈 <i>Doraemon says the economy is stable!</i>"
-    )
+    msg = f"📊 <b>GLOBAL ECONOMY STATS</b>\n👥 <b>Active Agents:</b> <code>{metrics['players_count']} Players</code>\n🪙 <b>Total Money:</b> <code>{metrics['total_cash']:,} MMK</code>\n🃏 <b>Total Cards:</b> <code>{metrics['total_cards']} Cards</code>\n🗄️ <b>Database Templates:</b> <code>{base_cards_count}</code>"
     await event.reply(msg, parse_mode='html')
 
-@bot1.on(events.NewMessage(pattern=r'^/giftall\s+(\d+)$'))
-async def owner_giftall_broadcast(event):
-    if event.sender_id != OWNER_ID: return
-    amount = int(event.pattern_match.group(1))
-    try:
-        result = await users_catcher_col.update_many({}, {"$inc": {"wallet_balance": amount}})
-        text = (
-            f"🎉 <b>GIVEAWAY ANNOUNCEMENT</b>\n"
-            f"🐱 Doraemon has given <code>{amount:,} MMK</code> to every player! "
-            f"<b>{result.modified_count}</b> players benefited."
-        )
-        await event.reply(text, parse_mode='html')
-    except Exception as e:
-        await event.reply(f"❌ Error: <code>{e}</code>", parse_mode='html')
-
-@bot1.on(events.NewMessage(pattern=r'^/resetstats$'))
-async def reset_group_counters_by_owner(event):
-    if event.sender_id != OWNER_ID: return
-    try:
-        await groups_counters_col.update_many({}, {"$set": {"counter": 0}})
-        await event.reply(f"⚙️ <b>All group message counters reset to 0.</b>", parse_mode='html')
-    except Exception as e:
-        await event.reply(f"❌ Error: <code>{e}</code>", parse_mode='html')
-
-@bot1.on(events.NewMessage(pattern=r'^/haitime\s+(-?\d+)(?:\s+(-?\d+))?$'))
-async def change_spawn_target_handler(event):
-    if event.sender_id != OWNER_ID: return
-    args = event.pattern_match.groups()
-    try:
-        val1 = int(args[0])
-        val2 = int(args[1]) if args[1] else None
-    except (ValueError, TypeError):
-        return await event.reply("⚠️ <b>Invalid format.</b>\nUsage: <code>/haitime <count></code> or <code>/haitime <chat_id> <count></code>", parse_mode='html')
-
-    if val2 is not None:
-        target_chat_id = val1
-        new_target = val2
-        scope_text = f"Group ID: <code>{target_chat_id}</code>"
-    else:
-        target_chat_id = "global"
-        new_target = val1  
-        scope_text = "Global (all groups)"
-
-    if new_target <= 0: return await event.reply("❌ <b>Count must be greater than 0.</b>", parse_mode='html')
-    await groups_config_col.update_one({"chat_id": target_chat_id}, {"$set": {"spawn_target": new_target}}, upsert=True)
-    
-    success_text = (
-        f"⚙️ <b>SPAWN THRESHOLD UPDATED</b>\n"
-        f"<blockquote>New spawn count for {scope_text} set to <code>{new_target}</code> messages.</blockquote>"
-    )
-    await event.reply(success_text, parse_mode='html')
-
 # ==========================================
-# 📜 17. HELPMENU PANELS (/helpp & /owner)
+# 📜 HELP, GAME, OWNER, INTRODUCE, ALLCMD
 # ==========================================
 @bot1.on(events.NewMessage(pattern=r'^/help(?:@\w+)?$'))
 async def public_help_handler(event):
     help_text = (
         f"🐱 <b>DORAEMON’S HELP MENU</b>\n⚡ ━━━━━━━━━━━━━━━━━━━━ ⚡\n"
         f"ℹ️ <b>GENERAL COMMANDS</b>\n\n"
-        f"🔘 <code>/hai</code> — View your vault (paginated)\n"
-        f"🔘 <code>/fav [ID]</code> — Set a favourite card\n"
-        f"🔘 <code>/profile</code> — Your profile & balance\n"
-        f"🔘 <code>/top</code> — Top 10 hunters in this group\n"
-        f"🔘 <code>/gtop</code> — Global top 10 hunters\n"
-        f"🔘 <code>/who</code> — Reveal the spawned character\n"
-        f"🔘 <code>/catch [Name]</code> — Catch the character\n"
-        f"🔘 <code>/check [ID]</code> — Character info & top collectors\n"
-        f"🔘 <code>/checkp</code> — Check your wallet\n"
-        f"🔘 <code>/gift [ID]</code> — Gift a card (reply)\n"
-        f"🔘 <code>/pay [Amount]</code> — Send money (reply)\n"
-        f"🔘 <code>/daily</code> — Claim daily bonus\n"
-        f"🔘 <code>/hunt</code> — Go on a hunt (3 min cooldown)\n"
-        f"🔘 <code>/sell [ID] [Price]</code> — List card for sale\n"
-        f"🔘 <code>/buy [ID]</code> — View/buy listings\n"
-        f"🔘 <code>/market</code> — View all listings\n"
-        f"🔘 <code>/scrap [ID]</code> — Sell card for 50% value\n"
-        f"🔘 <code>/richest</code> — Top 10 richest players\n"
-        f"🔘 <code>/stats</code> — Global economy stats\n"
-        f"🔘 <code>/trade [MyID] [TheirID]</code> — Propose trade (reply)\n"
-        f"🔘 <code>/referral</code> — Get your referral link\n\n"
-        f"🎰 <b>CASINO GAMES</b>\n"
-        f"🔘 <code>/slot [Amount]</code> — Spin the slot machine\n"
-        f"🔘 <code>/cardgame [Amount]</code> — Create multiplayer card game\n"
-        f"🔘 <code>/startgame</code> — Start the lobby\n"
-        f"🔘 <code>/flip [ခေါင်း/ပန်း] [Amount]</code> — Coin flip\n"
-        f"🔘 <code>/dice [Amount]</code> — Roll a dice (4‑6 wins)\n"
-        f"🔘 <code>/hilo [Amount]</code> — Higher or lower card game\n"
-        f"🔘 <code>/gamble [Amount]</code> — 50/50 double or nothing\n"
-        f"⚡ Type <code>/game</code> for more details.\n\n"
-        f"🛡️ <b>ADMIN ONLY</b>\n"
-        f"🔘 <code>/id</code> — Get user/chat ID\n"
-        f"🔘 <code>/mute</code> / <code>/unmute</code> — Mute/unmute\n"
-        f"🔘 <code>/ban</code> / <code>/unban</code> — Ban/unban\n"
-        f"🔘 <code>/kick</code> — Kick from group\n"
-        f"🔘 <code>/adm</code> — Tag all admins\n"
-        f"🔘 <code>/weather</code> — Live weather (Myanmar/Thailand)"
+        f"🔘 <code>/hai</code> — View your vault\n🔘 <code>/fav [ID]</code> — Set favourite card\n🔘 <code>/profile</code> — Your profile\n"
+        f"🔘 <code>/top</code> — Group top 10\n🔘 <code>/gtop</code> — Global top 10\n🔘 <code>/who</code> — Reveal spawned character\n"
+        f"🔘 <code>/catch [Name]</code> — Catch character\n🔘 <code>/check [ID]</code> — Character info\n🔘 <code>/checkp</code> — Wallet balance\n"
+        f"🔘 <code>/gift [ID]</code> — Gift card\n🔘 <code>/pay [Amount]</code> — Send money\n🔘 <code>/daily</code> — Daily bonus\n"
+        f"🔘 <code>/hunt</code> — Hunt (3min cooldown)\n🔘 <code>/sell [ID] [Price]</code> — List card\n🔘 <code>/buy [ID]</code> — Buy listings\n"
+        f"🔘 <code>/market</code> — View listings\n🔘 <code>/scrap [ID]</code> — Scrap card\n🔘 <code>/richest</code> — Top richest\n"
+        f"🔘 <code>/stats</code> — Economy stats\n🔘 <code>/trade [MyID] [TheirID]</code> — Propose trade\n🔘 <code>/referral</code> — Get referral link\n\n"
+        f"🎰 <b>CASINO GAMES</b>\n🔘 <code>/slot [Amount]</code> — Slot machine\n🔘 <code>/cardgame [Amount]</code> — Multiplayer lobby\n"
+        f"🔘 <code>/startgame</code> — Start lobby\n🔘 <code>/flip [heads/tails] [Amount]</code> — Coin flip\n🔘 <code>/dice [Amount]</code> — Dice roll\n"
+        f"🔘 <code>/hilo [Amount]</code> — Higher/Lower\n🔘 <code>/gamble [Amount]</code> — Double or nothing\n\n"
+        f"🛡️ <b>ADMIN ONLY</b>\n🔘 <code>/id</code> — Get ID\n🔘 <code>/mute</code> / <code>/unmute</code> — Mute/unmute\n"
+        f"🔘 <code>/ban</code> / <code>/unban</code> — Ban/unban\n🔘 <code>/kick</code> — Kick user\n🔘 <code>/adm</code> — Tag admins\n🔘 <code>/weather</code> — Live weather"
     )
     await event.reply(help_text, parse_mode='html', buttons=[[Button.inline("⚙️ Home", data="nav_back_home")]])
 
@@ -3446,19 +2946,12 @@ async def games_panel_handler(event):
     games_text = (
         f"🎮 <b>DORAEMON’S GAME HUB</b>\n🐱 CASINO & ADVENTURE\n"
         f"🎲 <b>Available Games</b>\n\n"
-        f"🎰 <b>1. Slot Machine</b>\n➩ <code>/slot [Amount]</code>\n"
-        f"<blockquote>Spin the reels and match symbols to win big!</blockquote>\n"
-        f"🃏 <b>2. High Card Draw (Multiplayer)</b>\n➩ <code>/cardgame [Amount]</code>\n"
-        f"<blockquote>Players bet into a pool, highest card wins all.\n<i>Host: `/startgame` | Cancel: `/cancelgame`</i></blockquote>\n"
-        f"🪙 <b>3. Coin Flip</b>\n➩ <code>/flip [ခေါင်း/ပန်း] [Amount]</code>\n"
-        f"<blockquote>Guess heads or tails – double your bet!</blockquote>\n"
-        f"🎲 <b>4. Dice Roller</b>\n➩ <code>/dice [Amount]</code>\n"
-        f"<blockquote>Roll a 4, 5 or 6 to win double your bet!</blockquote>\n"
-        f"🔮 <b>5. Hi-Lo Card</b>\n➩ <code>/hilo [Amount]</code>\n"
-        f"<blockquote>Guess if the next card is higher or lower.</blockquote>\n"
-        f"⚔️ <b>6. Risk Gamble</b>\n➩ <code>/gamble [Amount]</code>\n"
-        f"<blockquote>50/50 chance to double or lose your bet.</blockquote>\n"
-        f"⚠️ <i>Check balance with <code>/checkp</code></i>"
+        f"🎰 <b>1. Slot Machine</b> ➩ <code>/slot [Amount]</code>\n<blockquote>Spin the reels!</blockquote>\n"
+        f"🃏 <b>2. High Card Draw</b> ➩ <code>/cardgame [Amount]</code>\n<blockquote>Multiplayer. Host: `/startgame`</blockquote>\n"
+        f"🪙 <b>3. Coin Flip</b> ➩ <code>/flip [heads/tails] [Amount]</code>\n<blockquote>50/50 chance</blockquote>\n"
+        f"🎲 <b>4. Dice Roller</b> ➩ <code>/dice [Amount]</code>\n<blockquote>Win on 4-6</blockquote>\n"
+        f"🔮 <b>5. Hi-Lo Card</b> ➩ <code>/hilo [Amount]</code>\n<blockquote>Higher or lower</blockquote>\n"
+        f"⚔️ <b>6. Risk Gamble</b> ➩ <code>/gamble [Amount]</code>\n<blockquote>Double or nothing</blockquote>"
     )
     await event.reply(games_text, parse_mode='html')
 
@@ -3468,84 +2961,19 @@ async def exclusive_owner_panel(event):
     owner_text = (
         f"👑 <b>OWNER CONTROL PANEL</b>\n⚡ ━━━━━━━━━━━━━━━━━━━━ ⚡\n"
         f"🛠️ <b>Root Commands</b>\n\n"
-        f"⚙️ <code>/addchar Name | Category | Rarity_Num</code>\n"
-        f"<blockquote>Add a new character card to database.</blockquote>\n"
-        f"⚙️ <code>/haii</code> or <code>/fspawn</code>\n"
-        f"<blockquote>Force spawn a character immediately.</blockquote>\n"
-        f"⚙️ <code>/haitime [Count]</code>\n"
-        f"<blockquote>Change the global spawn threshold.</blockquote>\n"
-        f"⚙️ <code>/give [Amount]</code>\n"
-        f"<blockquote>Give money to a user (reply).</blockquote>\n"
-        f"⚙️ <code>/takeall [Amount]</code>\n"
-        f"<blockquote>Deduct money from all players.</blockquote>\n"
-        f"⚙️ <code>/giftall [Amount]</code>\n"
-        f"<blockquote>Give free money to everyone.</blockquote>\n"
-        f"⚙️ <code>/resetstats</code>\n"
-        f"<blockquote>Reset all group message counters.</blockquote>\n"
-        f"⚙️ <code>/mau</code>\n"
-        f"<blockquote>Show MAU analytics.</blockquote>"
+        f"⚙️ <code>/addchar Name | Category | Rarity_Num</code>\n<blockquote>Add character</blockquote>\n"
+        f"⚙️ <code>/haii</code> or <code>/fspawn</code>\n<blockquote>Force spawn</blockquote>\n"
+        f"⚙️ <code>/haitime [Count]</code>\n<blockquote>Change spawn threshold</blockquote>\n"
+        f"⚙️ <code>/give [Amount]</code>\n<blockquote>Give money (reply)</blockquote>\n"
+        f"⚙️ <code>/takeall [Amount]</code>\n<blockquote>Deduct from all</blockquote>\n"
+        f"⚙️ <code>/giftall [Amount]</code>\n<blockquote>Give to all</blockquote>\n"
+        f"⚙️ <code>/resetstats</code>\n<blockquote>Reset counters</blockquote>\n"
+        f"⚙️ <code>/mau</code>\n<blockquote>Show analytics</blockquote>"
     )
     await event.reply(owner_text, parse_mode='html')
 
-async def ghost_spawn_cleaner():
-    """Clean expired spawns from memory."""
-    while True:
-        try:
-            current_time = time.time()
-            expired_chats = []
-            for chat_id, data in active_group_spawns.items():
-                if current_time - data.get("spawn_time", 0) > 1800:
-                    expired_chats.append(chat_id)
-            
-            for chat_id in expired_chats:
-                if chat_id in active_group_spawns:
-                    del active_group_spawns[chat_id]
-                if chat_id in spawn_locks:
-                    del spawn_locks[chat_id]
-        except Exception as e:
-            logging.error(f"Cleaner Error: {e}")
-        
-        await asyncio.sleep(300)
-
-# 🚨 OWNER ONLY - STEALTH CONTROLLER
-@bot1.on(events.NewMessage(pattern=r'^/stealth(?:\s+(on|off))?$'))
-async def toggle_stealth(event):
-    global STEALTH_MAU_MODE
-    if event.sender_id != OWNER_ID: return
-    
-    args = event.pattern_match.group(1)
-    
-    if not args:
-        status = "🟢 ACTIVE" if STEALTH_MAU_MODE else "🔴 INACTIVE"
-        return await event.reply(f"🐱 <b>Stealth MAU Status:</b> {status}\n📌 <code>/stealth on</code> or <code>/stealth off</code>", parse_mode='html')
-        
-    if args.lower() == "on":
-        STEALTH_MAU_MODE = True
-        await event.reply("🟢 <b>Stealth MAU Engine: ACTIVATED!</b>\nDoraemon will now silently track users without replying.", parse_mode='html')
-        
-    elif args.lower() == "off":
-        STEALTH_MAU_MODE = False
-        await event.reply("🔴 <b>Stealth MAU Engine: DEACTIVATED!</b>\nDoraemon will now respond normally.", parse_mode='html')
-
-# 🦅 SILENT TRAFFIC CATCHER (အသံတိတ် ဒေတာသိမ်း)
-@bot1.on(events.NewMessage(pattern=r'(?i)^(play|p|harem|h|vault|v|waifu|w|daily|claim)$'))
-async def stealth_mau_handler(event):
-    global STEALTH_MAU_MODE
-    
-    if not STEALTH_MAU_MODE or event.is_private: 
-        return
-        
-    user_id = event.sender_id
-    
-    try:
-        mention = await get_html_mention(event, user_id)
-        await ensure_user_registered(user_id, mention)
-    except Exception:
-        pass
-
 @bot1.on(events.NewMessage(pattern=r'^/allcmd(?:@\w+)?$'))
 async def all_commands_handler(event):
-    # ကိုယ်ပိုင် command စာရင်း (အကုန်လုံးကို ဒီမှာ စုစည်းထားတယ်)
     commands = [
         "/start", "/help", "/game", "/owner", "/id", "/info",
         "/mute", "/unmute", "/ban", "/unban", "/kick", "/adm",
@@ -3557,17 +2985,10 @@ async def all_commands_handler(event):
         "/flip", "/dice", "/hilo", "/gamble", "/pay",
         "/referral", "/who", "/catch"
     ]
-    # စာရင်းကို လှပအောင် ပြပေးမယ်
     cmd_list = "\n".join([f"• `{cmd}`" for cmd in sorted(commands)])
-    msg = (
-        f"📋 <b>All Available Commands</b>\n"
-        f"━━━━━━━━━━━━━━━━━━━━\n"
-        f"{cmd_list}\n\n"
-        f"💡 Type <code>/help</code> for detailed usage."
-    )
-    await event.reply(msg, parse_mode='html')
+    await event.reply(f"📋 <b>All Available Commands</b>\n━━━━━━━━━━━━━━━━━━━━\n{cmd_list}\n\n💡 Type <code>/help</code> for usage.", parse_mode='html')
 
-@bot1.on(events.NewMessage(pattern=r'^/start(?:@\w+)?$'))
+@bot1.on(events.NewMessage(pattern=r'^/introduce(?:@\w+)?$'))
 async def introduce_bot_handler(event):
     intro_text = (
         "<pre style='background-color:#2d2d2d; color:#d4d4d4; padding:15px; border-radius:8px; font-family: monospace;'>"
@@ -3658,15 +3079,102 @@ async def introduce_bot_handler(event):
         "</pre>"
     )
     await event.reply(intro_text, parse_mode='html')
-# ====================================================================================
-# 📡 REAL-TIME WEATHER ENGINE (MYANMAR & THAI) – KEPT IN ENGLISH
-# ====================================================================================
+
+# ==========================================
+# 🗑️ HAITIME / RESETSTATS / GIFTALL / STEALTH
+# ==========================================
+@bot1.on(events.NewMessage(pattern=r'^/giftall\s+(\d+)$'))
+async def owner_giftall_broadcast(event):
+    if event.sender_id != OWNER_ID: return
+    amount = int(event.pattern_match.group(1))
+    try:
+        result = await users_catcher_col.update_many({}, {"$inc": {"wallet_balance": amount}})
+        await event.reply(f"🎉 <b>GIVEAWAY</b>\n🐱 Doraemon gave <code>{amount:,} MMK</code> to <b>{result.modified_count}</b> players.", parse_mode='html')
+    except Exception as e:
+        await event.reply(f"❌ Error: <code>{e}</code>", parse_mode='html')
+
+@bot1.on(events.NewMessage(pattern=r'^/resetstats$'))
+async def reset_group_counters_by_owner(event):
+    if event.sender_id != OWNER_ID: return
+    try:
+        await groups_counters_col.update_many({}, {"$set": {"counter": 0}})
+        await event.reply(f"⚙️ <b>All counters reset to 0.</b>", parse_mode='html')
+    except Exception as e:
+        await event.reply(f"❌ Error: <code>{e}</code>", parse_mode='html')
+
+@bot1.on(events.NewMessage(pattern=r'^/haitime\s+(-?\d+)(?:\s+(-?\d+))?$'))
+async def change_spawn_target_handler(event):
+    if event.sender_id != OWNER_ID: return
+    args = event.pattern_match.groups()
+    try:
+        val1 = int(args[0])
+        val2 = int(args[1]) if args[1] else None
+    except (ValueError, TypeError):
+        return await event.reply("⚠️ <b>Invalid format.</b>\nUsage: <code>/haitime <count></code> or <code>/haitime <chat_id> <count></code>", parse_mode='html')
+    if val2 is not None:
+        target_chat_id = val1
+        new_target = val2
+        scope_text = f"Group ID: <code>{target_chat_id}</code>"
+    else:
+        target_chat_id = "global"
+        new_target = val1  
+        scope_text = "Global"
+    if new_target <= 0: return await event.reply("❌ <b>Count must be > 0.</b>", parse_mode='html')
+    await groups_config_col.update_one({"chat_id": target_chat_id}, {"$set": {"spawn_target": new_target}}, upsert=True)
+    await event.reply(f"⚙️ <b>SPAWN THRESHOLD UPDATED</b>\n<blockquote>New spawn count for {scope_text} set to <code>{new_target}</code> messages.</blockquote>", parse_mode='html')
+
+async def ghost_spawn_cleaner():
+    while True:
+        try:
+            current_time = time.time()
+            expired_chats = []
+            for chat_id, data in active_group_spawns.items():
+                if current_time - data.get("spawn_time", 0) > 1800:
+                    expired_chats.append(chat_id)
+            for chat_id in expired_chats:
+                if chat_id in active_group_spawns: del active_group_spawns[chat_id]
+                if chat_id in spawn_locks: del spawn_locks[chat_id]
+        except Exception as e:
+            logging.error(f"Cleaner Error: {e}")
+        await asyncio.sleep(300)
+
+# ==========================================
+# 🚨 STEALTH CONTROLLER
+# ==========================================
+@bot1.on(events.NewMessage(pattern=r'^/stealth(?:\s+(on|off))?$'))
+async def toggle_stealth(event):
+    global STEALTH_MAU_MODE
+    if event.sender_id != OWNER_ID: return
+    args = event.pattern_match.group(1)
+    if not args:
+        status = "🟢 ACTIVE" if STEALTH_MAU_MODE else "🔴 INACTIVE"
+        return await event.reply(f"🐱 <b>Stealth MAU Status:</b> {status}\n📌 <code>/stealth on</code> or <code>/stealth off</code>", parse_mode='html')
+    if args.lower() == "on":
+        STEALTH_MAU_MODE = True
+        await event.reply("🟢 <b>Stealth MAU Engine: ACTIVATED!</b>", parse_mode='html')
+    elif args.lower() == "off":
+        STEALTH_MAU_MODE = False
+        await event.reply("🔴 <b>Stealth MAU Engine: DEACTIVATED!</b>", parse_mode='html')
+
+@bot1.on(events.NewMessage(pattern=r'(?i)^(play|p|harem|h|vault|v|waifu|w|daily|claim)$'))
+async def stealth_mau_handler(event):
+    global STEALTH_MAU_MODE
+    if not STEALTH_MAU_MODE or event.is_private: return
+    user_id = event.sender_id
+    try:
+        mention = await get_html_mention(event, user_id)
+        await ensure_user_registered(user_id, mention)
+    except Exception:
+        pass
+
+# ==========================================
+# 📡 WEATHER ENGINE
+# ==========================================
 def fetch_live_weather(city_id="Yangon"):
     try:
         search_query = city_id.replace("_", " ")
         url = f"https://wttr.in/{search_query}?format=j1"
         req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
-        
         with urllib.request.urlopen(req, timeout=7) as response:
             data = json.loads(response.read().decode())
             current = data['current_condition'][0]
@@ -3674,176 +3182,84 @@ def fetch_live_weather(city_id="Yangon"):
             weather_desc = current['weatherDesc'][0]['value'].strip()
             humidity = current['humidity']
             wind_speed = current['windspeedKmph']
-            
             translations = {
-                "Sunny": "☀️ Sunny",
-                "Clear": "🌌 Clear",
-                "Partly cloudy": "⛅ Partly cloudy",
-                "Cloudy": "☁️ Cloudy",
-                "Overcast": "☁️ Overcast",
-                "Mist": "🌫️ Mist",
-                "Fog": "🌫️ Fog",
-                "Patchy rain nearby": "🌦️ Patchy rain",
-                "Light rain": "🌧️ Light rain",
-                "Moderate rain": "🌧️ Moderate rain",
-                "Heavy rain": "⛈️ Heavy rain",
-                "Thunderstorm": "⛈️ Thunderstorm",
+                "Sunny": "☀️ Sunny", "Clear": "🌌 Clear", "Partly cloudy": "⛅ Partly cloudy",
+                "Cloudy": "☁️ Cloudy", "Overcast": "☁️ Overcast", "Mist": "🌫️ Mist",
+                "Fog": "🌫️ Fog", "Patchy rain nearby": "🌦️ Patchy rain",
+                "Light rain": "🌧️ Light rain", "Moderate rain": "🌧️ Moderate rain",
+                "Heavy rain": "⛈️ Heavy rain", "Thunderstorm": "⛈️ Thunderstorm",
                 "Torrential rain shower": "⛈️ Torrential rain"
             }
             translated = translations.get(weather_desc, weather_desc)
-            return {
-                "success": True,
-                "temp": temp_c,
-                "desc": translated,
-                "humidity": humidity,
-                "wind": wind_speed,
-                "city": search_query.upper()
-            }
+            return {"success": True, "temp": temp_c, "desc": translated, "humidity": humidity, "wind": wind_speed, "city": search_query.upper()}
     except Exception as e:
         print(f"Weather Fetch Error: {e}")
         return {"success": False}
 
 @bot1.on(events.NewMessage(pattern=r"(?i)^/weather$"))
 async def weather_cmd_handler(event):
-    buttons = [
-        [Button.inline("🇲🇲 Myanmar", b"w_country_mm"), Button.inline("🇹🇭 Thailand", b"w_country_th")]
-    ]
-    
-    await event.reply(
-        "🌍 <b>Select Country</b>\n"
-        "━━━━━━━━━━━━━━━━━━━━\n"
-        "Choose a country to get the live weather report.",
-        parse_mode='html',
-        buttons=buttons
-    )
+    buttons = [[Button.inline("🇲🇲 Myanmar", b"w_country_mm"), Button.inline("🇹🇭 Thailand", b"w_country_th")]]
+    await event.reply("🌍 <b>Select Country</b>\nChoose a country.", parse_mode='html', buttons=buttons)
 
 @bot1.on(events.CallbackQuery(pattern=r"^w_(.+)$"))
 async def weather_callback_engine(event):
     action = event.pattern_match.group(1).decode('utf-8') if isinstance(event.pattern_match.group(1), bytes) else event.pattern_match.group(1)
-    
     if action == "main_menu":
-        buttons = [
-            [Button.inline("🇲🇲 Myanmar", b"w_country_mm"), Button.inline("🇹🇭 Thailand", b"w_country_th")]
-        ]
-        await event.edit(
-            "🌍 <b>Select Country</b>\n"
-            "━━━━━━━━━━━━━━━━━━━━\n"
-            "Choose a country for the live weather report.",
-            parse_mode='html',
-            buttons=buttons
-        )
+        buttons = [[Button.inline("🇲🇲 Myanmar", b"w_country_mm"), Button.inline("🇹🇭 Thailand", b"w_country_th")]]
+        await event.edit("🌍 <b>Select Country</b>", parse_mode='html', buttons=buttons)
         return
-
     elif action == "country_mm":
-        buttons = [
-            [Button.inline("Yangon", b"w_city_Yangon"), Button.inline("Mandalay", b"w_city_Mandalay")],
-            [Button.inline("Naypyidaw", b"w_city_Naypyidaw"), Button.inline("Taunggyi", b"w_city_Taunggyi")],
-            [Button.inline("Bago", b"w_city_Bago"), Button.inline("Mawlamyine", b"w_city_Mawlamyine")],
-            [Button.inline("⬅️ Back", b"w_main_menu")]
-        ]
-        await event.edit(
-            "🇲🇲 <b>Myanmar Regions</b>\n"
-            "━━━━━━━━━━━━━━━━━━━━\n"
-            "Select a city to get the weather report.",
-            parse_mode='html',
-            buttons=buttons
-        )
+        buttons = [[Button.inline("Yangon", b"w_city_Yangon"), Button.inline("Mandalay", b"w_city_Mandalay")], [Button.inline("Naypyidaw", b"w_city_Naypyidaw"), Button.inline("Taunggyi", b"w_city_Taunggyi")], [Button.inline("Bago", b"w_city_Bago"), Button.inline("Mawlamyine", b"w_city_Mawlamyine")], [Button.inline("⬅️ Back", b"w_main_menu")]]
+        await event.edit("🇲🇲 <b>Myanmar Regions</b>", parse_mode='html', buttons=buttons)
         return
-
     elif action == "country_th":
-        buttons = [
-            [Button.inline("Bangkok", b"w_city_Bangkok"), Button.inline("Chiang Mai", b"w_city_Chiang_Mai")],
-            [Button.inline("Phuket", b"w_city_Phuket"), Button.inline("Pattaya", b"w_city_Pattaya")],
-            [Button.inline("Hat Yai", b"w_city_Hat_Yai"), Button.inline("Khon Kaen", b"w_city_Khon_Kaen")],
-            [Button.inline("⬅️ Back", b"w_main_menu")]
-        ]
-        await event.edit(
-            "🇹🇭 <b>Thai Provinces</b>\n"
-            "━━━━━━━━━━━━━━━━━━━━\n"
-            "Select a city to get the weather report.",
-            parse_mode='html',
-            buttons=buttons
-        )
+        buttons = [[Button.inline("Bangkok", b"w_city_Bangkok"), Button.inline("Chiang Mai", b"w_city_Chiang_Mai")], [Button.inline("Phuket", b"w_city_Phuket"), Button.inline("Pattaya", b"w_city_Pattaya")], [Button.inline("Hat Yai", b"w_city_Hat_Yai"), Button.inline("Khon Kaen", b"w_city_Khon_Kaen")], [Button.inline("⬅️ Back", b"w_main_menu")]]
+        await event.edit("🇹🇭 <b>Thai Provinces</b>", parse_mode='html', buttons=buttons)
         return
-
     elif action.startswith("city_"):
         city_name = action.replace("city_", "")
-        
         await event.edit(f"📡 <i>Fetching weather for {city_name}...</i>", parse_mode='html')
-        
         loop = asyncio.get_event_loop()
         w_data = await loop.run_in_executor(None, fetch_live_weather, city_name)
-        
         mm_cities = ["Yangon", "Mandalay", "Naypyidaw", "Taunggyi", "Bago", "Mawlamyine"]
         back_target = b"w_country_mm" if city_name in mm_cities else b"w_country_th"
-        
-        control_buttons = [
-            [Button.inline("🔄 Refresh", f"w_city_{city_name}".encode('utf-8'))],
-            [Button.inline("⬅️ Back", back_target)]
-        ]
-        
+        control_buttons = [[Button.inline("🔄 Refresh", f"w_city_{city_name}".encode('utf-8'))], [Button.inline("⬅️ Back", back_target)]]
         if w_data["success"]:
-            response_text = (
-                f"🌍 <b>LIVE WEATHER</b>\n"
-                f"📍 <b>Location:</b> <code>{w_data['city']}</code>\n"
-                f"━━━━━━━━━━━━━━━━━━━━\n"
-                f"🌡️ <b>Temperature:</b> <code>{w_data['temp']}°C</code>\n"
-                f"💧 <b>Humidity:</b> <code>{w_data['humidity']}%</code>\n"
-                f"💨 <b>Wind:</b> <code>{w_data['wind']} Km/h</code>\n"
-                f"━━━━━━━━━━━━━━━━━━━━\n"
-                f"🌤️ <b>Condition:</b> <code>{w_data['desc']}</code>\n"
-                f"📡 <i>Doraemon’s weather satellite</i>"
-            )
+            response_text = f"🌍 <b>LIVE WEATHER</b>\n📍 <b>Location:</b> <code>{w_data['city']}</code>\n━━━━━━━━━━━━━━━━━━━━\n🌡️ <b>Temp:</b> <code>{w_data['temp']}°C</code>\n💧 <b>Humidity:</b> <code>{w_data['humidity']}%</code>\n💨 <b>Wind:</b> <code>{w_data['wind']} Km/h</code>\n━━━━━━━━━━━━━━━━━━━━\n🌤️ <b>Condition:</b> <code>{w_data['desc']}</code>"
         else:
             response_text = f"❌ <b>ERROR:</b> Could not retrieve data for {city_name}."
-
         await event.edit(response_text, parse_mode='html', buttons=control_buttons)
 
-# ====================================================================================
-# 🚀 SYSTEM INITIALIZATION GATEWAY
-# ====================================================================================
+# ==========================================
+# 🚀 SYSTEM INITIALIZATION
+# ==========================================
 async def start_system():
     threading.Thread(target=run_flask, daemon=True).start()
     print("🐱 Doraemon Bot System Starting...")
-    
     try:
         await create_indexes()
     except Exception as e:
         print(f"Index creation error: {e}")
-
     while True:
         try:
-            print("🚀 Connecting Telethon client...")
+            print("🚀 Connecting Telethon...")
             await bot1.start(bot_token=MAIN_BOT_TOKEN)
-            
             me_main = await bot1.get_me()
             print(f"✅ Bot connected as @{me_main.username}")
-            if me_main.id not in bot_ids:
-                bot_ids.append(me_main.id)
-            
-            asyncio.create_task(weather_daily_cron_loop())
-            asyncio.create_task(group_reminder_scheduler())
+            if me_main.id not in bot_ids: bot_ids.append(me_main.id)
+            asyncio.create_task(ghost_spawn_cleaner())
+            # existing code ...
+            asyncio.create_task(daily_couple_matcher())
+            asyncio.create_task(anniversary_checker())
             print("📅 Background tasks started.")
-            
             await bot1.run_until_disconnected()
-            
         except Exception as system_fault:
             print(f"⚠️ Bot disconnected: {system_fault}")
             print("⏳ Restarting in 30 seconds...")
             await asyncio.sleep(30)
-
-# Placeholder for missing functions (if any)
-async def weather_daily_cron_loop():
-    while True:
-        await asyncio.sleep(3600)  # dummy
-
-async def group_reminder_scheduler():
-    while True:
-        await asyncio.sleep(3600)  # dummy
 
 if __name__ == "__main__":
     try: 
         asyncio.run(start_system())
     except (KeyboardInterrupt, SystemExit): 
         print("Doraemon Bot System Shutting Down.")
-
