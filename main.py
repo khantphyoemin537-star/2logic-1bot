@@ -630,112 +630,132 @@ async def couple_handler(event):
     chat_id = event.chat_id
     user_id = event.sender_id
 
-    # ---- Case 1: Reply ပါရင် manual proposal (သို့) တစ်ယောက်ယောက်ကို ကမ်းလှမ်းခြင်း ----
+    # ---- Case 1: Reply ပါရင် manual proposal ----
     if event.is_reply:
-        reply_msg = await event.get_reply_message()
-        target_user_id = reply_msg.sender_id
-        
-        # မိမိကိုယ်ကို ကမ်းလှမ်းလို့မရ
-        if target_user_id == user_id:
-            return await event.reply("❌ You cannot propose to yourself.")
-        
-        # Owner ကို ကမ်းလှမ်းလို့မရ
-        if target_user_id == OWNER_ID:
-            return await event.reply("❌ You cannot propose to the bot owner.")
+        try:
+            reply_msg = await event.get_reply_message()
+            if not reply_msg:
+                return await event.reply("❌ Could not get reply message. Please try again.")
+                
+            target_user_id = reply_msg.sender_id
+            
+            # မိမိကိုယ်ကို ကမ်းလှမ်းလို့မရ
+            if target_user_id == user_id:
+                return await event.reply("❌ You cannot propose to yourself.")
+            
+            # Owner ကို ကမ်းလှမ်းလို့မရ
+            if target_user_id == OWNER_ID:
+                return await event.reply("❌ You cannot propose to the bot owner.")
 
-        # ⭐ ပထမဆုံး စစ်ဆေးရမှာ – ကိုယ်တိုင်က တစ်ခြားသူနဲ့ အတွဲရှိပြီးသားလား?
-        sender_couple = await couples_col.find_one({
-            "$or": [{"user1_id": user_id}, {"user2_id": user_id}],
-            "chat_id": chat_id,
-            "status": "active"
-        })
-        if sender_couple:
-            partner_id = sender_couple["user1_id"] if sender_couple["user2_id"] == user_id else sender_couple["user2_id"]
+            # ကိုယ်တိုင် အတွဲရှိပြီးသားလား?
+            sender_couple = await couples_col.find_one({
+                "$or": [{"user1_id": user_id}, {"user2_id": user_id}],
+                "chat_id": chat_id,
+                "status": "active"
+            })
+            if sender_couple:
+                partner_id = sender_couple["user1_id"] if sender_couple["user2_id"] == user_id else sender_couple["user2_id"]
+                try:
+                    partner = await bot1.get_entity(partner_id)
+                    partner_name = partner.first_name or "Partner"
+                except:
+                    partner_name = "Unknown"
+                return await event.reply(
+                    f"❌ You are already in a couple with **{partner_name}**! 💕\n"
+                    f"Use `/mycouple` to see your partner."
+                )
+
+            # ကမ်းလှမ်းခံရသူမှာ အတွဲရှိပြီးသားလား?
+            target_couple = await couples_col.find_one({
+                "$or": [{"user1_id": target_user_id}, {"user2_id": target_user_id}],
+                "chat_id": chat_id,
+                "status": "active"
+            })
+            if target_couple:
+                return await event.reply(
+                    f"❌ Sorry, {reply_msg.sender.first_name or 'They'} is already in a couple with someone else! 💔"
+                )
+
+            # သူတို့နှစ်ယောက်ကြား အတွဲရှိပြီးသားလား?
+            existing = await couples_col.find_one({
+                "$or": [
+                    {"user1_id": user_id, "user2_id": target_user_id},
+                    {"user1_id": target_user_id, "user2_id": user_id}
+                ],
+                "chat_id": chat_id,
+                "status": "active"
+            })
+            if existing:
+                return await event.reply("❌ You are already a couple with this person.")
+
+            # ⭐ အားလုံးအဆင်ပြေရင် Proposal ဖန်တီးခြင်း
+            proposal_id = f"manual_{chat_id}_{int(time.time())}_{random.randint(1000,9999)}"
+            
+            sender = await event.get_sender()
+            target = await bot1.get_entity(target_user_id)
+            
+            await proposals_col.insert_one({
+                "proposal_id": proposal_id,
+                "chat_id": chat_id,
+                "user1_id": user_id,
+                "user2_id": target_user_id,
+                "user1_name": sender.first_name or "User1",
+                "user2_name": target.first_name or "User2",
+                "timestamp": time.time(),
+                "status": "pending",
+                "type": "manual"
+            })
+
+            # ပုံဖန်တီးခြင်း
             try:
-                partner = await bot1.get_entity(partner_id)
-                partner_name = partner.first_name or "Partner"
-            except:
-                partner_name = "Unknown"
-            return await event.reply(
-                f"❌ You are already in a couple with **{partner_name}**! 💕\n"
-                f"Use `/mycouple` to see your partner.\n"
-                f"Use `/coupledate` to manage your relationship."
+                img_bytes = await generate_couple_proposal_image(sender, target)
+                img_file = io.BytesIO(img_bytes.getvalue())
+                img_file.name = "couple_proposal.png"
+            except Exception as img_err:
+                print(f"Image generation error: {img_err}")
+                # ပုံမရရင် စာသားနဲ့ပဲ ပို့မယ်
+                img_file = None
+
+            caption = (
+                f"🐱 {sender.first_name} wants to be your couple!\n"
+                f"Will you accept?"
             )
-
-        # ⭐ ဒုတိယ – ကိုယ်ကမ်းလှမ်းချင်တဲ့သူမှာ အတွဲရှိပြီးသားလား?
-        target_couple = await couples_col.find_one({
-            "$or": [{"user1_id": target_user_id}, {"user2_id": target_user_id}],
-            "chat_id": chat_id,
-            "status": "active"
-        })
-        if target_couple:
-            return await event.reply(
-                f"❌ Sorry, {reply_msg.sender.first_name or 'They'} is already in a couple with someone else! 💔\n"
-                f"Please respect their relationship."
-            )
-
-        # ⭐ တတိယ – သူတို့နှစ်ယောက်ကြား အတွဲရှိပြီးသားလား? (အပေါ်က စစ်ပြီးသားမို့ ထပ်မစစ်ရင် ရပြီ)
-        # (ဒါပေမယ့် ထပ်စစ်ထားတယ်)
-        existing = await couples_col.find_one({
-            "$or": [
-                {"user1_id": user_id, "user2_id": target_user_id},
-                {"user1_id": target_user_id, "user2_id": user_id}
-            ],
-            "chat_id": chat_id,
-            "status": "active"
-        })
-        if existing:
-            return await event.reply("❌ You are already a couple with this person.")
-
-        # ⭐ အားလုံးအဆင်ပြေရင် Proposal ဖန်တီးခြင်း
-        proposal_id = f"manual_{chat_id}_{int(time.time())}"
-        await proposals_col.insert_one({
-            "proposal_id": proposal_id,
-            "chat_id": chat_id,
-            "user1_id": user_id,
-            "user2_id": target_user_id,
-            "user1_name": (await event.get_sender()).first_name or "User1",
-            "user2_name": (await bot1.get_entity(target_user_id)).first_name or "User2",
-            "timestamp": time.time(),
-            "status": "pending",
-            "type": "manual"
-        })
-
-        # ပုံဖန်တီးခြင်း
-        sender = await event.get_sender()
-        target = await bot1.get_entity(target_user_id)
-        img_bytes = await generate_couple_proposal_image(sender, target)
-        img_file = io.BytesIO(img_bytes.getvalue())
-        img_file.name = "couple_proposal.png"
-
-        caption = (
-            f"🐱 {sender.first_name} wants to be your couple!\n"
-            f"Will you accept?"
-        )
-        buttons = [
-            [Button.inline("✅ Accept", data=f"couple_accept_{proposal_id}"),
-             Button.inline("❌ Reject", data=f"couple_reject_{proposal_id}")]
-        ]
-        await event.reply(file=img_file, caption=caption, buttons=buttons, parse_mode='html')
+            buttons = [
+                [Button.inline("✅ Accept", data=f"couple_accept_{proposal_id}"),
+                 Button.inline("❌ Reject", data=f"couple_reject_{proposal_id}")]
+            ]
+            
+            if img_file:
+                await event.reply(file=img_file, caption=caption, buttons=buttons, parse_mode='html')
+            else:
+                await event.reply(caption, buttons=buttons, parse_mode='html')
+                
+        except Exception as e:
+            print(f"Couple reply error: {e}")
+            await event.reply(f"❌ Something went wrong: {str(e)}")
         return
 
     # ---- Case 2: အတွဲများကို ပြသခြင်း (group အတွင်း) ----
-    couples = await couples_col.find({"chat_id": chat_id, "status": "active"}).to_list(length=None)
-    if not couples:
-        await event.reply("💔 No couples in this group yet.\nUse `/couple` with reply to propose to someone.")
-        return
+    try:
+        couples = await couples_col.find({"chat_id": chat_id, "status": "active"}).to_list(length=None)
+        if not couples:
+            await event.reply("💔 No couples in this group yet.\nUse `/couple` with reply to propose to someone.")
+            return
 
-    msg = "💕 **Active Couples in this Group:**\n\n"
-    for c in couples:
-        try:
-            u1 = await bot1.get_entity(c["user1_id"])
-            u2 = await bot1.get_entity(c["user2_id"])
-            date = c.get("custom_date") or c.get("accepted_date")
-            date_str = date.strftime("%Y-%m-%d") if date else "Unknown"
-            msg += f"• {u1.first_name} 💕 {u2.first_name} (since {date_str})\n"
-        except:
-            msg += f"• Couple (ID: {c['_id']})\n"
-    await event.reply(msg, parse_mode='html')
+        msg = "💕 **Active Couples in this Group:**\n\n"
+        for c in couples:
+            try:
+                u1 = await bot1.get_entity(c["user1_id"])
+                u2 = await bot1.get_entity(c["user2_id"])
+                date = c.get("custom_date") or c.get("accepted_date")
+                date_str = date.strftime("%Y-%m-%d") if date else "Unknown"
+                msg += f"• {u1.first_name} 💕 {u2.first_name} (since {date_str})\n"
+            except:
+                msg += f"• Couple (ID: {c['_id']})\n"
+        await event.reply(msg, parse_mode='html')
+    except Exception as e:
+        print(f"Couple list error: {e}")
+        await event.reply(f"❌ Error loading couples: {str(e)}")
     
 @bot1.on(events.NewMessage(pattern=r'^/mycouple(?:@\w+)?$'))
 async def my_couple_handler(event):
