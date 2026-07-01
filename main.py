@@ -1834,10 +1834,8 @@ async def trigger_dynamic_spawn(chat_id):
     except Exception as e:
         print(f"Spawn Error Tracker: {e}")
 
-# ==========================================
-# 🕵️ /who
-# ==========================================
-@bot1.on(events.NewMessage(pattern=r'^/who\s+(\d+)'))
+# ====================
+@bot1.on(events.NewMessage(pattern=r'^/who(?:@\w+)?$'))
 async def who_reveal_handler(event):
     if event.is_private: return
     chat_id = event.chat_id
@@ -1858,7 +1856,7 @@ async def who_reveal_handler(event):
             f"🌟 <b>Name:</b> {spawn_data['name']}\n"
             f"🌟 <b>Rarity:</b> {spawn_data['rarity']}\n"
             f"🌐 <b>Category:</b> {spawn_data['category']}\n\n"
-            f"├─➩ <code>/catch {spawn_data['name']}</code>"
+            f"✔├─➩ <code>/catch {spawn_data['name']}</code>"
         )
         await event.reply(reveal_text, parse_mode='html')
     except Exception as e:
