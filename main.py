@@ -324,7 +324,62 @@ async def generate_couple_proposal_image(user1, user2, bot_avatar_bytes=None):
             pass
 
     # နှစ်ယောက်ရဲ့ ပုံကို ဆွဲယူခြင်း (async function ထဲမှာ `await` သုံးလို့ရပြီ)
-    async def get_circle_avatar(user, size=150):
+    
+# ==========================================
+# ⚔️ ALL GROUPS COMMAND INTERCEPTOR (AUTO ACC OPENER)
+# ==========================================
+@bot1.on(events.NewMessage(pattern=r'^/'))
+async def global_slash_cmd_acc_opener(event):
+    user_id = event.sender_id
+    if not user_id: return
+    try:
+        user_entity = await event.get_sender()
+        first_name = getattr(user_entity, 'first_name', '') or ''
+        last_name = getattr(user_entity, 'last_name', '') or ''
+        fullname = f"{first_name} {last_name}".strip()
+        if not fullname: fullname = getattr(user_entity, 'username', '') or f"User {user_id}"
+    except:
+        fullname = f"User {user_id}"
+    await ensure_user_registered(user_id, fullname)
+
+# ==========================================
+# 🛠️ ADMIN CAPABILITY CORE ENGINE
+# ==========================================
+async def is_allowed(user_id):
+    if user_id == OWNER_ID: return True
+    user = await allow_col.find_one({"user_id": user_id})
+    return user is not None
+
+async def check_admin(chat_id, user_id):
+    if user_id == OWNER_ID: return True
+    now = time.time()
+    if chat_id in admin_cache and now < admin_cache[chat_id]["expiry"]:
+        return user_id in admin_cache[chat_id]["ids"]
+    await update_admin_cache(bot1, chat_id)
+    if chat_id in admin_cache:
+        return user_id in admin_cache[chat_id]["ids"]
+    return False
+
+async def check_ban_rights(chat_id, user_id):
+    if user_id == OWNER_ID: return True
+    try:
+        permissions = await bot1.get_permissions(chat_id, user_id)
+        return permissions.is_admin and permissions.ban_users
+    except: return False
+
+async def update_admin_cache(client, chat_id):
+    try:
+        admins = await client(GetParticipantsRequest(
+            channel=chat_id, filter=ChannelParticipantsAdmins(),
+            offset=0, limit=200, hash=0
+        ))
+        admin_ids = {p.user_id for p in admins.participants}
+        admin_cache[chat_id] = {"ids": admin_ids, "expiry": time.time() + 300}
+        return admin_ids
+    except Exception as e:
+        print(f"Error updating admin cache for {chat_id}: {e}")
+        return set()
+async def get_circle_avatar(user, size=150):
         try:
             photo = await bot1.download_profile_photo(user, bytesio=True)
             if photo:
@@ -381,61 +436,6 @@ async def generate_couple_proposal_image(user1, user2, bot_avatar_bytes=None):
     img.save(buf, format='PNG')
     buf.seek(0)
     return buf
-# ==========================================
-# ⚔️ ALL GROUPS COMMAND INTERCEPTOR (AUTO ACC OPENER)
-# ==========================================
-@bot1.on(events.NewMessage(pattern=r'^/'))
-async def global_slash_cmd_acc_opener(event):
-    user_id = event.sender_id
-    if not user_id: return
-    try:
-        user_entity = await event.get_sender()
-        first_name = getattr(user_entity, 'first_name', '') or ''
-        last_name = getattr(user_entity, 'last_name', '') or ''
-        fullname = f"{first_name} {last_name}".strip()
-        if not fullname: fullname = getattr(user_entity, 'username', '') or f"User {user_id}"
-    except:
-        fullname = f"User {user_id}"
-    await ensure_user_registered(user_id, fullname)
-
-# ==========================================
-# 🛠️ ADMIN CAPABILITY CORE ENGINE
-# ==========================================
-async def is_allowed(user_id):
-    if user_id == OWNER_ID: return True
-    user = await allow_col.find_one({"user_id": user_id})
-    return user is not None
-
-async def check_admin(chat_id, user_id):
-    if user_id == OWNER_ID: return True
-    now = time.time()
-    if chat_id in admin_cache and now < admin_cache[chat_id]["expiry"]:
-        return user_id in admin_cache[chat_id]["ids"]
-    await update_admin_cache(bot1, chat_id)
-    if chat_id in admin_cache:
-        return user_id in admin_cache[chat_id]["ids"]
-    return False
-
-async def check_ban_rights(chat_id, user_id):
-    if user_id == OWNER_ID: return True
-    try:
-        permissions = await bot1.get_permissions(chat_id, user_id)
-        return permissions.is_admin and permissions.ban_users
-    except: return False
-
-async def update_admin_cache(client, chat_id):
-    try:
-        admins = await client(GetParticipantsRequest(
-            channel=chat_id, filter=ChannelParticipantsAdmins(),
-            offset=0, limit=200, hash=0
-        ))
-        admin_ids = {p.user_id for p in admins.participants}
-        admin_cache[chat_id] = {"ids": admin_ids, "expiry": time.time() + 300}
-        return admin_ids
-    except Exception as e:
-        print(f"Error updating admin cache for {chat_id}: {e}")
-        return set()
-
 # ==========================================
 # 🧠 OPTIMIZED SMART REPLY ENGINE
 # ==========================================
