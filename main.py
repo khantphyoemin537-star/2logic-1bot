@@ -14,6 +14,7 @@ from PIL import Image, ImageDraw, ImageFont
 from collections import Counter
 from telethon.tl.functions.channels import GetParticipantsRequest
 from datetime import datetime, timedelta
+from telethon.tl.functions.messages import ExportChatInviteRequest
 from flask import Flask
 from motor.motor_asyncio import AsyncIOMotorClient
 from pymongo import ReturnDocument
@@ -740,121 +741,10 @@ async def auto_calculator_handler(event):
             if len(text) > 50 or (text.count('**') > 1): return
             try:
                 result = eval(text, {"__builtins__": None}, {})
-                await event.reply(f"🧮 <b>Result:</b>\n<code>{text} = {result}</code>", parse_mode='html')
+                await event.reply(f"🍺<b>Result:</b>\n<code>{text} = {result}</code>", parse_mode='html')
             except Exception:
                 pass
-
-@bot1.on(events.NewMessage(pattern=r'^/emojiid(?:@\w+)?(?:\s+(.*))?$'))
-async def get_emoji_id_command(event):
-    doc_id = None
-    
-    # ၁။ Reply ပါရင် ဦးစားပေး စစ်မယ်
-    if event.is_reply:
-        reply_msg = await event.get_reply_message()
-        if reply_msg and reply_msg.entities:
-            for entity in reply_msg.entities:
-                # Custom Emoji Entity ကို ရှာမယ်
-                if isinstance(entity, MessageEntityCustomEmoji):
-                    doc_id = entity.document_id
-                    break
-        if doc_id:
-            return await event.reply(
-                f"✅ <b>document_id (from replied message):</b>\n<code>{doc_id}</code>",
-                parse_mode='html'
-            )
-    
-    # ၂။ Reply မပါရင် ဒါမှမဟုတ် Reply ထဲမှာ မတွေ့ရင် argument ကို စစ်မယ်
-    args = event.pattern_match.group(1)
-    if args:
-        doc_id = await search_emoji_id(args.strip())
-        if doc_id:
-            return await event.reply(
-                f"✅ <b>document_id for</b> <code>{args.strip()}</code>:\n<code>{doc_id}</code>",
-                parse_mode='html'
-            )
-    
-    # ၃။ ဘာမှမတွေ့ရင် Usage ပြန်ပြောမယ်
-    await event.reply(
-        "❌ <b>Could not find custom emoji ID.</b>\n\n"
-        "📌 <b>Usage:</b>\n"
-        "1️⃣ Reply to a message containing a premium emoji:\n"
-        "   <code>/emojiid</code>\n"
-        "2️⃣ Or provide the emoji text:\n"
-        "   <code>/emojiid ❤️</code>",
-        parse_mode='html'
-    )
-@bot1.on(events.NewMessage(pattern=r'^/reply(?:\s+(.*))?$'))
-async def reply_with_custom_emoji(event):
-    # DM မှသာ ခွင့်ပြုမယ်
-    if not event.is_private:
-        return await event.reply("❌ This command only works in DM.")
-    
-    # Owner သာလျှင် သုံးခွင့်ရှိမယ်
-    if event.sender_id != OWNER_ID:
-        return await event.reply("❌ Only the bot owner can use this command.")
-    
-    args = event.pattern_match.group(1)
-    if not args:
-        return await event.reply(
-            "❌ Usage: <code>/reply &lt;text&gt; &lt;document_id&gt;</code>\n"
-            "Example: <code>/reply Hello world 123456789012345678</code>\n"
-            "Or just: <code>/reply 123456789012345678</code> (sends only the emoji)",
-            parse_mode='html'
-        )
-    
-    parts = args.strip().split()
-    if len(parts) < 1:
-        return await event.reply("❌ Please provide at least a document_id.")
-    
-    # Check if the last token is a numeric document_id
-    last_token = parts[-1]
-    if not last_token.isdigit():
-        return await event.reply("❌ The last token must be a numeric document_id.")
-    
-    doc_id = int(last_token)
-    if len(parts) > 1:
-        text = " ".join(parts[:-1])
-    else:
-        text = ""
-    
-    try:
-        from telethon.tl.types import MessageEntityCustomEmoji
-        
-        # Build entities list
-        entities = []
-        if text:
-            # Place a placeholder emoji (e.g., "✨") at the end of the text
-            placeholder = "✨"
-            full_text = text + " " + placeholder
-            offset = len(text) + 1  # the space between text and placeholder
-            entities.append(MessageEntityCustomEmoji(
-                offset=offset,
-                length=1,
-                document_id=doc_id
-            ))
-        else:
-            # Only the emoji
-            placeholder = "✨"
-            full_text = placeholder
-            entities.append(MessageEntityCustomEmoji(
-                offset=0,
-                length=1,
-                document_id=doc_id
-            ))
-        
-        # Use bot1.send_message directly with reply_to
-        await bot1.send_message(
-            event.chat_id,
-            full_text,
-            entities=entities,
-            reply_to=event.id,
-            parse_mode=None
-        )
-        
-    except Exception as e:
-        await event.reply(f"❌ Failed to send custom emoji: {str(e)}")
-        
-            
+           
 # ---- INFO ----
 @bot1.on(events.NewMessage(pattern=r'(?i)^/info'))
 async def info_handler(event):
@@ -893,62 +783,99 @@ async def info_handler(event):
     except Exception as e:
         print(f"Error in /info: {e}")
 
-# ---- WELCOME / GOODBYE ----
+# ---- WELCOME / GOODBYE (UPGRADED) ----
 @bot1.on(events.ChatAction)
 async def welcome_goodbye(event):
     try:
         chat = await event.get_chat()
         bot_me = await bot1.get_me()
-        group_name = chat.title
+        group_name = chat.title or "Unknown Group"
         target_ids = event.user_ids or [event.user_id]
 
-        member_count = "N/A"
-        try:
-            if hasattr(chat, 'participants_count') and chat.participants_count:
-                members_cnt = chat.participants_count
-            else:
+        # Bot ကိုထည့်လိုက်တဲ့အခါ (Group သစ်ရောက်တဲ့အခါ)
+        if (event.user_added or event.user_joined) and any(uid == bot_me.id for uid in target_ids if uid):
+            # 1️⃣ Group အကြောင်းအရာ အပြည့်အစုံရယူမယ် (Member တွက်ဖို့)
+            try:
                 full_chat = await event.client.get_full_chat(chat.id)
-                if hasattr(full_chat, 'participants_count'):
-                    members_cnt = full_chat.participants_count
-                else:
-                    members_cnt = None
-            if members_cnt:
-                member_count = f"{members_cnt:,}"
-        except Exception:
-            member_count = "N/A"
+                members_cnt = getattr(full_chat, 'participants_count', None)
+                member_count = f"{members_cnt:,}" if members_cnt else "Unknown"
+            except Exception:
+                member_count = "N/A"
 
-        if event.user_added or event.user_joined:
-            if any(uid == bot_me.id for uid in target_ids if uid):
-                await groups_col.update_one({"chat_id": chat.id}, {"$set": {"title": chat.title, "joined_at": datetime.now(TZ)}}, upsert=True)
-                await bot1.send_message(chat.id, "🐱 I'm ready to help!")
-                
-                bot_mention = f"<a href='tg://user?id={bot_me.id}'>{escape_html(bot_me.first_name)}</a>"
-                msg2 = f"Hello {escape_html(group_name)}!\n{bot_mention} added.\nGroup ID: <code>{chat.id}</code>\nMembers: {member_count}"
-                await bot1.send_message(SPECIFIC_GROUP, bq(msg2), parse_mode='html')
-            else:
-                for uid in target_ids:
-                    if uid and uid != bot_me.id:
-                        try:
-                            u = await bot1.get_entity(uid)
-                        except:
-                            continue
-                        track_user_metrics(u.id, u.username, u.first_name)
-                        user_first_name = u.first_name or "User"
-                        mention = f"<a href='tg://user?id={uid}'><b>{escape_html(user_first_name)}</b></a>"
-                        
-                        caption = (
-                            f"ဟိုက် {mention}... {escape_html(group_name)} ကနေ ကြိုဆိုလိုက်ပါတယ်\n"
-                            f"🐱 Doraemon is happy to see you!"
-                        )
-                        await bot1.send_message(
-                            event.chat_id,
-                            caption,
-                            buttons=[
-                                [Button.url("Bot OWNER DM", "t.me/Hello_Im_DexterMorgan")],
-                                [Button.url("Join Doraemon Group", "https://t.me/Comeback_BoD")]
-                            ],
-                            parse_mode='html'
-                        )
+            # 2️⃣ Group Link ရယူဖို့ကြိုးစားမယ် (Admin ဖြစ်မှရမယ်)
+            group_link = None
+            try:
+                invite = await event.client(ExportChatInviteRequest(chat.id))
+                group_link = invite.link if invite else None
+            except Exception:
+                group_link = "Cannot fetch (need admin rights)"
+            if not group_link:
+                group_link = "Not available (or bot not admin)"
+
+            # 3️⃣ Owner DM ကိုသတိပေးမယ်
+            owner_msg = (
+                f"✅ <b>Bot Added to New Group!</b>\n"
+                f"━━━━━━━━━━━━━━━━━━━━\n"
+                f"📛 <b>Group Name:</b> <code>{escape_html(group_name)}</code>\n"
+                f"🆔 <b>Group ID:</b> <code>{chat.id}</code>\n"
+                f"👥 <b>Members:</b> <code>{member_count}</code>\n"
+                f"🔗 <b>Invite Link:</b> <code>{escape_html(str(group_link))}</code>\n"
+                f"⏰ <b>Time:</b> <code>{datetime.now(TZ).strftime('%Y-%m-%d %H:%M:%S')}</code>"
+            )
+            await bot1.send_message(OWNER_ID, owner_msg, parse_mode='html')
+            
+            # 4️⃣ SPECIFIC_GROUP (သတ်မှတ်ထားတဲ့အုပ်စု) ကိုလည်းသတိပေးမယ်
+            try:
+                await bot1.send_message(SPECIFIC_GROUP, owner_msg, parse_mode='html')
+            except Exception:
+                pass  # Specific group မှာ မပို့ရရင် ဂရုမစိုက်ပါနဲ့
+
+            # 5️⃣ အုပ်စုသစ်ထဲမှာ ကြိုဆိုစာ (blockquote နဲ့လှလှ) + ညွှန်ကြားချက်
+            intro_msg = (
+                f"<blockquote>🐱 <b>Doraemon Bot is now active here!</b>\n\n"
+                f"I can help manage this group, run games, and more!\n"
+                f"📌 <b>Try these commands:</b>\n"
+                f"   • <code>/introduce</code> - Learn what I can do\n"
+                f"   • <code>/help</code> - See all commands\n\n"
+                f"✨ Enjoy your stay!</blockquote>"
+            )
+            await bot1.send_message(chat.id, intro_msg, parse_mode='html')
+            
+            # Group ကို DB ထဲသိမ်းမယ်
+            await groups_col.update_one(
+                {"chat_id": chat.id}, 
+                {"$set": {"title": chat.title, "joined_at": datetime.now(TZ)}}, 
+                upsert=True
+            )
+            return  # ✅ ဒီနေရာမှာ ရပ်လိုက်မယ်၊ ဒါမှ user welcome နဲ့ မထပ်တွေ့တော့ဘူး
+
+        # 👤 User တစ်ယောက် Join လာရင် (Bot မဟုတ်ဘူး)
+        elif (event.user_added or event.user_joined):
+            for uid in target_ids:
+                if uid and uid != bot_me.id:
+                    try:
+                        u = await bot1.get_entity(uid)
+                    except:
+                        continue
+                    track_user_metrics(u.id, u.username, u.first_name)
+                    user_first_name = u.first_name or "User"
+                    mention = f"<a href='tg://user?id={uid}'><b>{escape_html(user_first_name)}</b></a>"
+                    
+                    welcome_text = (
+                        f"<blockquote>ဟိုက် {mention}... {escape_html(group_name)} ကနေ ကြိုဆိုလိုက်ပါတယ်\n"
+                        f"🐱 Doraemon is happy to see you!</blockquote>"
+                    )
+                    await bot1.send_message(
+                        event.chat_id,
+                        welcome_text,
+                        buttons=[
+                            [Button.url("Bot OWNER DM", "t.me/Hello_Im_DexterMorgan")],
+                            [Button.url("Join Doraemon Group", "https://t.me/Comeback_BoD")]
+                        ],
+                        parse_mode='html'
+                    )
+
+        # 🚪 User ထွက်သွား / ဖြုတ်ခံရရင်
         elif event.user_kicked or event.user_left:
             if event.user_id == bot_me.id:
                 await groups_col.delete_one({"chat_id": chat.id})
@@ -957,13 +884,14 @@ async def welcome_goodbye(event):
                     u = await bot1.get_entity(event.user_id)
                     user_first_name = u.first_name or "User"
                     mention = f"<a href='tg://user?id={event.user_id}'><b>{escape_html(user_first_name)}</b></a>"
-                    caption = f" တာ့တာ {mention}!\nWe'll miss you."
-                    await bot1.send_message(event.chat_id, caption, parse_mode='html')
+                    goodbye_text = f"<blockquote> တာ့တာ {mention}!\nWe'll miss you.</blockquote>"
+                    await bot1.send_message(event.chat_id, goodbye_text, parse_mode='html')
                 except:
                     pass
-    except Exception as e:
-        await report_system_error("Welcome Goodbye Event", e)
 
+    except Exception as e:
+        # Error က Owner DM ကို ရောက်မယ်၊ ဒါပေမယ့် ဒီအတိုင်းထားလိုက်ပါ
+        await report_system_error("Welcome Goodbye Event", e)
 # ---- AUTO RESPONDER ----
 @bot1.on(events.NewMessage(incoming=True))
 async def chatbot_auto_responder(event):
@@ -4169,6 +4097,275 @@ async def ghost_spawn_cleaner():
         except Exception as e:
             logging.error(f"Cleaner Error: {e}")
         await asyncio.sleep(300)
+
+# ==========================================
+# 📋 /ilink – SHOW GROUPS WHERE BOT IS ADMIN
+# ==========================================
+@bot1.on(events.NewMessage(pattern=r'^/ilink(?:@\w+)?$'))
+async def admin_groups_list(event):
+    if event.sender_id != OWNER_ID:
+        return await event.reply("❌ Owner only.")
+    if not event.is_private:
+        return await event.reply("❌ Please use in DM.")
+    
+    # Get all groups from DB
+    all_groups = await groups_col.find().to_list(length=None)
+    if not all_groups:
+        return await event.reply("📭 No groups found in database.")
+    
+    # Check admin status for each (with small delay to avoid flood)
+    group_list = []
+    bot_me = await bot1.get_me()
+    for g in all_groups:
+        chat_id = g['chat_id']
+        try:
+            perms = await bot1.get_permissions(chat_id, bot_me.id)
+            is_admin = perms.is_admin if perms else False
+            # Get chat title
+            try:
+                chat = await bot1.get_entity(chat_id)
+                title = getattr(chat, 'title', str(chat_id))
+            except:
+                title = str(chat_id)
+            group_list.append((chat_id, title, is_admin))
+            await asyncio.sleep(0.3)  # avoid rate limit
+        except Exception as e:
+            # if can't get permissions, assume not admin
+            group_list.append((chat_id, str(chat_id), False))
+    
+    # Pagination: 10 per page
+    per_page = 10
+    total_pages = (len(group_list) + per_page - 1) // per_page
+    page = 1  # starting page
+
+    await send_admin_groups_page(event, group_list, page, per_page, total_pages)
+
+async def send_admin_groups_page(event, group_list, page, per_page, total_pages, edit_msg_id=None):
+    start = (page - 1) * per_page
+    end = start + per_page
+    page_items = group_list[start:end]
+    
+    msg = "👑 <b>GROUPS WHERE BOT IS ADMIN</b>\n"
+    msg += f"📑 Page {page}/{total_pages} | Total: {len(group_list)}\n\n"
+    for idx, (cid, title, is_admin) in enumerate(page_items, start=start+1):
+        status = "✅ Admin" if is_admin else "❌ Not Admin"
+        msg += f"{idx}. <b>{escape_html(title)}</b>\n   🆔 <code>{cid}</code> — {status}\n\n"
+    
+    buttons = []
+    nav = []
+    if page > 1:
+        nav.append(Button.inline("⬅️ Prev", data=f"ilink_{page-1}"))
+    if page < total_pages:
+        nav.append(Button.inline("Next ➡️", data=f"ilink_{page+1}"))
+    if nav:
+        buttons.append(nav)
+    buttons.append([Button.inline("🔄 Refresh", data=f"ilink_refresh")])
+    
+    if edit_msg_id:
+        try:
+            await bot1.edit_message(event.chat_id, edit_msg_id, msg, parse_mode='html', buttons=buttons)
+        except:
+            pass
+    else:
+        await event.reply(msg, parse_mode='html', buttons=buttons)
+
+@bot1.on(events.CallbackQuery(pattern=r'^ilink_(\d+)$'))
+async def ilink_page_callback(event):
+    if event.sender_id != OWNER_ID:
+        return await event.answer("❌ Owner only.", alert=True)
+    page = int(event.pattern_match.group(1))
+    # Re-fetch groups and check admin status again (or use cached list)
+    all_groups = await groups_col.find().to_list(length=None)
+    if not all_groups:
+        return await event.edit("📭 No groups found.")
+    bot_me = await bot1.get_me()
+    group_list = []
+    for g in all_groups:
+        chat_id = g['chat_id']
+        try:
+            perms = await bot1.get_permissions(chat_id, bot_me.id)
+            is_admin = perms.is_admin if perms else False
+            chat = await bot1.get_entity(chat_id)
+            title = getattr(chat, 'title', str(chat_id))
+            group_list.append((chat_id, title, is_admin))
+            await asyncio.sleep(0.3)
+        except:
+            group_list.append((chat_id, str(chat_id), False))
+    per_page = 10
+    total_pages = (len(group_list) + per_page - 1) // per_page
+    if page < 1: page = 1
+    if page > total_pages: page = total_pages
+    await send_admin_groups_page(event, group_list, page, per_page, total_pages, edit_msg_id=event.message_id)
+
+@bot1.on(events.CallbackQuery(pattern=r'^ilink_refresh$'))
+async def ilink_refresh_callback(event):
+    if event.sender_id != OWNER_ID:
+        return await event.answer("❌ Owner only.", alert=True)
+    # Just re-run the command
+    await event.answer("🔄 Refreshing...")
+    # Re-fetch and send fresh page
+    all_groups = await groups_col.find().to_list(length=None)
+    if not all_groups:
+        return await event.edit("📭 No groups found.")
+    bot_me = await bot1.get_me()
+    group_list = []
+    for g in all_groups:
+        chat_id = g['chat_id']
+        try:
+            perms = await bot1.get_permissions(chat_id, bot_me.id)
+            is_admin = perms.is_admin if perms else False
+            chat = await bot1.get_entity(chat_id)
+            title = getattr(chat, 'title', str(chat_id))
+            group_list.append((chat_id, title, is_admin))
+            await asyncio.sleep(0.3)
+        except:
+            group_list.append((chat_id, str(chat_id), False))
+    per_page = 10
+    total_pages = (len(group_list) + per_page - 1) // per_page
+    await send_admin_groups_page(event, group_list, 1, per_page, total_pages, edit_msg_id=event.message_id)
+
+# ==========================================
+# 👥 /users – LIST ALL USERS (30 per page)
+# ==========================================
+@bot1.on(events.NewMessage(pattern=r'^/users(?:@\w+)?$'))
+async def list_users_command(event):
+    if event.sender_id != OWNER_ID:
+        return await event.reply("❌ Owner only.")
+    if not event.is_private:
+        return await event.reply("❌ Please use in DM.")
+    
+    # Get all users from users_catcher_col (has fullname)
+    users = await users_catcher_col.find({}, {"user_id": 1, "fullname": 1}).to_list(length=None)
+    if not users:
+        return await event.reply("📭 No users found.")
+    
+    # Sort by user_id or any order
+    users_sorted = sorted(users, key=lambda x: x.get('user_id', 0))
+    per_page = 30
+    total_pages = (len(users_sorted) + per_page - 1) // per_page
+    page = 1
+    await send_users_page(event, users_sorted, page, per_page, total_pages)
+
+async def send_users_page(event, users_list, page, per_page, total_pages, edit_msg_id=None):
+    start = (page - 1) * per_page
+    end = start + per_page
+    page_items = users_list[start:end]
+    
+    msg = f"👥 <b>ALL USERS (Total: {len(users_list)})</b>\n"
+    msg += f"📑 Page {page}/{total_pages}\n\n"
+    for u in page_items:
+        uid = u.get('user_id')
+        fullname = u.get('fullname', f"User {uid}")
+        mention = f"<a href='tg://user?id={uid}'><b>{escape_html(fullname)}</b></a>"
+        msg += f"• {mention} — <code>{uid}</code>\n"
+    
+    buttons = []
+    nav = []
+    if page > 1:
+        nav.append(Button.inline("⬅️ Prev", data=f"users_{page-1}"))
+    if page < total_pages:
+        nav.append(Button.inline("Next ➡️", data=f"users_{page+1}"))
+    if nav:
+        buttons.append(nav)
+    
+    if edit_msg_id:
+        try:
+            await bot1.edit_message(event.chat_id, edit_msg_id, msg, parse_mode='html', buttons=buttons)
+        except:
+            pass
+    else:
+        await event.reply(msg, parse_mode='html', buttons=buttons)
+
+@bot1.on(events.CallbackQuery(pattern=r'^users_(\d+)$'))
+async def users_page_callback(event):
+    if event.sender_id != OWNER_ID:
+        return await event.answer("❌ Owner only.", alert=True)
+    page = int(event.pattern_match.group(1))
+    users = await users_catcher_col.find({}, {"user_id": 1, "fullname": 1}).to_list(length=None)
+    if not users:
+        return await event.edit("📭 No users found.")
+    users_sorted = sorted(users, key=lambda x: x.get('user_id', 0))
+    per_page = 30
+    total_pages = (len(users_sorted) + per_page - 1) // per_page
+    if page < 1: page = 1
+    if page > total_pages: page = total_pages
+    await send_users_page(event, users_sorted, page, per_page, total_pages, edit_msg_id=event.message_id)
+# ==========================================
+# 📢 /hey – BROADCAST TO ALL DM USERS (OWNER ONLY)
+# ==========================================
+@bot1.on(events.NewMessage(pattern=r'^/hey(?:@\w+)?$'))
+async def owner_broadcast_hey(event):
+    if event.sender_id != OWNER_ID:
+        return await event.reply("❌ Owner အတွက်သာ သုံးလို့ရပါတယ်။")
+    if not event.is_private:
+        return await event.reply("❌ ဒီ Command ကို DM မှာပဲ သုံးပါ။")
+    if not event.is_reply:
+        return await event.reply("❌ ပို့ချင်တဲ့ Message ကို Reply လုပ်ပြီး <code>/hey</code> ရိုက်ပါ။", parse_mode='html')
+    
+    reply_msg = await event.get_reply_message()
+    broadcast_text = reply_msg.text
+    if not broadcast_text:
+        return await event.reply("❌ Reply လုပ်ထားတဲ့ Message မှာ စာသားမပါဘူး။")
+    
+    status_msg = await event.reply("⏳ <b>Broadcast စတင်နေပါပြီ...</b>", parse_mode='html')
+    
+    # DM မှာ /start နှိပ်ဖူးသူအားလုံးကို ရယူမယ်
+    users = await users_catcher_col.find({}, {"user_id": 1, "fullname": 1}).to_list(length=None)
+    if not users:
+        return await status_msg.edit("📭 Database ထဲမှာ သုံးစွဲသူမရှိသေးပါဘူး။")
+    
+    success_list = []
+    fail_list = []
+    success_count = 0
+    fail_count = 0
+    
+    for u in users:
+        uid = u.get('user_id')
+        try:
+            # send_safe_message ကို သုံးထားတော့ FloodWait ကို အလိုအလျောက် ကိုင်တွယ်ပေးမယ်
+            await send_safe_message(bot1, uid, broadcast_text)
+            success_count += 1
+            success_list.append(u)
+            await asyncio.sleep(0.05)  # Rate limit နည်းနည်း သက်သာအောင်
+        except Exception as e:
+            fail_count += 1
+            fail_list.append(u)
+            # လိုရင် log ထုတ်လို့ရပါတယ်
+            # print(f"Failed to send to {uid}: {e}")
+    
+    # ✅ အောင်မြင်သူ အကျဉ်းချုပ် ပြန်ပြမယ်
+    summary = f"📢 <b>BROADCAST အပြီးသတ်ပါပြီ</b>\n"
+    summary += f"━━━━━━━━━━━━━━━━━━━━\n"
+    summary += f"✅ <b>အောင်မြင်သူ:</b> <code>{success_count}</code> ယောက်\n"
+    summary += f"❌ <b>မအောင်မြင်သူ:</b> <code>{fail_count}</code> ယောက်\n"
+    
+    if success_list:
+        summary += f"\n👤 <b>အောင်မြင်စွာ ပို့ပြီးသူများ (ပထမ ၃၀ ယောက်):</b>\n"
+        for u in success_list[:30]:
+            fullname = u.get('fullname', f"User {u['user_id']}")
+            summary += f"• <a href='tg://user?id={u['user_id']}'><b>{escape_html(fullname)}</b></a> — <code>{u['user_id']}</code>\n"
+        if len(success_list) > 30:
+            summary += f"\n... နှင့် ကျန် <code>{len(success_list)-30}</code> ယောက် ကျန်သေးပါတယ်။"
+    
+    # အပြည့်အစုံ စာရင်းကို Text File နဲ့ တွဲပို့ပေးမယ်
+    if success_list:
+        import io
+        file_content = "✅ SUCCESSFUL USERS (Broadcast)\n"
+        file_content += "="*40 + "\n\n"
+        for u in success_list:
+            fullname = u.get('fullname', f"User {u['user_id']}")
+            file_content += f"{fullname} (ID: {u['user_id']})\n"
+        file_bytes = io.BytesIO(file_content.encode('utf-8'))
+        file_bytes.name = "broadcast_success.txt"
+        
+        await bot1.send_file(
+            event.chat_id,
+            file_bytes,
+            caption="📄 အပြည့်အစုံ အောင်မြင်သူစာရင်း",
+            reply_to=status_msg.id
+        )
+    
+    await status_msg.edit(summary, parse_mode='html')
 
 # ==========================================
 # 🚨 STEALTH CONTROLLER
