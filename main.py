@@ -2139,9 +2139,9 @@ async def trigger_dynamic_spawn(chat_id):
         rarity_display = chosen_char.get("rarity", "Unknown")
         spawn_msg = await bot1.send_message(
             chat_id, 
-            f" <b>A Charater appeared in this chat!</b>\n"
-            f"🌟 <b>Rarity:</b> {rarity_display}\n"
-            f"<blockquote>Who is this? Reply with <code>/who</code> to reveal!</blockquote>",
+            f" <b>❔A Charater appeared in this chat!</b>\n"
+            f"🤍 <b>Rarity:</b> {rarity_display}\n"
+            f"<blockquote>Who is this? Reply with <code>/who</code> ✔ to reveal!</blockquote>",
             parse_mode='html',
             file=storage_msg.media
         )
@@ -2266,10 +2266,10 @@ async def perform_catch(chat_id, user_id, spawn_data, event, reply_to_msg=None, 
             newly_earned = await check_and_award_achievements(user_id)
 
             success_msg = (
-                f"👤 <b>Hunter:</b> {mention}, you caught it! 🎉\n"
-                f"🃏 <b>Character:</b> <b>{escape_html(character_name)}</b>\n"
-                f"🆔 <b>Asset ID:</b> <b>{spawn_data['char_id']}</b>\n"
-                f"🌟 <b>Rarity Class:</b> {spawn_data['rarity']}\n"
+                f"<b>Hey,</b> {mention}, you caught it! 🍔\n"
+                f"<b>Character:</b> <b>{escape_html(character_name)}</b>\n"
+                f"<b>This Card ID:</b> <b>{spawn_data['char_id']}</b>\n"
+                f"🌟 <b>Rarity:</b> {spawn_data['rarity']}\n"
                 f"🪙 <b>Bounty Added:</b> <b>+{spawn_data['value']} MMK</b>\n\n"
                 f"🎉 <b>Mission Secured!</b> Check your collection with <code>/hai</code>."
             )
@@ -3877,7 +3877,7 @@ async def all_commands_handler(event):
     cmd_list = "\n".join([f"• `{cmd}`" for cmd in sorted(commands)])
     await event.reply(f"📋 <b>All Available Commands</b>\n━━━━━━━━━━━━━━━━━━━━\n{cmd_list}\n\n💡 Type <code>/help</code> for usage.", parse_mode='html')
 
-@bot1.on(events.NewMessage(pattern=r'^/introduce(?:@\w+)?$'))
+@bot1.on(events.NewMessage(pattern=r'^/start(?:@\w+)?$'))
 async def introduce_bot_handler(event):
     intro_text = (
         "<pre style='background-color:#2d2d2d; color:#d4d4d4; padding:15px; border-radius:8px; font-family: monospace;'>"
