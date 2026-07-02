@@ -744,18 +744,45 @@ async def auto_calculator_handler(event):
             except Exception:
                 pass
 
-@bot1.on(events.NewMessage(pattern=r'^/emojiid(?:\s+(.+))?$'))
+@bot1.on(events.NewMessage(pattern=r'^/emojiid(?:@\w+)?(?:\s+(.*))?$'))
 async def get_emoji_id_command(event):
-    args = event.pattern_match.group(1)
-    if not args:
-        return await event.reply("❌ Please provide an emoji.\nExample: <code>/emojiid ❤️</code>", parse_mode='html')
+    doc_id = None
     
-    emoji_text = args.strip()
-    doc_id = await search_emoji_id(emoji_text)
-    if doc_id:
-        await event.reply(f"✅ document_id for <code>{emoji_text}</code>:\n<code>{doc_id}</code>", parse_mode='html')
-    else:
-        await event.reply(f"❌ Could not find custom emoji ID for <code>{emoji_text}</code>.", parse_mode='html')
+    # ၁။ Reply ပါရင် ဦးစားပေး စစ်မယ်
+    if event.is_reply:
+        reply_msg = await event.get_reply_message()
+        if reply_msg and reply_msg.entities:
+            for entity in reply_msg.entities:
+                # Custom Emoji Entity ကို ရှာမယ်
+                if isinstance(entity, MessageEntityCustomEmoji):
+                    doc_id = entity.document_id
+                    break
+        if doc_id:
+            return await event.reply(
+                f"✅ <b>document_id (from replied message):</b>\n<code>{doc_id}</code>",
+                parse_mode='html'
+            )
+    
+    # ၂။ Reply မပါရင် ဒါမှမဟုတ် Reply ထဲမှာ မတွေ့ရင် argument ကို စစ်မယ်
+    args = event.pattern_match.group(1)
+    if args:
+        doc_id = await search_emoji_id(args.strip())
+        if doc_id:
+            return await event.reply(
+                f"✅ <b>document_id for</b> <code>{args.strip()}</code>:\n<code>{doc_id}</code>",
+                parse_mode='html'
+            )
+    
+    # ၃။ ဘာမှမတွေ့ရင် Usage ပြန်ပြောမယ်
+    await event.reply(
+        "❌ <b>Could not find custom emoji ID.</b>\n\n"
+        "📌 <b>Usage:</b>\n"
+        "1️⃣ Reply to a message containing a premium emoji:\n"
+        "   <code>/emojiid</code>\n"
+        "2️⃣ Or provide the emoji text:\n"
+        "   <code>/emojiid ❤️</code>",
+        parse_mode='html'
+    )
 @bot1.on(events.NewMessage(pattern=r'^/reply(?:\s+(.*))?$'))
 async def reply_with_custom_emoji(event):
     # DM မှသာ ခွင့်ပြုမယ်
