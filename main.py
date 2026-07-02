@@ -19,10 +19,11 @@ from motor.motor_asyncio import AsyncIOMotorClient
 from pymongo import ReturnDocument
 from html import escape as escape_html
 from telethon.errors import FloodWaitError
-from telethon import TelegramClient, events, types, Button, errors
+from telethon import TelegramClient, events, functions, types, Button, errors
 from collections import defaultdict
 from telethon.tl.types import ChannelParticipantsAdmins
 from telethon.extensions import html
+from telethon.tl.types import MessageEntityCustomEmoji
 
 # ==========================================
 # ⚡ PREMIUM MATHEMATICAL BOLD SERIF FONT CONVERTER
@@ -83,6 +84,18 @@ async def send_safe_file(client, chat_id, file, **kwargs):
             logging.error(f"❌ send_safe_file error: {e}")
             raise e
 
+async def search_emoji_id(emoticon_text):
+    try:
+        result = await bot1(functions.messages.SearchCustomEmojiRequest(
+            emoticon=emoticon_text,
+            hash=0
+        ))
+        if result.document_id:
+            # Return the first one (most common)
+            return result.document_id[0] if isinstance(result.document_id, list) else result.document_id
+    except Exception as e:
+        print(f"Error searching emoji: {e}")
+    return None
 # ==========================================
 # 🧵 NON-BLOCKING EXECUTOR BRIDGE (for weather API calls)
 # ==========================================
@@ -731,6 +744,89 @@ async def auto_calculator_handler(event):
             except Exception:
                 pass
 
+@bot1.on(events.NewMessage(pattern=r'^/emojiid(?:\s+(.+))?$'))
+async def get_emoji_id_command(event):
+    args = event.pattern_match.group(1)
+    if not args:
+        return await event.reply("❌ Please provide an emoji.\nExample: <code>/emojiid ❤️</code>", parse_mode='html')
+    
+    emoji_text = args.strip()
+    doc_id = await search_emoji_id(emoji_text)
+    if doc_id:
+        await event.reply(f"✅ document_id for <code>{emoji_text}</code>:\n<code>{doc_id}</code>", parse_mode='html')
+    else:
+        await event.reply(f"❌ Could not find custom emoji ID for <code>{emoji_text}</code>.", parse_mode='html')
+@bot1.on(events.NewMessage(pattern=r'^/reply(?:\s+(.*))?$'))
+async def reply_with_custom_emoji(event):
+    # DM မှသာ ခွင့်ပြုမယ်
+    if not event.is_private:
+        return await event.reply("❌ This command only works in DM.")
+    
+    # Owner သာလျှင် သုံးခွင့်ရှိမယ် (လိုအပ်ရင် ဖယ်လိုက်ပါ)
+    if event.sender_id != OWNER_ID:
+        return await event.reply("❌ Only the bot owner can use this command.")
+    
+    args = event.pattern_match.group(1)
+    if not args:
+        return await event.reply(
+            "❌ Usage: <code>/reply &lt;text&gt; &lt;document_id&gt;</code>\n"
+            "Example: <code>/reply Hello world 123456789012345678</code>\n"
+            "Or just: <code>/reply 123456789012345678</code> (sends only the emoji)",
+            parse_mode='html'
+        )
+    
+    parts = args.strip().split()
+    if len(parts) < 1:
+        return await event.reply("❌ Please provide at least a document_id.")
+    
+    # Check if the last token is a numeric document_id
+    last_token = parts[-1]
+    if not last_token.isdigit():
+        return await event.reply("❌ The last token must be a numeric document_id.")
+    
+    doc_id = int(last_token)
+    # The text is everything before the last token (if any)
+    if len(parts) > 1:
+        text = " ".join(parts[:-1])
+    else:
+        text = ""  # No text, just the emoji
+    
+    try:
+        # Build entities list
+        entities = []
+        if text:
+            # Place a placeholder (e.g., "✨") at the end of the text
+            # Actually we want to append the emoji at the end. We'll put a placeholder emoji like "🪄" or "✨" at the position where the custom emoji will be.
+            # But the user may not have a placeholder in the text. So we can simply append the emoji after the text.
+            # Approach: send text + a space + a dummy character (like "🔹") and then replace that dummy with the custom emoji.
+            # Simpler: we can send text and then the custom emoji as a separate entity at the end.
+            # We'll put a placeholder emoji (e.g., "🪄") at the end and replace it with custom emoji.
+            # Or we can add a separator like " " and then the emoji.
+            # Let's do: text + " " + "✨" (we'll use "✨" as placeholder) and then entity at that position.
+            # Ensure the placeholder is exactly one character long.
+            placeholder = "✨"
+            full_text = text + " " + placeholder
+            # Offset: length of text + 1 (for the space)
+            offset = len(text) + 1
+            entities.append(MessageEntityCustomEmoji(
+                offset=offset,
+                length=1,
+                document_id=doc_id
+            ))
+        else:
+            # Only the emoji: we can send just a single character placeholder
+            placeholder = "✨"
+            full_text = placeholder
+            entities.append(MessageEntityCustomEmoji(
+                offset=0,
+                length=1,
+                document_id=doc_id
+            ))
+        
+        await event.reply(full_text, entities=entities, parse_mode=None)
+        
+    except Exception as e:
+        await event.reply(f"❌ Failed to send custom emoji: {str(e)}")
 # ---- INFO ----
 @bot1.on(events.NewMessage(pattern=r'(?i)^/info'))
 async def info_handler(event):
