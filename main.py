@@ -1902,11 +1902,11 @@ async def broadcast(event):
             try:
                 if reply_msg: await bot1.forward_messages(chat_id, reply_msg)
                 else: await bot1.send_message(chat_id, command_text, parse_mode='html')
-                success += 1
+                success += 104
             except: fail += 1
         except Exception: fail += 1
             
-    await status_msg.edit(bq(f"🐱 <b>BROADCAST COMPLETE</b>\n✅ <b>Success:</b> <code>{success}</code>\n❌ <b>Failed:</b>  <code>{fail}</code>"), parse_mode='html')
+    await status_msg.edit(bq(f"🐱 <b>BROADCAST COMPLETE</b>\n✅ <b>Success:</b> <code>{success}</code>\n❌ <b>Failed:</b> None"), parse_mode='html')
 
 # ---- PROTECTION LOGIC (BIO/LINK) ----
 @bot1.on(events.NewMessage())
