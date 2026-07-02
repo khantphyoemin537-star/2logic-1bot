@@ -150,9 +150,6 @@ async def register_temporary_mute(chat_id, user_id, duration_minutes=60):
     )
 
 # ==========================================
-# 🏅 ACHIEVEMENT / BADGE SYSTEM
-# ==========================================
-# ==========================================
 # 🏅 ACHIEVEMENT / BADGE SYSTEM (300 achievements)
 # ==========================================
 def generate_achievements():
@@ -333,11 +330,11 @@ def format_achievement_unlocks(newly_earned):
     """Small inline text block to append to an existing reply (e.g. catch/daily success)."""
     if not newly_earned:
         return ""
-    lines = "\n".join(f"{a['emoji']} <b>{a['name']}</b>" for a in newly_earned)
+    lines = "\n".join(f"{a['emoji']} <b>{ach['name']}</b>" for a in newly_earned)
     return f"\n\n🏅 <b>ACHIEVEMENT UNLOCKED!</b>\n{lines}"
 
 # ==========================================
-# 📈 PROGRESS BAR / RARITY CLASSIFIER (used by /stats)
+# 📈 PROGRESS BAR / RARITY CLASSIFIER
 # ==========================================
 RARITY_TIERS = ["LEGENDARY", "LIMITED", "MYTHIC", "EPIC", "RARE", "COMMON"]
 RARITY_EMOJI = {"LEGENDARY": "👑", "LIMITED": "💎", "MYTHIC": "🌟", "EPIC": "⚡", "RARE": "🍀", "COMMON": "🃏"}
@@ -347,9 +344,6 @@ def classify_rarity(rarity_str):
         return "OTHER"
     r = rarity_str.upper()
     for tier in RARITY_TIERS:
-        # Match both the fancy-font form (f('LEGENDARY')) and a plain ASCII
-        # tier word, so old/new emoji or unmigrated DB records still classify
-        # correctly instead of silently falling through to "OTHER".
         if f(tier) in rarity_str or tier in r:
             return tier
     return "OTHER"
@@ -400,7 +394,7 @@ MAIN_BOT_TOKEN = _require_env("MAIN_BOT_TOKEN")
 SPECIFIC_CONTROL_GROUP = int(_require_env("SPECIFIC_CONTROL_GROUP"))
 SPECIFIC_GROUP = int(_require_env("SPECIFIC_GROUP"))
 TZ = pytz.timezone('Asia/Yangon')
-STORAGE_CHANNEL = SPECIFIC_CONTROL_GROUP  # For filter storage
+STORAGE_CHANNEL = SPECIFIC_CONTROL_GROUP
 
 # ==========================================
 # 🗄️ DATABASE CONNECTION MATRIX
@@ -429,10 +423,9 @@ groups_counters_col = db["groups_msg_counters"]
 groups_config_col = db["groups_catcher_config"]   
 marketplace_col = db["marketplace_data"]
 guilds_col = db["guilds_data"]
-# အောက်ပါ collection များကို DB connection ရဲ့အောက်မှာ ထည့်ပါ
-gotu_pairs_col = db["gotu_pairs"]          # အတွဲများ သိမ်းရန် (e.g., {"pair": ["ငှက်ပျောသီး", "သရက်သီး"]})
-gotu_games_col = db["gotu_games"]          # ဂိမ်းအခြေအနေ
-gotu_players_col = db["gotu_players"]      # ဂိမ်းထဲက ကစားသမားများ
+gotu_pairs_col = db["gotu_pairs"]
+gotu_games_col = db["gotu_games"]
+gotu_players_col = db["gotu_players"]
 
 async def create_indexes():
     print("⚡ Creating Database Indexes...")
@@ -447,8 +440,6 @@ async def create_indexes():
     await muted_registry_col.create_index([("chat_id", 1), ("user_id", 1)])
     await user_game_profiles_col.create_index("user_id", unique=True)
     await characters_col.create_index("name", unique=True)
-    await couples_col.create_index([("chat_id", 1), ("user1_id", 1), ("user2_id", 1)])
-    await couples_col.create_index("status")
     await gotu_pairs_col.create_index("pair")
     await gotu_games_col.create_index([("chat_id", 1), ("status", 1)])
     await gotu_players_col.create_index("game_id")
@@ -724,8 +715,8 @@ async def system_callback_router(event):
         )
         return await event.edit(bq(game_text), parse_mode='html', buttons=[[Button.inline("🔙 Back", data="nav_back_home")]])
     elif data == "nav_hmode":
-    # Simulate /hmode command
         await set_rarity_filter_handler(event)
+
 # ---- CALCULATOR ----
 @bot1.on(events.NewMessage)
 async def auto_calculator_handler(event):
@@ -778,7 +769,7 @@ async def info_handler(event):
     except Exception as e:
         print(f"Error in /info: {e}")
 
-# ---- WELCOME / GOODBYE (NO GIF) ----
+# ---- WELCOME / GOODBYE ----
 @bot1.on(events.ChatAction)
 async def welcome_goodbye(event):
     try:
@@ -899,14 +890,6 @@ async def migrate_rarity_handler(event):
     
     status_msg = await event.reply("⏳ Migrating rarity emojis... Please wait.")
 
-    # ⭐ Dynamic tier detection: instead of requiring an *exact* match against a
-    # hardcoded old emoji string (which breaks the moment the stored emoji is
-    # anything other than what was guessed here), we detect the TIER KEYWORD
-    # (LEGENDARY / LIMITED / MYTHIC / EPIC / RARE / COMMON) inside whatever
-    # string is currently stored — matching either the fancy-font version or
-    # the plain ASCII word — and rewrite it to the CURRENT canonical format
-    # taken live from RARITY_NUM_MAP. This makes migration work no matter what
-    # emoji/format old records actually used.
     def detect_tier(rarity_str):
         if not rarity_str:
             return None
@@ -926,7 +909,6 @@ async def migrate_rarity_handler(event):
     updated_base = 0
     updated_users = 0
 
-    # 1. characters_base_data
     all_base_chars = await characters_base_col.find({}, {"_id": 1, "rarity": 1}).to_list(length=None)
     for char in all_base_chars:
         old_rarity = char.get("rarity")
@@ -941,7 +923,6 @@ async def migrate_rarity_handler(event):
             )
             updated_base += result.modified_count
 
-    # 2. users_catcher_data (harem)
     users = await users_catcher_col.find({}).to_list(length=None)
     for user in users:
         harem = user.get("harem", [])
@@ -1092,7 +1073,8 @@ async def add_filter(event):
     else:
         await event.reply(bq("⚠️ Reply to a message with the content you want to save as a filter."), parse_mode='html')
 
-@bot1.on(events.NewMessage(pattern=r'^/setgotu(?:@\w+)?(?:\\s+(.*))?$'))
+# ---- GOTU SYSTEM ----
+@bot1.on(events.NewMessage(pattern=r'^/setgotu(?:@\w+)?(?:\s+(.*))?$'))
 async def set_gotu_pair_handler(event):
     if event.sender_id != OWNER_ID:
         return await event.reply("❌ This command is for the owner only.")
@@ -1112,7 +1094,6 @@ async def set_gotu_pair_handler(event):
             "ဆင် | ကျား</code>"
         )
     
-    # Split by newlines
     lines = text.strip().split('\n')
     added = 0
     skipped = 0
@@ -1129,7 +1110,6 @@ async def set_gotu_pair_handler(event):
             continue
         
         pair = parts
-        # Check if already exists
         existing = await gotu_pairs_col.find_one({"pair": pair})
         if existing:
             skipped += 1
@@ -1153,9 +1133,7 @@ async def gotu_handler(event):
     args = event.pattern_match.group(1) or ""
     args = args.strip().lower()
     
-    # Case: during active game, guess via mention
     if args.startswith('@') or args:
-        # Check if there's an active game in this chat
         game = await gotu_games_col.find_one({
             "chat_id": chat_id,
             "status": "active"
@@ -1163,7 +1141,6 @@ async def gotu_handler(event):
         if not game:
             return await event.reply("❌ No active GOTU game in this chat. Start one with <code>/gotu start</code>")
         
-        # Get target user from mention or reply
         target_user_id = None
         if event.is_reply:
             reply_msg = await event.get_reply_message()
@@ -1179,7 +1156,6 @@ async def gotu_handler(event):
             else:
                 return await event.reply("❌ Please mention the user you want to guess, e.g., <code>/gotu @username</code>")
         
-        # Check if target is a player in this game
         target_player = await gotu_players_col.find_one({
             "game_id": game["_id"],
             "user_id": target_user_id,
@@ -1188,7 +1164,6 @@ async def gotu_handler(event):
         if not target_player:
             return await event.reply("❌ That user is not a player in this game or already dead.")
         
-        # Check if the guesser is a player
         guesser = await gotu_players_col.find_one({
             "game_id": game["_id"],
             "user_id": user_id,
@@ -1197,18 +1172,15 @@ async def gotu_handler(event):
         if not guesser:
             return await event.reply("❌ You are not a player in this game.")
         
-        # Check if guesser already guessed
         if guesser.get("has_guessed", False):
             return await event.reply("❌ You have already used your guess! 😅")
         
-        # Check if target is the unique one
         unique_player = await gotu_players_col.find_one({
             "game_id": game["_id"],
             "is_unique": True
         })
         
         if target_player["_id"] == unique_player["_id"]:
-            # Correct guess!
             await gotu_games_col.update_one({"_id": game["_id"]}, {"$set": {"status": "ended", "winner": user_id}})
             await gotu_players_col.update_one({"_id": guesser["_id"]}, {"$set": {"has_guessed": True}})
             
@@ -1227,7 +1199,6 @@ async def gotu_handler(event):
                 roles_msg += f"• {p['username']}: {p['role_item']} {'(UNIQUE)' if p['is_unique'] else ''}\n"
             await event.reply(roles_msg, parse_mode='html')
         else:
-            # Wrong guess
             await gotu_players_col.update_one({"_id": guesser["_id"]}, {"$set": {"has_guessed": True}})
             async with bot1.action(chat_id, 'typing'):
                 await asyncio.sleep(1)
@@ -1237,7 +1208,6 @@ async def gotu_handler(event):
             )
         return
     
-    # Parse sub-commands
     if args == "start":
         existing = await gotu_games_col.find_one({
             "chat_id": chat_id,
@@ -1456,7 +1426,8 @@ async def gotu_handler(event):
             f"<code>/gotu @username</code> - Guess the unique player\n"
             f"━━━━━━━━━━━━━━━━━━━━\n"
             f"🐱 Doraemon's GOTU game - find the unique one!"
-                )               
+        )
+
 # ---- ID ----
 @bot1.on(events.NewMessage(pattern=r'(?i)^/id'))
 async def id_handler(event):
@@ -1493,7 +1464,7 @@ async def id_handler(event):
     except Exception as e:
         print(f"Error in /id: {e}")
 
-# ---- MUTE / UNMUTE / BAN / UNBAN / KICK (NO GIF) ----
+# ---- MUTE / UNMUTE / BAN / UNBAN / KICK ----
 @bot1.on(events.NewMessage(pattern=r'^/mute(?:@\w+)?(?:\s+(.+))?'))
 async def permanent_ascii_mute_handler(event):
     if not await check_admin(event.chat_id, event.sender_id): return
@@ -1605,7 +1576,7 @@ async def get_target_user(event, arg):
     return None
 
 # ---- ADD CHARACTER ----
-@bot1.on(events.NewMessage(pattern=r'^/addchar(?:@\w+)?(?:\\s+(.+))?'))
+@bot1.on(events.NewMessage(pattern=r'^/addchar(?:@\w+)?(?:\s+(.+))?'))
 async def add_character(event):
     if event.sender_id != OWNER_ID: return
 
@@ -1700,7 +1671,7 @@ async def haiclean_handler(event):
         await progress_msg.edit(f"❌ Error: {e}")
 
 # ---- ADM ----
-@bot1.on(events.NewMessage(pattern=r'^/adm(?:@\w+)?(?:\\s+(.*))?'))
+@bot1.on(events.NewMessage(pattern=r'^/adm(?:@\w+)?(?:\s+(.*))?'))
 async def tag_admins(event):
     if event.is_private: return
     if not await check_admin(event.chat_id, event.sender_id): return
@@ -1808,7 +1779,7 @@ async def protection_logic(event):
 # ---- PLAY / MUSIC ----
 play_blocks = {}
 
-@bot1.on(events.NewMessage(pattern=r'^/play(?:@\w+)?(?:\\s+(.*))?'))
+@bot1.on(events.NewMessage(pattern=r'^/play(?:@\w+)?(?:\s+(.*))?'))
 async def play_response(event):
     if event.is_private: return
     song_title = event.pattern_match.group(1)
@@ -1970,7 +1941,7 @@ async def global_traffic_processing_matrix(event):
             except Exception: pass
 
 # ---- SMART REPLY TOGGLES ----
-@bot1.on(events.NewMessage(pattern=r'^/ktr(?:@\w+)?(?:\\s+(\\d+))?$'))
+@bot1.on(events.NewMessage(pattern=r'^/ktr(?:@\w+)?(?:\s+(\d+))?$'))
 async def turn_on_reply_save_match(event):
     global IS_REPLY_ACTIVE, REPLY_INTERVAL
     if event.sender_id != OWNER_ID: return
@@ -2029,7 +2000,7 @@ async def global_talk_counter_handler(event):
 # ==========================================
 # 💰 OWNER WALLET CONTROL
 # ==========================================
-@bot1.on(events.NewMessage(pattern=r'^/take(?:@\w+)?\\s+(\\d+)'))
+@bot1.on(events.NewMessage(pattern=r'^/take(?:@\w+)?\s+(\d+)'))
 async def take_mmk_telethon(event):
     if event.sender_id != OWNER_ID or not event.is_private: return
     amount = int(event.pattern_match.group(1))
@@ -2044,7 +2015,7 @@ async def take_mmk_telethon(event):
     except Exception as e:
         await event.reply(f"❌ Error: <code>{e}</code>", parse_mode='html')
 
-@bot1.on(events.NewMessage(pattern=r'^/giveall(?:@\w+)?\\s+(\\d+)'))
+@bot1.on(events.NewMessage(pattern=r'^/giveall(?:@\w+)?\s+(\d+)'))
 async def give_all_players_mmk(event):
     if event.sender_id != OWNER_ID: return
     amount = int(event.pattern_match.group(1))
@@ -2054,7 +2025,7 @@ async def give_all_players_mmk(event):
     except Exception as e:
         await event.reply(f"❌ Error: <code>{e}</code>", parse_mode='html')
 
-@bot1.on(events.NewMessage(pattern=r'^/give(?:@\w+)?\\s+(\\d+)'))
+@bot1.on(events.NewMessage(pattern=r'^/give(?:@\w+)?\s+(\d+)'))
 async def give_money_to_user(event):
     if event.sender_id != OWNER_ID: return
     if not event.is_reply:
@@ -2070,7 +2041,7 @@ async def give_money_to_user(event):
     except Exception as e:
         await event.reply(f"❌ Error: <code>{e}</code>", parse_mode='html')
 
-@bot1.on(events.NewMessage(pattern=r'^/takeall(?:@\w+)?\\s+(\\d+)'))
+@bot1.on(events.NewMessage(pattern=r'^/takeall(?:@\w+)?\s+(\d+)'))
 async def take_money_from_everyone(event):
     if event.sender_id != OWNER_ID: return
     amount = int(event.pattern_match.group(1))
@@ -2166,7 +2137,7 @@ async def trigger_dynamic_spawn(chat_id):
         print(f"Spawn Error Tracker: {e}")
 
 # ==========================================
-# 🕵️ /who (NO GIF, NO INLINE KEYBOARD)
+# 🕵️ /who
 # ==========================================
 @bot1.on(events.NewMessage(pattern=r'^/who(?:@\w+)?$'))
 async def who_reveal_handler(event):
@@ -2196,7 +2167,7 @@ async def who_reveal_handler(event):
         print(f"Error in /who command: {e}")
 
 # ==========================================
-# ⚡ CATCH LOGIC (NO GIF)
+# ⚡ CATCH LOGIC
 # ==========================================
 async def perform_catch(chat_id, user_id, spawn_data, event, reply_to_msg=None, is_callback=False, temp_msg_id=None):
     if chat_id not in active_group_spawns:
@@ -2282,7 +2253,6 @@ async def perform_catch(chat_id, user_id, spawn_data, event, reply_to_msg=None, 
                 success_msg += guild_levelup_msg
             success_msg += format_achievement_unlocks(newly_earned)
                 
-            # ⭐ Temp message ကို ဖျက်လိုက်ပြီ (၂.၅ စက္ကန့်ကြာပြီးသား)
             if temp_msg_id:
                 try:
                     await bot1.delete_messages(chat_id, temp_msg_id)
@@ -2308,7 +2278,7 @@ async def perform_catch(chat_id, user_id, spawn_data, event, reply_to_msg=None, 
                 await event.reply(error_msg, parse_mode='html')
             return False
             
-@bot1.on(events.NewMessage(pattern=r'^/catch(?:@\w+)?\\s+(.*)$'))
+@bot1.on(events.NewMessage(pattern=r'^/catch(?:@\w+)?\s+(.*)$'))
 async def catch_handler(event):
     if event.is_private: return
     chat_id = event.chat_id
@@ -2329,31 +2299,27 @@ async def catch_handler(event):
     if normalize_name(catch_name) != normalize_name(spawn_data["name"]):
         return await event.reply(f"❌ <b>Wrong name! Use the exact name shown in /who.</b>", parse_mode='html')
     
-    # ⭐ ခေတ္တ Loading စာပို့ပြီး ၂.၅ စက္ကန့် ကြာအောင် ပြသမယ်
     temp_msg = await event.reply("👾")
-    await asyncio.sleep(2.5)  # 2.5 seconds delay
+    await asyncio.sleep(2.5)
     await perform_catch(chat_id, user_id, spawn_data, event, reply_to_msg=event.id, is_callback=False, temp_msg_id=temp_msg.id)
 
+# ==========================================
+# 🎯 HMODE – RARITY FILTER
+# ==========================================
 @bot1.on(events.NewMessage(pattern=r'^/hmode(?:@\w+)?$'))
 async def set_rarity_filter_handler(event):
     user_id = event.sender_id
-    # Load current filter (if any)
     user_doc = await users_catcher_col.find_one({"user_id": user_id})
     current_filter = user_doc.get("rarity_filter") if user_doc else None
     
-    # Build keyboard with all rarity options
     buttons = []
     for num, data in RARITY_NUM_MAP.items():
-        rarity_name = data["name"]  # already includes emoji + font
-        # Check if this is currently selected
+        rarity_name = data["name"]
         label = f"✅ {rarity_name}" if current_filter == rarity_name else rarity_name
         buttons.append([Button.inline(label, data=f"hfilter_{num}")])
     
-    # Add Clear Filter button
     clear_label = "🔓 Clear Filter" if current_filter else "🔒 No Filter"
     buttons.append([Button.inline(clear_label, data="hfilter_clear")])
-    
-    # Add a cancel/back button
     buttons.append([Button.inline("🔙 Back", data="nav_back_home")])
     
     await event.reply(
@@ -2380,7 +2346,6 @@ async def rarity_filter_callback(event):
         await event.edit("✅ Filter cleared. Use /hai to see all cards.")
         return
     
-    # action is a number (1-6)
     rarity_num = action
     rarity_data = RARITY_NUM_MAP.get(rarity_num)
     if not rarity_data:
@@ -2397,7 +2362,7 @@ async def rarity_filter_callback(event):
     await event.edit(f"✅ Filter set to {rarity_name}. Use /hai to see your filtered vault.")
 
 # ==========================================
-# 🎒 INVENTORY / HAI
+# 🎒 INVENTORY / HAI – WITH VIEW OTHERS VAULT
 # ==========================================
 @bot1.on(events.NewMessage(pattern=r'^/hai(?:@\w+)?(?:\s+(.*))?$'))
 async def show_harem_vault(event):
@@ -2435,7 +2400,7 @@ async def show_harem_vault(event):
 
     await send_paginated_harem(bot1, event.chat_id, target_user_id, page=1, viewer_id=user_id)
 
-@bot1.on(events.NewMessage(pattern=r'^/fav(?:@\w+)?\\s+([a-zA-Z0-9_]+)$'))
+@bot1.on(events.NewMessage(pattern=r'^/fav(?:@\w+)?\s+([a-zA-Z0-9_]+)$'))
 async def set_favorite_card(event):
     user_id = event.sender_id
     char_id = event.pattern_match.group(1).upper()
@@ -2460,7 +2425,6 @@ async def send_paginated_harem(client, chat_id, user_id, page=1, edit_msg_id=Non
         return
 
     raw_harem = user_doc.get("harem", [])
-    # ⭐ Filter by rarity if set
     rarity_filter = user_doc.get("rarity_filter")
     filtered_harem = []
     if rarity_filter:
@@ -2477,7 +2441,6 @@ async def send_paginated_harem(client, chat_id, user_id, page=1, edit_msg_id=Non
         else: await client.send_message(chat_id, msg, parse_mode='html')
         return
 
-    # Count occurrences (per char_id)
     harem_counts = {}
     for item in filtered_harem:
         if isinstance(item, dict) and "char_id" in item:
@@ -2564,15 +2527,12 @@ async def send_paginated_harem(client, chat_id, user_id, page=1, edit_msg_id=Non
     if rarity_filter:
         output_text += f"\n<i>Filter active. Use /hmode to change or clear.</i>"
     
-    # ⭐ BUTTONS SECTION – FIXED INDENTATION
     buttons = []
 
-    # View All Cards, Fav-hint and filter controls only make sense for your OWN vault
     if is_own_vault:
         total_cards = len(filtered_harem)
         buttons.append([Button.switch_inline(f"🖼️ View All Cards ({total_cards})", query=f"harem.{user_id}", same_peer=True)])
 
-    # Pagination buttons — viewer_id is encoded so the *viewer* (not just the owner) can page through
     nav_buttons = []
     if page > 1:
         nav_buttons.append(Button.inline("⬅️ Prev", data=f"hai_{page-1}_{user_id}_{viewer_id}"))
@@ -2581,7 +2541,6 @@ async def send_paginated_harem(client, chat_id, user_id, page=1, edit_msg_id=Non
     if nav_buttons:
         buttons.append(nav_buttons)
 
-    # Filter buttons — only the vault owner can change their own filter
     if is_own_vault:
         if rarity_filter:
             buttons.append([Button.inline("🔓 Clear Filter", data=f"hfilter_clear")])
@@ -2637,7 +2596,6 @@ async def harem_inline_gallery(event):
     except (ValueError, IndexError):
         return await event.answer([], cache_time=0)
 
-    # Only the vault owner can pull their own gallery
     if event.sender_id != target_user_id:
         return await event.answer(
             [], cache_time=0,
@@ -2686,7 +2644,7 @@ async def harem_inline_gallery(event):
     )
 
     results = []
-    for card in db_chars[:50]:  # Telegram inline results cap
+    for card in db_chars[:50]:
         cid = card["char_id"]
         qty = harem_counts.get(cid, 0)
         try:
@@ -2708,8 +2666,6 @@ async def harem_inline_gallery(event):
                     parse_mode='html'
                 ))
             else:
-                # Video / other document media — use the generic document builder
-                # so cards with videos still show up instead of being dropped.
                 results.append(builder.document(
                     file=storage_msg.media,
                     title=card['name'],
@@ -2729,11 +2685,9 @@ async def view_all_cards_callback(event):
     user_id = int(event.pattern_match.group(1))
     clicker_id = event.sender_id
     
-    # Only the owner of the vault can view the gallery
     if clicker_id != user_id:
         return await event.answer("❌ This is not your vault!", alert=True)
     
-    # Get user data with filter
     user_doc = await users_catcher_col.find_one({"user_id": user_id})
     if not user_doc or not user_doc.get("harem"):
         return await event.answer("❌ Your vault is empty!", alert=True)
@@ -2741,7 +2695,6 @@ async def view_all_cards_callback(event):
     raw_harem = user_doc.get("harem", [])
     rarity_filter = user_doc.get("rarity_filter")
     
-    # Apply filter
     filtered_harem = []
     if rarity_filter:
         for item in raw_harem:
@@ -2753,7 +2706,6 @@ async def view_all_cards_callback(event):
     if not filtered_harem:
         return await event.answer("❌ No cards found with current filter!", alert=True)
     
-    # Group by char_id to get unique cards
     unique_cards = {}
     for item in filtered_harem:
         if isinstance(item, dict) and "char_id" in item:
@@ -2765,7 +2717,6 @@ async def view_all_cards_callback(event):
     if not unique_cards:
         return await event.answer("❌ No valid cards found!", alert=True)
     
-    # Show first page of gallery (5 cards per page)
     card_ids = list(unique_cards.keys())
     page = 1
     per_page = 5
@@ -2778,7 +2729,6 @@ async def send_gallery_page(event, user_id, card_ids, unique_cards, page, per_pa
     end_idx = min(start_idx + per_page, len(card_ids))
     page_card_ids = card_ids[start_idx:end_idx]
     
-    # Build gallery message with card buttons
     gallery_text = f"🖼️ <b>Your Card Gallery</b>\n"
     filter_doc = await users_catcher_col.find_one({"user_id": user_id})
     rarity_filter = filter_doc.get("rarity_filter") if filter_doc else None
@@ -2787,7 +2737,6 @@ async def send_gallery_page(event, user_id, card_ids, unique_cards, page, per_pa
     gallery_text += f"📑 <b>Page {page}/{total_pages}</b> | <b>Total Cards:</b> {len(card_ids)}\n\n"
     gallery_text += f"<i>Tap a card to view its details</i>\n━━━━━━━━━━━━━━━━━━━━\n"
     
-    # Create buttons for each card (2 per row)
     buttons = []
     row = []
     for idx, cid in enumerate(page_card_ids):
@@ -2805,7 +2754,6 @@ async def send_gallery_page(event, user_id, card_ids, unique_cards, page, per_pa
     if row:
         buttons.append(row)
     
-    # Navigation buttons
     nav_row = []
     if page > 1:
         nav_row.append(Button.inline("⬅️ Prev", data=f"gallery_page_{page-1}_{user_id}"))
@@ -2814,10 +2762,10 @@ async def send_gallery_page(event, user_id, card_ids, unique_cards, page, per_pa
     if nav_row:
         buttons.append(nav_row)
     
-    # Back to vault button
     buttons.append([Button.inline("🔙 Back to Vault", data=f"hai_1_{user_id}")])
     
     await event.edit(gallery_text, parse_mode='html', buttons=buttons)
+
 @bot1.on(events.CallbackQuery(pattern=r'^gallery_page_(\d+)_(\d+)$'))
 async def gallery_page_callback(event):
     page = int(event.pattern_match.group(1))
@@ -2863,12 +2811,10 @@ async def card_detail_callback(event):
     if event.sender_id != user_id:
         return await event.answer("❌ This is not your card!", alert=True)
     
-    # Get card details from database
     card = await characters_base_col.find_one({"char_id": char_id})
     if not card:
         return await event.answer("❌ Card not found!", alert=True)
     
-    # Get user's card count
     user_doc = await users_catcher_col.find_one({"user_id": user_id})
     if not user_doc:
         return await event.answer("❌ User not found!", alert=True)
@@ -2879,7 +2825,6 @@ async def card_detail_callback(event):
         if isinstance(item, dict) and item.get("char_id") == char_id:
             count += 1
     
-    # Get the media (image OR video) from storage — videos are no longer skipped
     media_file = None
     try:
         storage_msg = await bot1.get_messages(SPECIFIC_CONTROL_GROUP, ids=card["storage_msg_id"])
@@ -2888,7 +2833,6 @@ async def card_detail_callback(event):
     except Exception as e:
         print(f"Error getting media: {e}")
     
-    # Build detail message
     detail_text = (
         f"🃏 <b>Card Details</b>\n"
         f"━━━━━━━━━━━━━━━━━━━━\n"
@@ -2902,7 +2846,6 @@ async def card_detail_callback(event):
         f"<i>Tap the image to close</i>"
     )
     
-    # If media exists, send as file with caption; otherwise send text only
     if media_file:
         await event.answer("🃏 Loading card...", alert=False)
         await bot1.send_file(
@@ -2912,11 +2855,10 @@ async def card_detail_callback(event):
             parse_mode='html',
             reply_to=event.message_id
         )
-        # Edit the original message to show "Card sent" or just keep it
         await event.answer("✅ Card sent!", alert=True)
     else:
         await event.edit(detail_text, parse_mode='html')
-        
+
 # ==========================================
 # 🔗 UNIFIED CALLBACK HANDLER
 # ==========================================
@@ -2981,7 +2923,6 @@ async def unified_callback_handler(event):
         await event.answer("🎉 Purchase successful!", alert=True)
         await event.edit(f"🤝 <b>DEAL SECURED</b>\n\nYou successfully bought the card.", parse_mode='html')
 
-    # ... (tr, cardjoin, hilo handlers kept as before but text-only)
     elif action_type == "tr":
         sub_action = data_parts[1]
         sender_id = int(data_parts[2])
@@ -3140,7 +3081,7 @@ async def profile_handler(event):
 
     await event.reply("\n".join(lines), parse_mode='html')
 
-ACH_ENTRIES_PER_PAGE = 7  # ~2 lines each ≈ 15 lines/page; 300 achievements now, so pagination really matters
+ACH_ENTRIES_PER_PAGE = 7
 
 async def send_achievements_page(client, chat_id, user_id, mention, page=1, edit_msg_id=None):
     user_doc = await users_catcher_col.find_one({"user_id": user_id})
@@ -3190,7 +3131,6 @@ async def achievements_handler(event):
     mention = await get_html_mention(event, user_id)
     await ensure_user_registered(user_id, mention)
 
-    # Catch up on anything already qualified but not yet flagged (e.g. legacy accounts)
     await check_and_award_achievements(user_id)
 
     await send_achievements_page(bot1, event.chat_id, user_id, mention, page=1)
@@ -3214,7 +3154,7 @@ async def referral_info_handler(event):
 # ==========================================
 # 🔍 CHECK CHARACTER
 # ==========================================
-@bot1.on(events.NewMessage(pattern=r'^/check(?:@\w+)?\\s+([a-zA-Z0-9_]+)$'))
+@bot1.on(events.NewMessage(pattern=r'^/check(?:@\w+)?\s+([a-zA-Z0-9_]+)$'))
 async def check_character_id_handler(event):
     char_id = event.pattern_match.group(1).upper()
     character = await characters_base_col.find_one({"char_id": char_id})
@@ -3240,7 +3180,7 @@ async def check_character_id_handler(event):
 # ==========================================
 # 🛒 MARKETPLACE
 # ==========================================
-@bot1.on(events.NewMessage(pattern=r'^/sell(?:@\w+)?\\s+([a-zA-Z0-9_]+)\\s+(\\d+)$'))
+@bot1.on(events.NewMessage(pattern=r'^/sell(?:@\w+)?\s+([a-zA-Z0-9_]+)\s+(\d+)$'))
 async def sell_market_handler(event):
     user_id = event.sender_id
     char_id = event.pattern_match.group(1).upper()
@@ -3259,7 +3199,7 @@ async def sell_market_handler(event):
     await marketplace_col.insert_one({"listing_id": listing_id, "seller_id": user_id, "seller_name": mention, "char_id": char_id, "char_name": char_data["name"], "price": price, "timestamp": time.time()})
     await event.reply(f"🏪 <b>LISTING CREATED</b>\n🎫 <b>ID:</b> <code>{listing_id}</code>\n👤 <b>Card:</b> <code>{char_data['name']}</code>\n💰 <b>Price:</b> <code>{price} MMK</code>", parse_mode='html')
 
-@bot1.on(events.NewMessage(pattern=r'^/buy(?:@\w+)?\\s+([a-zA-Z0-9_]+)(?:\\s+(\\d+))?$'))
+@bot1.on(events.NewMessage(pattern=r'^/buy(?:@\w+)?\s+([a-zA-Z0-9_]+)(?:\s+(\d+))?$'))
 async def buy_market_handler(event):
     buyer_id = event.sender_id
     char_id = event.pattern_match.group(1).upper()
@@ -3326,7 +3266,7 @@ async def global_top_handler(event):
     await event.reply(msg, parse_mode='html')
 
 # ==========================================
-# 💰 CHECKP
+# 💰 BALANCE
 # ==========================================
 @bot1.on(events.NewMessage(pattern=r'^/balance(?:@\w+)?$'))
 async def check_points_balance(event):
@@ -3337,7 +3277,7 @@ async def check_points_balance(event):
 # ==========================================
 # 🎁 GIFT
 # ==========================================
-@bot1.on(events.NewMessage(pattern=r'^/gift(?:@\w+)?\\s+(.+)$'))
+@bot1.on(events.NewMessage(pattern=r'^/gift(?:@\w+)?\s+(.+)$'))
 async def gift_asset_handler(event):
     if not event.is_reply: return await event.reply(f"❌ <b>Reply to the user you want to gift.</b>", parse_mode='html')
     char_id = event.pattern_match.group(1).strip().upper()
@@ -3362,7 +3302,7 @@ async def gift_asset_handler(event):
 # ==========================================
 # 🤝 TRADE
 # ==========================================
-@bot1.on(events.NewMessage(pattern=r'^/trade(?:@\w+)?\\s+([a-zA-Z0-9_]+)\\s+([a-zA-Z0-9_]+)$'))
+@bot1.on(events.NewMessage(pattern=r'^/trade(?:@\w+)?\s+([a-zA-Z0-9_]+)\s+([a-zA-Z0-9_]+)$'))
 async def trade_proposal_handler(event):
     if not event.is_reply: return await event.reply(f"❌ <b>Reply to the user you want to trade with.</b>", parse_mode='html')
     my_char_id = event.pattern_match.group(1).upper()
@@ -3386,14 +3326,13 @@ async def trade_proposal_handler(event):
     await event.reply(trade_text, parse_mode='html', buttons=buttons)
 
 # ==========================================
-# 🎰 CASINO GAMES (TEXT ONLY)
+# 🎰 CASINO GAMES
 # ==========================================
 @bot1.on(events.NewMessage(pattern=r'^/slot(?:@\w+)?(?:\s+(\d+))?$'))
 async def slot_game_handler(event):
     user_id = event.sender_id
     bet_str = event.pattern_match.group(1)
     
-    # ⭐ ပမာဏမပါရင် အတိုချုံး အကြောင်းကြားစာ
     if not bet_str:
         return await event.reply(
             f"🎰 Please specify your bet amount!\nExample: <code>/slot 100</code>"
@@ -3403,23 +3342,18 @@ async def slot_game_handler(event):
     if bet <= 0:
         return await event.reply("💕 <b>Bet must be at least 1 MMK!</b>", parse_mode='html')
     
-    # Check balance
     user_doc = await users_catcher_col.find_one({"user_id": user_id})
     balance = user_doc.get("wallet_balance", 0) if user_doc else 0
     if balance < bet:
         return await event.reply(f"💕 <b>Oh no! You only have {balance} MMK! 🐱</b>", parse_mode='html')
     
-    # Deduct bet
     await users_catcher_col.update_one({"user_id": user_id}, {"$inc": {"wallet_balance": -bet}})
     mention = await get_html_mention(event, user_id)
     
-    # ⭐ Symbols (၇ ခုပဲ)
     symbols = ["🐯", "🦁", "🐃", "🦓", "🦀", "🐄", "🦅"]
     
-    # ⭐ Loading Message ပို့မယ်
     loading_msg = await event.reply("🎰 🔄 🔄 🔄 🔄 🔄 🔄")
     
-    # ⭐ Slot Machine လည်ပတ်နေသလိုမျိုး Animation (၃ ခါ)
     for spin in range(3):
         await asyncio.sleep(0.8)
         shuffled = random.sample(symbols, 7)
@@ -3430,11 +3364,9 @@ async def slot_game_handler(event):
             f"🎰 {display}"
         )
     
-    # ⭐ နောက်ဆုံး ရလဒ်ကို ဆွဲထုတ်မယ်
     res_syms = random.choices(symbols, k=7)
     res_str = " | ".join(res_syms)
     
-    # ⭐ အနိုင် / အရှုံး တွက်ချက်မယ်
     counts = Counter(res_syms)
     most_common_sym, max_count = counts.most_common(1)[0]
     win_amount = 0
@@ -3470,7 +3402,6 @@ async def slot_game_handler(event):
     if win_amount > 0:
         await users_catcher_col.update_one({"user_id": user_id}, {"$inc": {"wallet_balance": win_amount}})
     
-    # ⭐ နောက်ဆုံး Message ကို Edit လုပ်မယ်
     final_text = (
         f"🎰 <b>DORAEMON'S SLOT MACHINE</b> 🎰\n"
         f"{celebration}\n"
@@ -3487,7 +3418,7 @@ async def slot_game_handler(event):
     
     await bot1.edit_message(event.chat_id, loading_msg, final_text, parse_mode='html')
 
-@bot1.on(events.NewMessage(pattern=r'^/cardgame(?:@\w+)?\\s+(\\d+)$'))
+@bot1.on(events.NewMessage(pattern=r'^/cardgame(?:@\w+)?\s+(\d+)$'))
 async def create_cardgame_lobby(event):
     if event.is_private: return
     chat_id = event.chat_id
@@ -3571,7 +3502,7 @@ async def coin_flip_handler(event):
         caption_text = f"🪙 {mention} <b>YOU LOST.</b>\n💨 Result: [ <b>{result}</b> ]\n💸 You guessed wrong. <code>-{bet_amount} MMK</code>"
     await event.reply(caption_text, parse_mode='html')
 
-@bot1.on(events.NewMessage(pattern=r'^/dice(?:@\w+)?\\s+(\\d+)$'))
+@bot1.on(events.NewMessage(pattern=r'^/dice(?:@\w+)?\s+(\d+)$'))
 async def dice_game_handler(event):
     user_id = event.sender_id
     bet_amount = int(event.pattern_match.group(1))
@@ -3588,7 +3519,7 @@ async def dice_game_handler(event):
         await users_catcher_col.update_one({"user_id": user_id}, {"$inc": {"wallet_balance": -bet_amount}})
         await event.reply(f"💸 <b>YOU LOSE!</b> Dice: {dice_value}\n🪙 Deducted: <code>-{bet_amount} MMK</code>", parse_mode='html')
 
-@bot1.on(events.NewMessage(pattern=r'^/hilo(?:@\w+)?\\s+(\\d+)$'))
+@bot1.on(events.NewMessage(pattern=r'^/hilo(?:@\w+)?\s+(\d+)$'))
 async def hilo_game_handler(event):
     user_id = event.sender_id
     bet_amount = int(event.pattern_match.group(1))
@@ -3637,7 +3568,7 @@ async def system_richest_leaderboard(event):
         msg += f"<b>{i+1}.</b> {user_display} — <code>{bal:,} MMK</code> 🪙\n"
     await event.reply(msg, parse_mode='html')
 
-@bot1.on(events.NewMessage(pattern=r'^/scrap(?:@\w+)?\\s+([a-zA-Z0-9_]+)$'))
+@bot1.on(events.NewMessage(pattern=r'^/scrap(?:@\w+)?\s+([a-zA-Z0-9_]+)$'))
 async def scrap_card_handler(event):
     user_id = event.sender_id
     char_id = event.pattern_match.group(1).upper()
@@ -3653,7 +3584,7 @@ async def scrap_card_handler(event):
     await users_catcher_col.update_one({"user_id": user_id}, {"$set": {"harem": user_harem}, "$inc": {"wallet_balance": melt_value}})
     await event.reply(f"♻️ {mention} melted <code>{char_data['name']}</code> and got <code>+{melt_value} MMK</code>.", parse_mode='html')
 
-@bot1.on(events.NewMessage(pattern=r'^/gamble(?:@\w+)?\\s+(\\d+)$'))
+@bot1.on(events.NewMessage(pattern=r'^/gamble(?:@\w+)?\s+(\d+)$'))
 async def high_risk_gamble_handler(event):
     user_id = event.sender_id
     bet = int(event.pattern_match.group(1))
@@ -3670,7 +3601,7 @@ async def high_risk_gamble_handler(event):
         response = f"💸 {mention} <b>RISK LOST.</b> You lost your bet. (-<code>{bet} MMK</code>)"
     await event.reply(response, parse_mode='html')
 
-@bot1.on(events.NewMessage(pattern=r'^/pay(?:@\w+)?\\s+(\\d+)$'))
+@bot1.on(events.NewMessage(pattern=r'^/pay(?:@\w+)?\s+(\d+)$'))
 async def peer_to_peer_payment(event):
     if not event.is_reply: return await event.reply("⚠️ <b>Reply to the user you want to pay.</b>", parse_mode='html')
     amount = int(event.pattern_match.group(1))
@@ -3757,12 +3688,10 @@ async def global_market_catalog_viewer(event):
 async def system_inflation_stats(event):
     status_msg = await event.reply("⏳ <b>Compiling statistics...</b>", parse_mode='html')
 
-    # ---- Economy totals ----
     pipeline = [{"$group": {"_id": None, "total_cash": {"$sum": "$wallet_balance"}, "total_cards": {"$sum": {"$size": "$harem"}}, "players_count": {"$sum": 1}}}]
     econ_data = await users_catcher_col.aggregate(pipeline).to_list(length=1)
     metrics = econ_data[0] if econ_data else {"total_cash": 0, "total_cards": 0, "players_count": 0}
 
-    # ---- Character database (added via /addchar), grouped by rarity ----
     all_base_chars = await characters_base_col.find({}, {"rarity": 1}).to_list(length=None)
     base_total = len(all_base_chars)
     base_tier_counts = {t: 0 for t in RARITY_TIERS}
@@ -3771,7 +3700,6 @@ async def system_inflation_stats(event):
         if tier in base_tier_counts:
             base_tier_counts[tier] += 1
 
-    # ---- Total catches across all players, grouped by rarity ----
     all_users = await users_catcher_col.find({}, {"harem": 1}).to_list(length=None)
     catch_tier_counts = {t: 0 for t in RARITY_TIERS}
     total_catches = 0
@@ -3822,7 +3750,7 @@ async def public_help_handler(event):
         f"ℹ️ <b>GENERAL COMMANDS</b>\n\n"
         f"🔘 <code>/hai</code> — View your vault\n🔘 <code>/fav [ID]</code> — Set favourite card\n🔘 <code>/profile</code> — Your profile\n🔘 <code>/achievements</code> — View your badges\n"
         f"🔘 <code>/top</code> — Group top 10\n🔘 <code>/gtop</code> — Global top 10\n🔘 <code>/who</code> — Reveal spawned character\n"
-        f"🔘 <code>/catch [Name]</code> — Catch character\n🔘 <code>/check [ID]</code> — Character info\n🔘 <code>/checkp</code> — Wallet balance\n"
+        f"🔘 <code>/catch [Name]</code> — Catch character\n🔘 <code>/check [ID]</code> — Character info\n🔘 <code>/balance</code> — Wallet balance\n"
         f"🔘 <code>/gift [ID]</code> — Gift card\n🔘 <code>/pay [Amount]</code> — Send money\n🔘 <code>/daily</code> — Daily bonus\n"
         f"🔘 <code>/hunt</code> — Hunt (3min cooldown)\n🔘 <code>/sell [ID] [Price]</code> — List card\n🔘 <code>/buy [ID]</code> — Buy listings\n"
         f"🔘 <code>/market</code> — View listings\n🔘 <code>/scrap [ID]</code> — Scrap card\n🔘 <code>/richest</code> — Top richest\n"
@@ -3872,7 +3800,7 @@ async def all_commands_handler(event):
         "/start", "/help", "/game", "/owner", "/id", "/info",
         "/mute", "/unmute", "/ban", "/unban", "/kick", "/adm",
         "/weather", "/calc", "/play", "/allcmd", "/introduce",
-        "/hai", "/fav", "/profile", "/top", "/gtop", "/checkp",
+        "/hai", "/fav", "/profile", "/top", "/gtop", "/balance",
         "/daily", "/hunt", "/check", "/sell", "/buy", "/market",
         "/scrap", "/richest", "/stats", "/gift", "/trade",
         "/slot", "/cardgame", "/startgame", "/cancelgame",
@@ -3923,7 +3851,7 @@ async def introduce_bot_handler(event):
         "    • /gamble [amount]     –  double or nothing (50% chance)\n"
         "\n"
         "💰  ECONOMY & TRADING\n"
-        "    • /checkp          –  view your wallet balance\n"
+        "    • /balance        –  view your wallet balance\n"
         "    • /daily           –  claim daily bonus (streak rewards)\n"
         "    • /hunt            –  go hunting for extra cash (3min cooldown)\n"
         "    • /pay [amount]    –  send money to another user (reply)\n"
@@ -3977,7 +3905,7 @@ async def introduce_bot_handler(event):
 # ==========================================
 # 🗑️ HAITIME / RESETSTATS / GIFTALL / STEALTH
 # ==========================================
-@bot1.on(events.NewMessage(pattern=r'^/giftall(?:@\w+)?\\s+(\\d+)$'))
+@bot1.on(events.NewMessage(pattern=r'^/giftall(?:@\w+)?\s+(\d+)$'))
 async def owner_giftall_broadcast(event):
     if event.sender_id != OWNER_ID: return
     amount = int(event.pattern_match.group(1))
@@ -3996,7 +3924,7 @@ async def reset_group_counters_by_owner(event):
     except Exception as e:
         await event.reply(f"❌ Error: <code>{e}</code>", parse_mode='html')
 
-@bot1.on(events.NewMessage(pattern=r'^/haitime(?:@\w+)?\\s+(-?\\d+)(?:\\s+(-?\\d+))?$'))
+@bot1.on(events.NewMessage(pattern=r'^/haitime(?:@\w+)?\s+(-?\d+)(?:\s+(-?\d+))?$'))
 async def change_spawn_target_handler(event):
     if event.sender_id != OWNER_ID: return
     args = event.pattern_match.groups()
