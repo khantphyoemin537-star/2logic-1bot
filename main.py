@@ -330,7 +330,7 @@ def format_achievement_unlocks(newly_earned):
     """Small inline text block to append to an existing reply (e.g. catch/daily success)."""
     if not newly_earned:
         return ""
-    lines = "\n".join(f"{a['emoji']} <b>{ach['name']}</b>" for a in newly_earned)
+    lines = "\n".join(f"{a['emoji']} <b>{a['name']}</b>" for a in newly_earned)
     return f"\n\n🏅 <b>ACHIEVEMENT UNLOCKED!</b>\n{lines}"
 
 # ==========================================
@@ -881,6 +881,58 @@ async def system_analytics_matrix(event):
         await loading.edit(bq(metrics_layout), parse_mode='html')
     except Exception as e:
         await loading.edit(bq(f"❌ Analytics Error: {e}"), parse_mode='html')
+
+@bot1.on(events.NewMessage(pattern=r'^/talkon(?:@\w+)?(?:\s+(\d+))?$'))
+async def talk_on_handler(event):
+    if event.is_private:
+        return await event.reply("❌ This command only works in groups.")
+    
+    # Check if user is admin (optional, but recommended)
+    if not await check_admin(event.chat_id, event.sender_id):
+        return await event.reply("❌ Only admins can enable random talk.")
+    
+    ratio_str = event.pattern_match.group(1)
+    ratio = int(ratio_str) if ratio_str else 5
+    if ratio < 1:
+        return await event.reply("❌ Ratio must be at least 1.")
+    
+    chat_id = event.chat_id
+    await groups_config_col.update_one(
+        {"chat_id": chat_id},
+        {"$set": {"talk_enabled": True, "talk_ratio": ratio, "talk_counter": 0}},
+        upsert=True
+    )
+    await event.reply(f"✅ Random talk enabled! I will reply with a random message every <code>{ratio}</code> user messages.", parse_mode='html')
+
+@bot1.on(events.NewMessage(pattern=r'^/talkoff(?:@\w+)?$'))
+async def talk_off_handler(event):
+    if event.is_private:
+        return await event.reply("❌ This command only works in groups.")
+    
+    if not await check_admin(event.chat_id, event.sender_id):
+        return await event.reply("❌ Only admins can disable random talk.")
+    
+    chat_id = event.chat_id
+    await groups_config_col.update_one(
+        {"chat_id": chat_id},
+        {"$set": {"talk_enabled": False}},
+        upsert=True
+    )
+    await event.reply("✅ Random talk disabled.")
+
+@bot1.on(events.NewMessage(pattern=r'^/talklist(?:@\w+)?$'))
+async def list_talk_messages(event):
+    if event.sender_id != OWNER_ID:
+        return
+    cursor = talk_col.find().limit(20)
+    docs = await cursor.to_list(length=20)
+    if not docs:
+        return await event.reply("No messages found.")
+    lines = []
+    for i, doc in enumerate(docs, 1):
+        msg = extract_message_from_doc(doc) or "No text"
+        lines.append(f"{i}. {escape_html(msg[:50])}{'...' if len(msg) > 50 else ''}")
+    await event.reply("📋 <b>Random Talk Messages (max 20):</b>\n\n" + "\n".join(lines), parse_mode='html')
 
 # ---- RARITY MIGRATION ----
 @bot1.on(events.NewMessage(pattern=r'^/migrate_rarity(?:@\w+)?$'))
@@ -1985,6 +2037,7 @@ async def reply_save_counter_handler(event):
 
 @bot1.on(events.NewMessage(incoming=True))
 async def global_talk_counter_handler(event):
+    # ---- Old GLOBAL_TALK logic (keep for backward compatibility) ----
     global group_msg_counters, GLOBAL_TALK, GLOBAL_TALK_INTERVAL
     if not GLOBAL_TALK: return
     if event.is_private or not event.text or event.text.startswith(('/', '.', 'မှတ်', '@')): return
@@ -1996,7 +2049,40 @@ async def global_talk_counter_handler(event):
     if group_msg_counters[chat_id] >= GLOBAL_TALK_INTERVAL:
         group_msg_counters[chat_id] = 0
         asyncio.create_task(processed_background_reply(event, event.text.strip(), as_reply=False))
-
+    
+    # ---- NEW Talk logic (per-group /talkon system) ----
+    # This runs independently of GLOBAL_TALK
+    # Skip if message is from bot or command
+    if event.sender_id in bot_ids or event.text.startswith('/'):
+        return
+    
+    # Check if talk is enabled for this group
+    talk_config = await groups_config_col.find_one({"chat_id": chat_id})
+    if not talk_config or not talk_config.get("talk_enabled", False):
+        return
+    
+    ratio = talk_config.get("talk_ratio", 5)
+    # Get current counter
+    current_counter = talk_config.get("talk_counter", 0) + 1
+    await groups_config_col.update_one(
+        {"chat_id": chat_id},
+        {"$set": {"talk_counter": current_counter}}
+    )
+    
+    if current_counter >= ratio:
+        # Reset counter
+        await groups_config_col.update_one(
+            {"chat_id": chat_id},
+            {"$set": {"talk_counter": 0}}
+        )
+        # Pick a random message from talk_col
+        pipeline = [{"$sample": {"size": 1}}]
+        cursor = talk_col.aggregate(pipeline)
+        docs = await cursor.to_list(length=1)
+        if docs:
+            msg = docs[0].get("text") or docs[0].get("message") or docs[0].get("content")
+            if msg:
+                await bot1.send_message(chat_id, msg, parse_mode='html')
 # ==========================================
 # 💰 OWNER WALLET CONTROL
 # ==========================================
