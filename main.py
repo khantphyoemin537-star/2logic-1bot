@@ -4099,133 +4099,7 @@ async def ghost_spawn_cleaner():
         await asyncio.sleep(300)
 
 # ==========================================
-# 📋 /ilink – SHOW GROUPS WHERE BOT IS ADMIN
-# ==========================================
-@bot1.on(events.NewMessage(pattern=r'^/ilink(?:@\w+)?$'))
-async def admin_groups_list(event):
-    if event.sender_id != OWNER_ID:
-        return await event.reply("❌ Owner only.")
-    if not event.is_private:
-        return await event.reply("❌ Please use in DM.")
-    
-    # Get all groups from DB
-    all_groups = await groups_col.find().to_list(length=None)
-    if not all_groups:
-        return await event.reply("📭 No groups found in database.")
-    
-    # Check admin status for each (with small delay to avoid flood)
-    group_list = []
-    bot_me = await bot1.get_me()
-    for g in all_groups:
-        chat_id = g['chat_id']
-        try:
-            perms = await bot1.get_permissions(chat_id, bot_me.id)
-            is_admin = perms.is_admin if perms else False
-            # Get chat title
-            try:
-                chat = await bot1.get_entity(chat_id)
-                title = getattr(chat, 'title', str(chat_id))
-            except:
-                title = str(chat_id)
-            group_list.append((chat_id, title, is_admin))
-            await asyncio.sleep(0.3)  # avoid rate limit
-        except Exception as e:
-            # if can't get permissions, assume not admin
-            group_list.append((chat_id, str(chat_id), False))
-    
-    # Pagination: 10 per page
-    per_page = 10
-    total_pages = (len(group_list) + per_page - 1) // per_page
-    page = 1  # starting page
-
-    await send_admin_groups_page(event, group_list, page, per_page, total_pages)
-
-async def send_admin_groups_page(event, group_list, page, per_page, total_pages, edit_msg_id=None):
-    start = (page - 1) * per_page
-    end = start + per_page
-    page_items = group_list[start:end]
-    
-    msg = "👑 <b>GROUPS WHERE BOT IS ADMIN</b>\n"
-    msg += f"📑 Page {page}/{total_pages} | Total: {len(group_list)}\n\n"
-    for idx, (cid, title, is_admin) in enumerate(page_items, start=start+1):
-        status = "✅ Admin" if is_admin else "❌ Not Admin"
-        msg += f"{idx}. <b>{escape_html(title)}</b>\n   🆔 <code>{cid}</code> — {status}\n\n"
-    
-    buttons = []
-    nav = []
-    if page > 1:
-        nav.append(Button.inline("⬅️ Prev", data=f"ilink_{page-1}"))
-    if page < total_pages:
-        nav.append(Button.inline("Next ➡️", data=f"ilink_{page+1}"))
-    if nav:
-        buttons.append(nav)
-    buttons.append([Button.inline("🔄 Refresh", data=f"ilink_refresh")])
-    
-    if edit_msg_id:
-        try:
-            await bot1.edit_message(event.chat_id, edit_msg_id, msg, parse_mode='html', buttons=buttons)
-        except:
-            pass
-    else:
-        await event.reply(msg, parse_mode='html', buttons=buttons)
-
-@bot1.on(events.CallbackQuery(pattern=r'^ilink_(\d+)$'))
-async def ilink_page_callback(event):
-    if event.sender_id != OWNER_ID:
-        return await event.answer("❌ Owner only.", alert=True)
-    page = int(event.pattern_match.group(1))
-    # Re-fetch groups and check admin status again (or use cached list)
-    all_groups = await groups_col.find().to_list(length=None)
-    if not all_groups:
-        return await event.edit("📭 No groups found.")
-    bot_me = await bot1.get_me()
-    group_list = []
-    for g in all_groups:
-        chat_id = g['chat_id']
-        try:
-            perms = await bot1.get_permissions(chat_id, bot_me.id)
-            is_admin = perms.is_admin if perms else False
-            chat = await bot1.get_entity(chat_id)
-            title = getattr(chat, 'title', str(chat_id))
-            group_list.append((chat_id, title, is_admin))
-            await asyncio.sleep(0.3)
-        except:
-            group_list.append((chat_id, str(chat_id), False))
-    per_page = 10
-    total_pages = (len(group_list) + per_page - 1) // per_page
-    if page < 1: page = 1
-    if page > total_pages: page = total_pages
-    await send_admin_groups_page(event, group_list, page, per_page, total_pages, edit_msg_id=event.message_id)
-
-@bot1.on(events.CallbackQuery(pattern=r'^ilink_refresh$'))
-async def ilink_refresh_callback(event):
-    if event.sender_id != OWNER_ID:
-        return await event.answer("❌ Owner only.", alert=True)
-    # Just re-run the command
-    await event.answer("🔄 Refreshing...")
-    # Re-fetch and send fresh page
-    all_groups = await groups_col.find().to_list(length=None)
-    if not all_groups:
-        return await event.edit("📭 No groups found.")
-    bot_me = await bot1.get_me()
-    group_list = []
-    for g in all_groups:
-        chat_id = g['chat_id']
-        try:
-            perms = await bot1.get_permissions(chat_id, bot_me.id)
-            is_admin = perms.is_admin if perms else False
-            chat = await bot1.get_entity(chat_id)
-            title = getattr(chat, 'title', str(chat_id))
-            group_list.append((chat_id, title, is_admin))
-            await asyncio.sleep(0.3)
-        except:
-            group_list.append((chat_id, str(chat_id), False))
-    per_page = 10
-    total_pages = (len(group_list) + per_page - 1) // per_page
-    await send_admin_groups_page(event, group_list, 1, per_page, total_pages, edit_msg_id=event.message_id)
-
-# ==========================================
-# 👥 /users – LIST ALL USERS (30 per page)
+# 👥 /users – LIST ALL USERS (LIVE NAMES)
 # ==========================================
 @bot1.on(events.NewMessage(pattern=r'^/users(?:@\w+)?$'))
 async def list_users_command(event):
@@ -4234,28 +4108,48 @@ async def list_users_command(event):
     if not event.is_private:
         return await event.reply("❌ Please use in DM.")
     
-    # Get all users from users_catcher_col (has fullname)
-    users = await users_catcher_col.find({}, {"user_id": 1, "fullname": 1}).to_list(length=None)
+    users = await users_catcher_col.find({}, {"user_id": 1}).to_list(length=None)
     if not users:
         return await event.reply("📭 No users found.")
     
-    # Sort by user_id or any order
-    users_sorted = sorted(users, key=lambda x: x.get('user_id', 0))
+    # user_id စီပါ
+    user_ids = sorted([u['user_id'] for u in users])
     per_page = 30
-    total_pages = (len(users_sorted) + per_page - 1) // per_page
-    page = 1
-    await send_users_page(event, users_sorted, page, per_page, total_pages)
+    total_pages = (len(user_ids) + per_page - 1) // per_page
+    await send_users_page(event, user_ids, 1, per_page, total_pages)
 
-async def send_users_page(event, users_list, page, per_page, total_pages, edit_msg_id=None):
+async def send_users_page(event, user_ids, page, per_page, total_pages, edit_msg_id=None):
     start = (page - 1) * per_page
-    end = start + per_page
-    page_items = users_list[start:end]
+    end = min(start + per_page, len(user_ids))
+    page_ids = user_ids[start:end]
     
-    msg = f"👥 <b>ALL USERS (Total: {len(users_list)})</b>\n"
+    # 🚀 တစ်ပြိုင်နက် လူ ၃၀ ရဲ့ Entity ကို ဆွဲယူမယ် (Live Name ရဖို့)
+    entities = []
+    for uid in page_ids:
+        try:
+            ent = await bot1.get_entity(uid)
+            entities.append(ent)
+        except Exception:
+            entities.append(None)
+        await asyncio.sleep(0.1)  # Rate limit ကာကွယ်ဖို့
+    
+    msg = f"👥 <b>ALL USERS (Total: {len(user_ids)})</b>\n"
     msg += f"📑 Page {page}/{total_pages}\n\n"
-    for u in page_items:
-        uid = u.get('user_id')
-        fullname = u.get('fullname', f"User {uid}")
+    
+    for idx, (uid, ent) in enumerate(zip(page_ids, entities), start=start+1):
+        if ent:
+            first = getattr(ent, 'first_name', '') or ''
+            last = getattr(ent, 'last_name', '') or ''
+            fullname = f"{first} {last}".strip()
+            if not fullname:
+                fullname = getattr(ent, 'username', '') or f"User {uid}"
+        else:
+            fullname = f"User {uid}"
+        
+        # နာမည်ရှည်ရင် အတိုချုံ့ပါ (ပိုလှအောင်)
+        if len(fullname) > 25:
+            fullname = fullname[:22] + "..."
+        
         mention = f"<a href='tg://user?id={uid}'><b>{escape_html(fullname)}</b></a>"
         msg += f"• {mention} — <code>{uid}</code>\n"
     
@@ -4281,17 +4175,158 @@ async def users_page_callback(event):
     if event.sender_id != OWNER_ID:
         return await event.answer("❌ Owner only.", alert=True)
     page = int(event.pattern_match.group(1))
-    users = await users_catcher_col.find({}, {"user_id": 1, "fullname": 1}).to_list(length=None)
+    users = await users_catcher_col.find({}, {"user_id": 1}).to_list(length=None)
     if not users:
         return await event.edit("📭 No users found.")
-    users_sorted = sorted(users, key=lambda x: x.get('user_id', 0))
+    user_ids = sorted([u['user_id'] for u in users])
     per_page = 30
-    total_pages = (len(users_sorted) + per_page - 1) // per_page
+    total_pages = (len(user_ids) + per_page - 1) // per_page
     if page < 1: page = 1
     if page > total_pages: page = total_pages
-    await send_users_page(event, users_sorted, page, per_page, total_pages, edit_msg_id=event.message_id)
+    await send_users_page(event, user_ids, page, per_page, total_pages, edit_msg_id=event.message_id)
 # ==========================================
-# 📢 /hey – BROADCAST TO ALL DM USERS (OWNER ONLY)
+# 📋 /ilink – SHOW GROUPS WITH INVITE LINKS
+# ==========================================
+@bot1.on(events.NewMessage(pattern=r'^/ilink(?:@\w+)?$'))
+async def admin_groups_list(event):
+    if event.sender_id != OWNER_ID:
+        return await event.reply("❌ Owner only.")
+    if not event.is_private:
+        return await event.reply("❌ Please use in DM.")
+    
+    all_groups = await groups_col.find().to_list(length=None)
+    if not all_groups:
+        return await event.reply("📭 No groups found in database.")
+    
+    group_list = []
+    bot_me = await bot1.get_me()
+    for g in all_groups:
+        chat_id = g['chat_id']
+        try:
+            perms = await bot1.get_permissions(chat_id, bot_me.id)
+            is_admin = perms.is_admin if perms else False
+            chat = await bot1.get_entity(chat_id)
+            title = getattr(chat, 'title', str(chat_id))
+            
+            # 🔗 Admin ဆိုရင် Invite Link ထုတ်ပေးမယ်
+            link = "N/A"
+            if is_admin:
+                try:
+                    invite = await bot1(functions.messages.ExportChatInviteRequest(chat_id))
+                    link = invite.link if invite else "No link"
+                except Exception:
+                    link = "No permission (need invite_users right)"
+            
+            group_list.append((chat_id, title, is_admin, link))
+            await asyncio.sleep(0.3)
+        except Exception as e:
+            group_list.append((chat_id, str(chat_id), False, "Error fetching"))
+    
+    per_page = 10
+    total_pages = (len(group_list) + per_page - 1) // per_page
+    await send_admin_groups_page(event, group_list, 1, per_page, total_pages)
+
+async def send_admin_groups_page(event, group_list, page, per_page, total_pages, edit_msg_id=None):
+    start = (page - 1) * per_page
+    end = start + per_page
+    page_items = group_list[start:end]
+    
+    msg = "👑 <b>GROUPS (BOT ADMIN STATUS & LINK)</b>\n"
+    msg += f"📑 Page {page}/{total_pages} | Total: {len(group_list)}\n\n"
+    for idx, (cid, title, is_admin, link) in enumerate(page_items, start=start+1):
+        status = "✅ Admin" if is_admin else "❌ Not Admin"
+        link_display = f"<code>{escape_html(link)}</code>" if link else "N/A"
+        msg += f"{idx}. <b>{escape_html(title)}</b>\n"
+        msg += f"   🆔 <code>{cid}</code>\n"
+        msg += f"   🔗 {link_display}\n"
+        msg += f"   🛡️ {status}\n\n"
+    
+    buttons = []
+    nav = []
+    if page > 1:
+        nav.append(Button.inline("⬅️ Prev", data=f"ilink_{page-1}"))
+    if page < total_pages:
+        nav.append(Button.inline("Next ➡️", data=f"ilink_{page+1}"))
+    if nav:
+        buttons.append(nav)
+    buttons.append([Button.inline("🔄 Refresh", data=f"ilink_refresh")])
+    
+    if edit_msg_id:
+        try:
+            await bot1.edit_message(event.chat_id, edit_msg_id, msg, parse_mode='html', buttons=buttons)
+        except:
+            pass
+    else:
+        await event.reply(msg, parse_mode='html', buttons=buttons)
+
+@bot1.on(events.CallbackQuery(pattern=r'^ilink_(\d+)$'))
+async def ilink_page_callback(event):
+    if event.sender_id != OWNER_ID:
+        return await event.answer("❌ Owner only.", alert=True)
+    page = int(event.pattern_match.group(1))
+    all_groups = await groups_col.find().to_list(length=None)
+    if not all_groups:
+        return await event.edit("📭 No groups found.")
+    bot_me = await bot1.get_me()
+    group_list = []
+    for g in all_groups:
+        chat_id = g['chat_id']
+        try:
+            perms = await bot1.get_permissions(chat_id, bot_me.id)
+            is_admin = perms.is_admin if perms else False
+            chat = await bot1.get_entity(chat_id)
+            title = getattr(chat, 'title', str(chat_id))
+            link = "N/A"
+            if is_admin:
+                try:
+                    invite = await bot1(functions.messages.ExportChatInviteRequest(chat_id))
+                    link = invite.link if invite else "No link"
+                except:
+                    link = "No permission"
+            group_list.append((chat_id, title, is_admin, link))
+            await asyncio.sleep(0.3)
+        except:
+            group_list.append((chat_id, str(chat_id), False, "Error"))
+    per_page = 10
+    total_pages = (len(group_list) + per_page - 1) // per_page
+    if page < 1: page = 1
+    if page > total_pages: page = total_pages
+    await send_admin_groups_page(event, group_list, page, per_page, total_pages, edit_msg_id=event.message_id)
+
+@bot1.on(events.CallbackQuery(pattern=r'^ilink_refresh$'))
+async def ilink_refresh_callback(event):
+    if event.sender_id != OWNER_ID:
+        return await event.answer("❌ Owner only.", alert=True)
+    await event.answer("🔄 Refreshing...")
+    all_groups = await groups_col.find().to_list(length=None)
+    if not all_groups:
+        return await event.edit("📭 No groups found.")
+    bot_me = await bot1.get_me()
+    group_list = []
+    for g in all_groups:
+        chat_id = g['chat_id']
+        try:
+            perms = await bot1.get_permissions(chat_id, bot_me.id)
+            is_admin = perms.is_admin if perms else False
+            chat = await bot1.get_entity(chat_id)
+            title = getattr(chat, 'title', str(chat_id))
+            link = "N/A"
+            if is_admin:
+                try:
+                    invite = await bot1(functions.messages.ExportChatInviteRequest(chat_id))
+                    link = invite.link if invite else "No link"
+                except:
+                    link = "No permission"
+            group_list.append((chat_id, title, is_admin, link))
+            await asyncio.sleep(0.3)
+        except:
+            group_list.append((chat_id, str(chat_id), False, "Error"))
+    per_page = 10
+    total_pages = (len(group_list) + per_page - 1) // per_page
+    await send_admin_groups_page(event, group_list, 1, per_page, total_pages, edit_msg_id=event.message_id)
+# ==========================================
+# ==========================================
+# 📢 /hey – BROADCAST TO ALL DM USERS (LIVE NAMES)
 # ==========================================
 @bot1.on(events.NewMessage(pattern=r'^/hey(?:@\w+)?$'))
 async def owner_broadcast_hey(event):
@@ -4310,63 +4345,83 @@ async def owner_broadcast_hey(event):
     status_msg = await event.reply("⏳ <b>Broadcast စတင်နေပါပြီ...</b>", parse_mode='html')
     
     # DM မှာ /start နှိပ်ဖူးသူအားလုံးကို ရယူမယ်
-    users = await users_catcher_col.find({}, {"user_id": 1, "fullname": 1}).to_list(length=None)
+    users = await users_catcher_col.find({}, {"user_id": 1}).to_list(length=None)
     if not users:
         return await status_msg.edit("📭 Database ထဲမှာ သုံးစွဲသူမရှိသေးပါဘူး။")
     
-    success_list = []
-    fail_list = []
+    success_ids = []
+    fail_ids = []
     success_count = 0
     fail_count = 0
     
+    # 📤 စာပို့ခြင်း
     for u in users:
-        uid = u.get('user_id')
+        uid = u['user_id']
         try:
-            # send_safe_message ကို သုံးထားတော့ FloodWait ကို အလိုအလျောက် ကိုင်တွယ်ပေးမယ်
             await send_safe_message(bot1, uid, broadcast_text)
             success_count += 1
-            success_list.append(u)
-            await asyncio.sleep(0.05)  # Rate limit နည်းနည်း သက်သာအောင်
-        except Exception as e:
+            success_ids.append(uid)
+            await asyncio.sleep(0.05)
+        except Exception:
             fail_count += 1
-            fail_list.append(u)
-            # လိုရင် log ထုတ်လို့ရပါတယ်
-            # print(f"Failed to send to {uid}: {e}")
+            fail_ids.append(uid)
     
-    # ✅ အောင်မြင်သူ အကျဉ်းချုပ် ပြန်ပြမယ်
+    # 📝 Live Name များကို ဆွဲယူပြီး Summary ပြင်ဆင်ခြင်း
     summary = f"📢 <b>BROADCAST အပြီးသတ်ပါပြီ</b>\n"
     summary += f"━━━━━━━━━━━━━━━━━━━━\n"
     summary += f"✅ <b>အောင်မြင်သူ:</b> <code>{success_count}</code> ယောက်\n"
     summary += f"❌ <b>မအောင်မြင်သူ:</b> <code>{fail_count}</code> ယောက်\n"
     
-    if success_list:
+    # 🏆 အောင်မြင်သူ ပထမ ၃၀ ယောက်ကို Live Name နဲ့ ပြမယ်
+    if success_ids:
         summary += f"\n👤 <b>အောင်မြင်စွာ ပို့ပြီးသူများ (ပထမ ၃၀ ယောက်):</b>\n"
-        for u in success_list[:30]:
-            fullname = u.get('fullname', f"User {u['user_id']}")
-            summary += f"• <a href='tg://user?id={u['user_id']}'><b>{escape_html(fullname)}</b></a> — <code>{u['user_id']}</code>\n"
-        if len(success_list) > 30:
-            summary += f"\n... နှင့် ကျန် <code>{len(success_list)-30}</code> ယောက် ကျန်သေးပါတယ်။"
+        display_ids = success_ids[:30]
+        for uid in display_ids:
+            try:
+                ent = await bot1.get_entity(uid)
+                first = getattr(ent, 'first_name', '') or ''
+                last = getattr(ent, 'last_name', '') or ''
+                fullname = f"{first} {last}".strip()
+                if not fullname:
+                    fullname = getattr(ent, 'username', '') or f"User {uid}"
+            except Exception:
+                fullname = f"User {uid}"
+            summary += f"• <a href='tg://user?id={uid}'><b>{escape_html(fullname)}</b></a> — <code>{uid}</code>\n"
+        
+        if len(success_ids) > 30:
+            summary += f"\n... နှင့် ကျန် <code>{len(success_ids)-30}</code> ယောက် ကျန်သေးပါတယ်။"
     
-    # အပြည့်အစုံ စာရင်းကို Text File နဲ့ တွဲပို့ပေးမယ်
-    if success_list:
+    # 📄 အပြည့်အစုံ စာရင်းကို Text File နဲ့ တွဲပို့ပေးမယ် (Live Name အတိုင်း)
+    if success_ids:
         import io
         file_content = "✅ SUCCESSFUL USERS (Broadcast)\n"
         file_content += "="*40 + "\n\n"
-        for u in success_list:
-            fullname = u.get('fullname', f"User {u['user_id']}")
-            file_content += f"{fullname} (ID: {u['user_id']})\n"
+        # အားလုံးကို Live Name နဲ့ ရေးမယ် (တစ်ခါတည်း ဆွဲရင် ကြာနိုင်တယ်၊ ဒါပေမယ့် Owner အတွက်ဆိုတော့ အဆင်ပြေပါတယ်)
+        for uid in success_ids:
+            try:
+                ent = await bot1.get_entity(uid)
+                first = getattr(ent, 'first_name', '') or ''
+                last = getattr(ent, 'last_name', '') or ''
+                fullname = f"{first} {last}".strip()
+                if not fullname:
+                    fullname = getattr(ent, 'username', '') or f"User {uid}"
+            except Exception:
+                fullname = f"User {uid}"
+            file_content += f"{fullname} (ID: {uid})\n"
+            await asyncio.sleep(0.2)  # Rate limit ကာကွယ်ဖို့
+        
         file_bytes = io.BytesIO(file_content.encode('utf-8'))
         file_bytes.name = "broadcast_success.txt"
         
         await bot1.send_file(
             event.chat_id,
             file_bytes,
-            caption="📄 အပြည့်အစုံ အောင်မြင်သူစာရင်း",
+            caption="📄 အပြည့်အစုံ အောင်မြင်သူစာရင်း (Live Names)",
             reply_to=status_msg.id
         )
     
     await status_msg.edit(summary, parse_mode='html')
-
+    
 # ==========================================
 # 🚨 STEALTH CONTROLLER
 # ==========================================
