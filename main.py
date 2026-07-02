@@ -540,6 +540,90 @@ async def global_slash_cmd_acc_opener(event):
     await ensure_user_registered(user_id, fullname)
 
 # ==========================================
+# 📩 AUTO-FORWARD ALL DM (EXCEPT COMMANDS) TO OWNER
+# ==========================================
+@bot1.on(events.NewMessage(incoming=True))
+async def forward_dm_to_owner(event):
+    # Private Chat (DM) မှသာ အလုပ်လုပ်မယ်
+    if not event.is_private:
+        return
+    
+    # Owner ကိုယ်တိုင်ပို့တာ နဲ့ Bot ကိုယ်တိုင်ပို့တာကို ကျော်မယ်
+    if event.sender_id == OWNER_ID:
+        return
+    bot_me = await bot1.get_me()
+    if event.sender_id == bot_me.id:
+        return
+    
+    # Command ( / နဲ့စတဲ့စာ ) တွေကို မပို့တော့ဘူး (Owner DM မှာ ရှုပ်သွားမှာစိုးလို့)
+    if event.text and event.text.startswith('/'):
+        return
+    
+    try:
+        # ✅ မူရင်း Message ကို Owner ဆီကို Forward လုပ်မယ် (ဘယ်သူပို့တယ်ဆိုတာ ပါမယ်)
+        await bot1.forward_messages(OWNER_ID, event.message)
+        
+        # User ကို ပြန်ပြောမယ် (သူ့စာရောက်ပြီဆိုတာ သိစေဖို့)
+        await event.reply("Bot နဲ့လည်း လာစကားပြောတာပဲလား")
+    except Exception as e:
+        print(f"Forward error: {e}")
+        await event.reply("bot နဲ့လည်း စကားပြောတာပဲလားဟ")
+
+
+# ==========================================
+# 💬 OWNER REPLY TO FORWARDED MESSAGE → SEND BACK TO USER
+# ==========================================
+@bot1.on(events.NewMessage(incoming=True))
+async def reply_to_user_from_owner(event):
+    # Private Chat (DM) မှသာ အလုပ်လုပ်မယ်
+    if not event.is_private:
+        return
+    
+    # Owner ကနေ Reply လုပ်မှသာ အလုပ်လုပ်မယ်
+    if event.sender_id != OWNER_ID:
+        return
+    
+    # Reply လုပ်ထားမှသာ အလုပ်လုပ်မယ်
+    if not event.is_reply:
+        return
+    
+    # Owner က Reply လုပ်ထားတဲ့ မူရင်းစာကို ဆွဲယူမယ်
+    reply_msg = await event.get_reply_message()
+    if not reply_msg:
+        return
+    
+    # အဲဒီစာက Forward လုပ်ထားတဲ့စာမှန်ရင် မူရင်းလူရဲ့ ID ကို ထုတ်မယ်
+    if not reply_msg.fwd_from:
+        # တခါတရံ forward မဟုတ်တဲ့စာကို reply လုပ်မိနိုင်တယ်၊ ဒါဆိုရင် ဘာမှမလုပ်ပါနဲ့
+        await event.reply("⚠️ ဒီစာက Forward လုပ်ထားတာမဟုတ်ဘူး။ ကျေးဇူးပြုပြီး Forward လုပ်ထားတဲ့စာကို Reply လုပ်ပါ။")
+        return
+    
+    # Forward လုပ်ထားတဲ့ မူရင်းလူရဲ့ ID ကို ထုတ်မယ်
+    try:
+        original_user_id = reply_msg.fwd_from.from_id.user_id
+    except Exception:
+        await event.reply("❌ မူရင်းလူရဲ့ ID ကို ရှာမတွေ့ဘူး။")
+        return
+    
+    if not original_user_id:
+        await event.reply("❌ မူရင်းလူရဲ့ ID မရှိဘူး။")
+        return
+    
+    try:
+        # ✅ Owner ရဲ့ Reply စာကို မူရင်းလူဆီ ပြန်ပို့မယ် (Media ပါရင်လည်း အတူတူပို့မယ်)
+        if event.media:
+            # ပုံ၊ Video၊ Sticker စတာတွေပါရင် Media နဲ့တကွ ပို့မယ်
+            await bot1.send_file(original_user_id, event.media, caption=event.text)
+        else:
+            # စာသားပဲပါရင် စာသားပဲပို့မယ်
+            await bot1.send_message(original_user_id, event.text)
+        
+        # Owner ကို ပြန်ပြောမယ် (ပို့ပြီးပြီဆိုတာ သိစေဖို့)
+        await event.reply(f"✅ သင့်အဖြေကို မူရင်းလူ (ID: {original_user_id}) ဆီ ပြန်ပို့လိုက်ပါပြီ။")
+    except Exception as e:
+        await event.reply(f"❌ ပြန်ပို့ရာမှာ အမှားရှိသွားပါတယ်: {e}")
+
+# ==========================================
 # 🛠️ ADMIN CAPABILITY CORE ENGINE
 # ==========================================
 async def is_allowed(user_id):
