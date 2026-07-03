@@ -2756,7 +2756,7 @@ async def who_reveal_handler(event):
 
         reveal_text = (
             f"🫧 <b>Doraemon says: I found a mysterious gadget!</b>\n\n"
-            f"<code>/catch {escape_html(char_name)}</code>"\n\n"
+            f"<code>/catch {escape_html(char_name)}</code>\n\n"
             f"✨ <b>Ready to catch?</b>\n"
         )
 
