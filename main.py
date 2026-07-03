@@ -1970,7 +1970,7 @@ async def add_character(event):
             f"👤 <b>{f('Name')}:</b> <code>{char_name}</code>\n"
             f"🌟 <b>{f('Rarity')}:</b> {r_info['name']}\n"
             f"💎 <b>{f('Worth')}:</b> <code>{r_info['value']} MMK</code>\n"
-            f"🎪 <b>Event:</b> <code>{escape_html(event_name)}</code>\n"
+            f"🎡 <b>Event:</b> <code>{escape_html(event_name)}</code>\n"
             f"🔁 <b>Spawn Limit:</b> <code>{limit_text}</code>",
             parse_mode='html'
         )
@@ -2105,7 +2105,7 @@ async def edit_character_apply(event):
 
     await event.reply(
         f"✅ <b>{escape_html(updated_doc['name'])}</b> (<code>{char_id}</code>) updated!\n"
-        f"🎪 Event: <code>{escape_html(updated_doc.get('event','General'))}</code>\n"
+        f"🎡 Event: <code>{escape_html(updated_doc.get('event','General'))}</code>\n"
         f"🔁 Spawns remaining: <b>{remaining_text}</b>",
         parse_mode='html'
     )
@@ -2349,7 +2349,7 @@ async def play_response(event):
         f"💿 <b>Now Playing:</b> <code>{escape_html(song_title.strip())}</code>\n"
         f"✨ <b>Requested By:</b> {mention}\n\n"
         f"💎 <b>Your Playlist (max 30):</b>\n{playlist_text}"
-        f"💡 <i>Doraemon keeps your last 30 songs.</i>"
+        f"➠ <i>Doraemon keeps your last 30 songs.</i>"
     )
 
     inline_buttons = [
@@ -2756,12 +2756,8 @@ async def who_reveal_handler(event):
 
         reveal_text = (
             f"🫧 <b>Doraemon says: I found a mysterious gadget!</b>\n\n"
-            f"👀 <b>Name:</b> <code>{escape_html(char_name)}</code>\n"
-            f"💎 <b>Rarity:</b> {char_rarity}\n"
-            f"🏷️ <b>Category:</b> <code>{escape_html(char_category)}</code>\n"
-            f"🎡 <b>Event:</b> <code>{escape_html(event_display)}</code>\n\n"
-            f"✨ <b>Ready to catch?</b> Just tap the button below or type:\n"
-            f"<code>/catch {escape_html(char_name)}</code>"
+            f"<code>/catch {escape_html(char_name)}</code>"\n\n"
+            f"✨ <b>Ready to catch?</b>\n"
         )
 
         # Try to send with inline button
