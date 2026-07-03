@@ -2733,7 +2733,7 @@ async def who_reveal_handler(event):
     spawn_data = active_group_spawns[chat_id]
 
     # Expired after 60 seconds
-    if time.time() - spawn_data["spawn_time"] > 60:
+    if time.time() - spawn_data["spawn_time"] > 300:
         if chat_id in active_group_spawns:
             del active_group_spawns[chat_id]
         return await event.reply(
@@ -2760,23 +2760,23 @@ async def who_reveal_handler(event):
             f"✨ <b>Ready to catch?</b>\n"
         )
 
-        # Try to send with inline button
+        
         try:
             buttons = [
-                [Button.switch_inline_query_current_chat(
-                    f"🎯 Catch {char_name} Now!",
-                    query=f"/catch {char_name}"
+                [Button.switch_inline(
+                    text=f"🎯 Catch {char_name} Now!",
+                    query=f"/catch {char_name}",
+                    same_peer=True
                 )]
             ]
             await event.reply(reveal_text, parse_mode='html', buttons=buttons)
-        except Exception as e:
-            # If button fails, send without button (fallback)
-            await report_system_error("who_button_fallback", f"Button failed: {e}")
+        except Exception as button_error:
+            # Fallback: send without button
+            await report_system_error("who_button_fallback", f"Button error: {button_error}")
             await event.reply(reveal_text, parse_mode='html')
 
     except KeyError as ke:
-        # Missing key in spawn_data
-        error_msg = f"Missing key: {ke}. Spawn data: {spawn_data}"
+        error_msg = f"KeyError: {ke}. Spawn data: {spawn_data}"
         print(error_msg)
         await report_system_error("who_reveal_handler", error_msg)
         await event.reply(
@@ -2784,7 +2784,6 @@ async def who_reveal_handler(event):
             parse_mode='html'
         )
     except Exception as e:
-        # Any other error
         error_msg = f"General error in /who: {e}\nSpawn data: {spawn_data}"
         print(error_msg)
         await report_system_error("who_reveal_handler", error_msg)
