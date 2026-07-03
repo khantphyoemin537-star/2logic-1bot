@@ -2755,32 +2755,47 @@ async def who_reveal_handler(event):
         char_category = spawn_data['category']
 
         reveal_text = (
-            f"🔍 <b>Doraemon says: I found a mysterious gadget!</b>\n\n"
+            f"🫧 <b>Doraemon says: I found a mysterious gadget!</b>\n\n"
             f"👀 <b>Name:</b> <code>{escape_html(char_name)}</code>\n"
             f"💎 <b>Rarity:</b> {char_rarity}\n"
             f"🏷️ <b>Category:</b> <code>{escape_html(char_category)}</code>\n"
-            f"🎪 <b>Event:</b> <code>{escape_html(event_display)}</code>\n\n"
+            f"🎡 <b>Event:</b> <code>{escape_html(event_display)}</code>\n\n"
             f"✨ <b>Ready to catch?</b> Just tap the button below or type:\n"
-            f"➠ ➠ ➠<code>/catch {escape_html(char_name)}</code>"
+            f"<code>/catch {escape_html(char_name)}</code>"
         )
 
-        # Inline button that pre‑fills the /catch command in your input field
-        buttons = [
-            [Button.switch_inline_query_current_chat(
-                f"🎯 Catch {char_name} Now!",
-                query=f"/catch {char_name}"
-            )]
-        ]
+        # Try to send with inline button
+        try:
+            buttons = [
+                [Button.switch_inline_query_current_chat(
+                    f"🎯 Catch {char_name} Now!",
+                    query=f"/catch {char_name}"
+                )]
+            ]
+            await event.reply(reveal_text, parse_mode='html', buttons=buttons)
+        except Exception as e:
+            # If button fails, send without button (fallback)
+            await report_system_error("who_button_fallback", f"Button failed: {e}")
+            await event.reply(reveal_text, parse_mode='html')
 
-        await event.reply(reveal_text, parse_mode='html', buttons=buttons)
-
-    except Exception as e:
-        print(f"Error in /who command: {e}")
+    except KeyError as ke:
+        # Missing key in spawn_data
+        error_msg = f"Missing key: {ke}. Spawn data: {spawn_data}"
+        print(error_msg)
+        await report_system_error("who_reveal_handler", error_msg)
         await event.reply(
-            "❌ <b>Something went wrong while revealing!</b>",
+            "❌ <b>Oops! Doraemon's data is incomplete. Please try again later.</b>",
             parse_mode='html'
         )
-
+    except Exception as e:
+        # Any other error
+        error_msg = f"General error in /who: {e}\nSpawn data: {spawn_data}"
+        print(error_msg)
+        await report_system_error("who_reveal_handler", error_msg)
+        await event.reply(
+            "❌ <b>Something went wrong while revealing! Doraemon is fixing it...</b>",
+            parse_mode='html'
+        )
 # ==========================================
 # ⚡ CATCH LOGIC
 # ==========================================
