@@ -2692,10 +2692,10 @@ async def trigger_dynamic_spawn(chat_id):
         event_display = escape_html(event_name) if event_name and event_name != "General" else "➖"
         spawn_msg = await bot1.send_message(
             chat_id, 
-            f"🔔 <b>Ring ring! A Character popped out of the Anywhere Door!</b>\n\n"
-            f"🌟 <b>Rarity:</b> {rarity_display}\n"
-            f"🎪 <b>Event:</b> {event_display}\n\n"
-            f"<blockquote>🔎 Who is this? Reply with <code>/who</code> to reveal!</blockquote>",
+            f"🫧 <b>Ring ring! A Character popped out of the Anywhere Door!</b>\n\n"
+            f" <b>Rarity:</b> {rarity_display}\n"
+            f" <b>Event:</b> {event_display}\n\n"
+            f"<blockquote>➠➠Reply with <code>/who</code> to reveal!</blockquote>",
             parse_mode='html',
             file=storage_msg.media
         )
@@ -2720,32 +2720,66 @@ async def trigger_dynamic_spawn(chat_id):
 # ==========================================
 @bot1.on(events.NewMessage(pattern=r'^/who(?:@\w+)?$'))
 async def who_reveal_handler(event):
-    if event.is_private: return
+    if event.is_private:
+        return
     chat_id = event.chat_id
-    
+
     if chat_id not in active_group_spawns:
-        return await event.reply(f"❌ <b>No gadget has spawned yet!</b>", parse_mode='html')
-        
+        return await event.reply(
+            "🐾 <b>Nothing here yet... Doraemon hasn't dropped any gadget!</b>",
+            parse_mode='html'
+        )
+
     spawn_data = active_group_spawns[chat_id]
+
+    # Expired after 60 seconds
     if time.time() - spawn_data["spawn_time"] > 60:
-        if chat_id in active_group_spawns: del active_group_spawns[chat_id]
-        return await event.reply(f"⏱️ <b>The gadget has vanished! Try again later.</b>", parse_mode='html')
-        
+        if chat_id in active_group_spawns:
+            del active_group_spawns[chat_id]
+        return await event.reply(
+            "⏳ <b>Oops! The gadget ran back to the future! Try again later.</b>",
+            parse_mode='html'
+        )
+
+    # Must reply to the spawn message
     if not event.is_reply or event.reply_to_msg_id != spawn_data["spawn_msg_id"]:
-        return await event.reply(f"⚠️ <b>Reply directly to the spawn message to reveal!</b>", parse_mode='html')
-        
+        return await event.reply(
+            "📌 <b>Hey! Reply directly to the spawn message to reveal the buddy!</b>",
+            parse_mode='html'
+        )
+
     try:
         event_display = spawn_data.get('event') or "➖"
+        char_name = spawn_data['name']
+        char_rarity = spawn_data['rarity']
+        char_category = spawn_data['category']
+
         reveal_text = (
-            f"🌟 <b>Name:</b> {spawn_data['name']}\n"
-            f"🌟 <b>Rarity:</b> {spawn_data['rarity']}\n"
-            f"🌐 <b>Category:</b> {spawn_data['category']}\n"
-            f"🎪 <b>Event:</b> {event_display}\n\n"
-            f"├─➩ <code>/catch {spawn_data['name']}</code>"
+            f"🔍 <b>Doraemon says: I found a mysterious gadget!</b>\n\n"
+            f"👀 <b>Name:</b> <code>{escape_html(char_name)}</code>\n"
+            f"💎 <b>Rarity:</b> {char_rarity}\n"
+            f"🏷️ <b>Category:</b> <code>{escape_html(char_category)}</code>\n"
+            f"🎪 <b>Event:</b> <code>{escape_html(event_display)}</code>\n\n"
+            f"✨ <b>Ready to catch?</b> Just tap the button below or type:\n"
+            f"➠ ➠ ➠<code>/catch {escape_html(char_name)}</code>"
         )
-        await event.reply(reveal_text, parse_mode='html')
+
+        # Inline button that pre‑fills the /catch command in your input field
+        buttons = [
+            [Button.switch_inline_query_current_chat(
+                f"🎯 Catch {char_name} Now!",
+                query=f"/catch {char_name}"
+            )]
+        ]
+
+        await event.reply(reveal_text, parse_mode='html', buttons=buttons)
+
     except Exception as e:
         print(f"Error in /who command: {e}")
+        await event.reply(
+            "❌ <b>Something went wrong while revealing!</b>",
+            parse_mode='html'
+        )
 
 # ==========================================
 # ⚡ CATCH LOGIC
@@ -2765,7 +2799,7 @@ async def perform_catch(chat_id, user_id, spawn_data, event, reply_to_msg=None, 
             await event.reply("❌ <b>This gadget has already been caught!</b>", parse_mode='html')
         return False
 
-    if time.time() - spawn_data["spawn_time"] > 300:
+    if time.time() - spawn_data["spawn_time"] > 600:
         if chat_id in active_group_spawns: del active_group_spawns[chat_id]
         if is_callback:
             await event.answer("⏱️ Too late!", alert=True)
@@ -2833,14 +2867,14 @@ async def perform_catch(chat_id, user_id, spawn_data, event, reply_to_msg=None, 
             raw_event_name = spawn_data.get('event')
             event_display = escape_html(raw_event_name) if raw_event_name and raw_event_name != "General" else "➖"
             success_msg = (
-                f"🎉 <b>Mission Secured!</b>\n\n"
-                f"👤 <b>Hunter:</b> {mention}\n"
-                f"🃏 <b>Character:</b> <b>{escape_html(character_name)}</b>\n"
-                f"🆔 <b>Asset ID:</b> <code>{spawn_data['char_id']}</code>\n"
-                f"🌟 <b>Rarity Class:</b> {spawn_data['rarity']}\n"
-                f"🎪 <b>Event:</b> {event_display}\n"
-                f"🪙 <b>Bounty Added:</b> <b>+{spawn_data['value']} MMK</b>\n\n"
-                f"<blockquote>📦 Check your collection anytime with <code>/hai</code></blockquote>"
+                f"⭐ <b>Woohoo! You caught a buddy from the future!</b>\n\n"
+                f"🧑 <b>Trainer:</b> {mention}\n"
+                f"🐾 <b>New Buddy:</b> <b>{escape_html(character_name)}</b>\n"
+                f"🔖 <b>Pocket Code:</b> <code>{spawn_data['char_id']}</code>\n"
+                f"💎 <b>Rarity:</b> {spawn_data['rarity']}\n"
+                f"🎯 <b>Event:</b> {event_display}\n"
+                f"💰 <b>Coins Earned:</b> <b>+{spawn_data['value']} MMK</b>\n\n"
+                f"<blockquote>🎒 Check your collection anytime with <code>/hai</code>! 🐱</blockquote>"
             )
             if guild_levelup_msg:
                 success_msg += guild_levelup_msg
@@ -3638,9 +3672,9 @@ async def profile_handler(event):
 
     # ---- 🪪 Headline card — short, travels together with the profile photo ----
     headline_lines = [
-        "🪪 <b>HUNTER ID CARD</b>",
+        "🪪 <b>ID CARD</b>",
         f"{mention}",
-        f"🆔 <code>{user_id}</code>",
+        f"<code>{user_id}</code>",
         "",
         f"🏆 <b>Rank</b> <code>#{rank}</code>   🪙 <code>{balance:,} MMK</code>",
         f"🔥 <b>Streak</b> <code>{streak}d</code>   🤝 <code>{referrals}</code> referrals",
@@ -3776,7 +3810,7 @@ async def referral_info_handler(event):
 async def check_character_id_handler(event):
     char_id = event.pattern_match.group(1).upper()
     character = await characters_base_col.find_one({"char_id": char_id})
-    if not character: return await event.reply(f"❌ <b>Character ID not found!</b>", parse_mode='html')
+    if not character: return await event.reply(f"<b>✗Character ID not found!</b>", parse_mode='html')
     spawn_count = character.get("spawn_count", 0)
     pipeline = [
         {"$match": {"harem.char_id": char_id}},
@@ -3795,12 +3829,12 @@ async def check_character_id_handler(event):
     limit = character.get("spawn_limit", 0)
     spawns_line = f"<code>{spawn_count}</code>" if not limit else f"<code>{spawn_count}/{limit}</code> (<code>{max(0, limit - spawn_count)} left</code>)"
     info_text = (
-        f"🎴 <b>CHARACTER ANALYTICS</b>\n\n"
-        f"🆔 <b>Asset ID:</b> <code>{character['char_id']}</code>\n"
-        f"👤 <b>Name:</b> <code>{character['name']}</code>\n"
-        f"🌐 <b>Category:</b> <code>{character['category']}</code>\n"
-        f"🌟 <b>Rarity:</b> {character['rarity']}\n"
-        f"🎪 <b>Event:</b> <code>{escape_html(character.get('event', 'General'))}</code>\n"
+        f"🧸 <b>Here,CHARACTER data from =^•⩊•^= Doraemon</b>\n\n"
+        f"🍬 <b>Asset ID:</b> <code>{character['char_id']}</code>\n"
+        f"☃️ <b>Name:</b> <code>{character['name']}</code>\n"
+        f"🫧 <b>Category:</b> <code>{character['category']}</code>\n"
+        f"🚩 <b>Rarity:</b> {character['rarity']}\n"
+        f"🎡 <b>Event:</b> <code>{escape_html(character.get('event', 'General'))}</code>\n"
         f"📈 <b>Global Spawns:</b> {spawns_line}\n\n"
         f"🏆 <b>TOP 10 COLLECTORS</b>\n"
         f"<blockquote>{leaderboard_str if leaderboard_str else 'No collectors yet.'}</blockquote>"
@@ -3962,89 +3996,140 @@ async def trade_proposal_handler(event):
 async def slot_game_handler(event):
     user_id = event.sender_id
     bet_str = event.pattern_match.group(1)
-    
+
     if not bet_str:
         return await event.reply(
-            f"🎰 Please specify your bet amount!\nExample: <code>/slot 100</code>"
+            f"🎰 ငွေပမာဏထည့်ပါ။\nဥပမာ: <code>/slot 100</code>"
         )
-    
+
     bet = int(bet_str)
     if bet <= 0:
-        return await event.reply("💕 <b>Bet must be at least 1 MMK!</b>", parse_mode='html')
-    
+        return await event.reply("💕 <b>အနည်းဆုံး 1 MMK လောင်းပါ။</b>", parse_mode='html')
+
     user_doc = await users_catcher_col.find_one({"user_id": user_id})
     balance = user_doc.get("wallet_balance", 0) if user_doc else 0
     if balance < bet:
-        return await event.reply(f"💕 <b>Oh no! You only have {balance} MMK! 🐱</b>", parse_mode='html')
-    
+        return await event.reply(f"💕 <b>မင်းမှာ {balance} MMK ပဲရှိတယ်နော်! 🐱</b>", parse_mode='html')
+
     await users_catcher_col.update_one({"user_id": user_id}, {"$inc": {"wallet_balance": -bet}})
     mention = await get_html_mention(event, user_id)
-    
-    symbols = ["🐯", "🦁", "🐃", "🦓", "🦀", "🐄", "🦅"]
-    
-    loading_msg = await event.reply("🎰 🔄 🔄 🔄 🔄 🔄 🔄")
-    
-    for spin in range(3):
-        await asyncio.sleep(0.8)
-        shuffled = random.sample(symbols, 7)
-        display = " | ".join(shuffled)
+
+    symbols = ["🧊", "🦠", "🏈", "👾", "🛩", "🛺", "🧸"]
+    loading_msg = await event.reply("🎰 <code>🔄 🔄 🔄 🔄 🔄 🔄 🔄</code>", parse_mode='html')
+
+    # 🌀 စပင် ၅ ခါလည်တယ်
+    for spin in range(5):
+        spin_result = random.choices(symbols, k=7)
+        display = " | ".join(spin_result)
         await bot1.edit_message(
             event.chat_id,
             loading_msg,
-            f"🎰 {display}"
+            f"🎰 <code>{display}</code>",
+            parse_mode='html'
         )
-    
+        await asyncio.sleep(max(0.1, 1.0 - spin * 0.2))
+
+    # 🎯 နောက်ဆုံး ရလာဒ်
     res_syms = random.choices(symbols, k=7)
     res_str = " | ".join(res_syms)
-    
+
+    # 🔥 တန်းတူရှိမရှိ စစ်မယ် (အနည်းဆုံး ၂ လုံးတန်း)
+    run_emoji = None
+    run_count = 0
+    current_emoji = res_syms[0]
+    current_count = 1
+    for i in range(1, len(res_syms)):
+        if res_syms[i] == current_emoji:
+            current_count += 1
+        else:
+            if current_count >= 2:
+                run_emoji = current_emoji
+                run_count = current_count
+                break
+            current_emoji = res_syms[i]
+            current_count = 1
+    if current_count >= 2 and run_emoji is None:
+        run_emoji = current_emoji
+        run_count = current_count
+
+    # တန်းတူတွေ့ရင် ခေတ္တပြီးမှ နောက်ဆုံးထုတ်ပြန်မယ်
+    if run_emoji is not None:
+        partial_list = []
+        matched_so_far = 0
+        for sym in res_syms:
+            if sym == run_emoji and matched_so_far < run_count:
+                partial_list.append(sym)
+                matched_so_far += 1
+            else:
+                partial_list.append("❓")
+        partial_display = " | ".join(partial_list)
+        await bot1.edit_message(
+            event.chat_id,
+            loading_msg,
+            f"🎰 <code>{partial_display}</code>",
+            parse_mode='html'
+        )
+        await asyncio.sleep(1)
+
+    # ---- ငွေတွက်ချက်မှု (မြန်မာလို) ----
     counts = Counter(res_syms)
     most_common_sym, max_count = counts.most_common(1)[0]
     win_amount = 0
-    
+    status_text = ""
+    celebration = ""
+
     if max_count >= 7:
-        win_amount = bet * 77 if most_common_sym == "🐃" else bet * 50
-        status_text = f"🎉🎊 <b>GOD-TIER JACKPOT!!!</b> 🎊🎉\n{most_common_sym} x{max_count} = {win_amount:,} MMK! 😱"
-        celebration = "🎉✨🌟💎🎊🎉✨🌟💎🎊"
+        win_amount = bet * 77 if most_common_sym == "🧊" else bet * 50
+        status_text = f"🎉🎊 <b>ဂျက်ပေါက် ထိသွားပြီ!!!</b> 🎊🎉\n{most_common_sym} x{max_count} = {win_amount:,} MMK! 😱"
+        celebration = "🎉✨🎊"
     elif max_count == 6:
         win_amount = bet * 25
-        status_text = f"🔥🔥 <b>MEGA MULTI-MATCH!!!</b> 🔥🔥\n{most_common_sym} x{max_count} = {win_amount:,} MMK! 😍"
-        celebration = "🎉✨🌟💎🎊"
+        status_text = f"🔥🔥 <b>တစ်မျိုးတည်း ၆ လုံး ဆက်မိ!!!</b> 🔥🔥\n{most_common_sym} x{max_count} = {win_amount:,} MMK! 😍"
+        celebration = "🔥✨🎉"
     elif max_count == 5:
         win_amount = bet * 12
-        status_text = f"⚡⚡ <b>SUPER MULTI-MATCH!!</b> ⚡⚡\n{most_common_sym} x{max_count} = {win_amount:,} MMK! 🔥"
-        celebration = "🎉🌟✨💎"
+        status_text = f"⚡⚡ <b>တစ်မျိုးတည်း ၅ လုံး ဆက်မိ!!</b> ⚡⚡\n{most_common_sym} x{max_count} = {win_amount:,} MMK! 🔥"
+        celebration = "⚡✨🎉"
     elif max_count == 4:
         win_amount = bet * 5
-        status_text = f"😲😲 <b>QUADRA SYNC MATCH!</b> 😲😲\n{most_common_sym} x{max_count} = {win_amount:,} MMK! 👍"
-        celebration = "🎉✨🌟"
+        status_text = f"😲😲 <b>တစ်မျိုးတည်း ၄ လုံး ဆက်မိ!</b> 😲😲\n{most_common_sym} x{max_count} = {win_amount:,} MMK! 👍"
+        celebration = "😲✨🎉"
     elif max_count == 3:
         win_amount = int(bet * 2.5)
-        status_text = f"🤩 <b>TRIPLE COMBINATION!</b> 🤩\n{most_common_sym} x{max_count} = {win_amount:,} MMK! 💪"
-        celebration = "🎉✨"
+        status_text = f"🤩 <b>တစ်မျိုးတည်း ၃ လုံး ဆက်မိ!</b> 🤩\n{most_common_sym} x{max_count} = {win_amount:,} MMK! 💪"
+        celebration = "🤩✨"
     elif max_count == 2:
         win_amount = int(bet * 0.5)
-        status_text = f"😊 <b>PAIR MATCH!</b> 😊\n{most_common_sym} x{max_count} = {win_amount:,} MMK! 🎈"
-        celebration = "✨"
+        status_text = f"😊 <b>တစ်မျိုးတည်း ၂ လုံး ဆက်မိ!</b> 😊\n{most_common_sym} x{max_count} = {win_amount:,} MMK! 🎈"
+        celebration = "😊✨"
     else:
-        status_text = f"😅 <b>No win this time!</b> 😅\nBetter luck next time! 🐱"
+        win_amount = 0
+        status_text = f"😅 <b>ဒီတစ်ခါ မအောင်မြင်ဘူးနော်။</b>\nနောက်တစ်ခါ ကံကောင်းမယ်! 🐱"
         celebration = "💔"
-    
+
     if win_amount > 0:
         await users_catcher_col.update_one({"user_id": user_id}, {"$inc": {"wallet_balance": win_amount}})
-    
+
+    net_gain = win_amount - bet
+    profit_loss_symbol = "+" if net_gain > 0 else "" if net_gain == 0 else "-"
+    display_net = f"{profit_loss_symbol}{abs(net_gain):,}" if net_gain != 0 else "0"
+
+    # ---- နောက်ဆုံး အပြည့်အစုံ ----
     final_text = (
-        f"🎰 <b>DORAEMON'S SLOT MACHINE</b> 🎰\n"
+        f"🎰 <b>ဒိုရေမွန် လောင်းကစား</b> 🎰\n"
         f"{celebration}\n"
-        f"👤 <b>Player:</b> {mention}\n"
-        f"💵 <b>Bet:</b> <code>{bet:,} MMK</code>\n\n"
-        f"🎯 <b>RESULT:</b>\n"
+        f"👤 <b>ကစားသမား:</b> {mention}\n"
+        f"💵 <b>လောင်းငွေ:</b> <code>{bet:,} MMK</code>\n\n"
+        f"🎯 <b>ထွက်လာတဲ့ ပုံစံ</b>\n"
         f"<code>{res_str}</code>\n\n"
         f"{status_text}\n"
         f"{celebration}\n"
-        f"🐱 <i>Doraemon sends you luck!</i>"
+        f"🔄 <b>ပြန်ရငွေ:</b> <code>{win_amount:,} MMK</code>\n"
+        f"📊 <b>အမြတ်/အရှုံး:</b> <code>{display_net} MMK</code>\n"
+        f"🐱 <i>ဒိုရေမွန်က ကံပေးပါစေ။</i>"
         f"{GAME_FOOTER}"
     )
-    
+
     await bot1.edit_message(event.chat_id, loading_msg, final_text, parse_mode='html')
     if not event.is_private:
         schedule_game_cleanup(bot1, event.chat_id, loading_msg)
@@ -4300,7 +4385,7 @@ async def text_adventure_hunt_handler(event):
     last_hunt = user_doc.get("hunt_cooldown", 0) if user_doc else 0
     if current_time - last_hunt < 180:
         return await event.reply(f"⏳ {mention} <b>You must wait {int(180 - (current_time - last_hunt))}s.</b>", parse_mode='html')
-    earned = random.randint(200, 80000)
+    earned = random.randint(200, 8000)
     events_pool = [f"🌲 {mention} <b>found treasure! (+<code>{earned} MMK</code>)</b>", f"⚔️ {mention} <b>defeated a rival! (+<code>{earned} MMK</code>)</b>", f"🌌 {mention} <b>collected quantum points! (+<code>{earned} MMK</code>)</b>"]
     await users_catcher_col.update_one({"user_id": user_id}, {"$inc": {"wallet_balance": earned}, "$set": {"hunt_cooldown": current_time, "fullname": mention}}, upsert=True)
     await event.reply(random.choice(events_pool), parse_mode='html')
@@ -4361,57 +4446,76 @@ async def global_market_catalog_viewer(event):
 async def system_inflation_stats(event):
     status_msg = await event.reply("⏳ <b>Compiling statistics...</b>", parse_mode='html')
 
-    pipeline = [{"$group": {"_id": None, "total_cash": {"$sum": "$wallet_balance"}, "total_cards": {"$sum": {"$size": "$harem"}}, "players_count": {"$sum": 1}}}]
-    econ_data = await users_catcher_col.aggregate(pipeline).to_list(length=1)
-    metrics = econ_data[0] if econ_data else {"total_cash": 0, "total_cards": 0, "players_count": 0}
-
-    all_base_chars = await characters_base_col.find({}, {"rarity": 1}).to_list(length=None)
-    base_total = len(all_base_chars)
-    base_tier_counts = {t: 0 for t in RARITY_TIERS}
-    for c in all_base_chars:
-        tier = classify_rarity(c.get("rarity", ""))
-        if tier in base_tier_counts:
-            base_tier_counts[tier] += 1
-
-    all_users = await users_catcher_col.find({}, {"harem": 1}).to_list(length=None)
-    catch_tier_counts = {t: 0 for t in RARITY_TIERS}
-    total_catches = 0
-    caught_unique_ids = set()
-    for u in all_users:
-        for item in u.get("harem", []):
-            if isinstance(item, dict) and "char_id" in item:
-                total_catches += 1
-                caught_unique_ids.add(item["char_id"])
-                tier = classify_rarity(item.get("rarity", ""))
-                if tier in catch_tier_counts:
-                    catch_tier_counts[tier] += 1
-
-    discovery_count = len(caught_unique_ids)
-
-    msg = "📊 <b>GLOBAL ECONOMY & COLLECTION STATS</b>\n⚡ ━━━━━━━━━━━━━━━━━━━━ ⚡\n\n"
-    msg += f"👥 <b>Active Agents:</b> <code>{metrics['players_count']} Players</code>\n"
-    msg += f"🪙 <b>Total Money in Circulation:</b> <code>{metrics['total_cash']:,} MMK</code>\n"
-
-    msg += f"\n🗄️ <b>CHARACTER DATABASE</b> (<code>/addchar</code> total: <code>{base_total}</code>)\n"
-    for tier in RARITY_TIERS:
-        cnt = base_tier_counts[tier]
-        msg += f"{RARITY_EMOJI[tier]} <b>{tier}</b> — <code>{cnt}</code>\n<code>{build_progress_bar(cnt, base_total)}</code>\n"
-
-    msg += f"\n🃏 <b>TOTAL CATCHES</b> (all players combined: <code>{total_catches}</code>)\n"
-    for tier in RARITY_TIERS:
-        cnt = catch_tier_counts[tier]
-        msg += f"{RARITY_EMOJI[tier]} <b>{tier}</b> — <code>{cnt}</code>\n<code>{build_progress_bar(cnt, total_catches)}</code>\n"
-
-    msg += f"\n🔎 <b>DISCOVERY RATE</b> (unique characters caught at least once)\n"
-    msg += f"<code>{build_progress_bar(discovery_count, base_total)}</code>\n"
-    msg += f"<code>{discovery_count}/{base_total}</code> characters discovered by players"
-
     try:
+        # 1️⃣ Total cash and player count (safe aggregation)
+        pipeline_cash = [
+            {"$group": {
+                "_id": None,
+                "total_cash": {"$sum": "$wallet_balance"},
+                "players_count": {"$sum": 1}
+            }}
+        ]
+        econ_data = await users_catcher_col.aggregate(pipeline_cash).to_list(length=1)
+        metrics = econ_data[0] if econ_data else {"total_cash": 0, "players_count": 0}
+
+        # 2️⃣ All base characters (for rarity breakdown)
+        all_base_chars = await characters_base_col.find({}, {"rarity": 1}).to_list(length=None)
+        base_total = len(all_base_chars)
+        base_tier_counts = {t: 0 for t in RARITY_TIERS}
+        for c in all_base_chars:
+            tier = classify_rarity(c.get("rarity", ""))
+            if tier in base_tier_counts:
+                base_tier_counts[tier] += 1
+
+        # 3️⃣ All users' harem – compute catches, unique IDs, and rarity counts
+        all_users = await users_catcher_col.find({}, {"harem": 1}).to_list(length=None)
+        catch_tier_counts = {t: 0 for t in RARITY_TIERS}
+        total_catches = 0
+        caught_unique_ids = set()
+
+        for u in all_users:
+            harem = u.get("harem", [])
+            total_catches += len(harem)   # sum of all cards
+            for item in harem:
+                if isinstance(item, dict) and "char_id" in item:
+                    caught_unique_ids.add(item["char_id"])
+                    tier = classify_rarity(item.get("rarity", ""))
+                    if tier in catch_tier_counts:
+                        catch_tier_counts[tier] += 1
+
+        discovery_count = len(caught_unique_ids)
+
+        # 4️⃣ Build the report
+        msg = (
+            f"📊 <b>GLOBAL ECONOMY & COLLECTION STATS</b>\n"
+            f"⚡ ━━━━━━━━━━━━━━━━━━━━ ⚡\n\n"
+            f"👥 <b>Active Agents:</b> <code>{metrics['players_count']} Players</code>\n"
+            f"🪙 <b>Total Money in Circulation:</b> <code>{metrics['total_cash']:,} MMK</code>\n\n"
+            f"🗄️ <b>CHARACTER DATABASE</b> (<code>/addchar</code> total: <code>{base_total}</code>)\n"
+        )
+        for tier in RARITY_TIERS:
+            cnt = base_tier_counts[tier]
+            msg += f"{RARITY_EMOJI[tier]} <b>{tier}</b> — <code>{cnt}</code>\n"
+            msg += f"<code>{build_progress_bar(cnt, base_total)}</code>\n"
+
+        msg += f"\n🃏 <b>TOTAL CATCHES</b> (all players combined: <code>{total_catches}</code>)\n"
+        for tier in RARITY_TIERS:
+            cnt = catch_tier_counts[tier]
+            msg += f"{RARITY_EMOJI[tier]} <b>{tier}</b> — <code>{cnt}</code>\n"
+            msg += f"<code>{build_progress_bar(cnt, total_catches)}</code>\n"
+
+        msg += f"\n🔎 <b>DISCOVERY RATE</b> (unique characters caught at least once)\n"
+        msg += f"<code>{build_progress_bar(discovery_count, base_total)}</code>\n"
+        msg += f"<code>{discovery_count}/{base_total}</code> characters discovered by players"
+
         await status_msg.edit(msg, parse_mode='html')
-    except errors.MessageNotModifiedError:
-        pass
+
     except Exception as e:
-        await status_msg.edit(f"❌ <b>Stats Error:</b> <code>{escape_html(str(e))}</code>", parse_mode='html')
+        # Send error details to the user and log to owner
+        error_text = f"❌ <b>Stats Error:</b>\n<code>{escape_html(str(e))}</code>"
+        await status_msg.edit(error_text, parse_mode='html')
+        await report_system_error("system_inflation_stats", e)
+        
 
 # ==========================================
 # 📜 HELP, GAME, OWNER, INTRODUCE, ALLCMD
@@ -4491,7 +4595,7 @@ async def all_commands_handler(event):
 async def introduce_bot_handler(event):
     intro_text = (
         "<pre style='background-color:#2d2d2d; color:#d4d4d4; padding:15px; border-radius:8px; font-family: monospace;'>"
-        "🤖  DORAEMON BOT  –  YOUR 22nd‑CENTURY ASSISTANT\n"
+        "ဟိုက် DORAEMON BOT  –  YOUR 22nd‑CENTURY ASSISTANT\n"
         "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
         "\n"
         "🐱  I am a multi‑functional Telegram bot built with Doraemon's spirit!\n"
