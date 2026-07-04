@@ -517,6 +517,14 @@ async def create_indexes():
     await users_catcher_col.create_index("total_caught")
     await users_catcher_col.create_index("wallet_balance")
     await users_catcher_col.create_index([("group_catches.$**", 1)])
+    # Indexes အားလုံးထည့်ပါ
+    await users_catcher_col.create_index([("wallet_balance", -1)])
+    await users_catcher_col.create_index([("total_caught", -1)])
+    await users_catcher_col.create_index([("daily_streak", -1)])
+    await users_catcher_col.create_index([("last_daily", 1)])
+
+# Compound index (group_catches အတွက်)
+    await users_catcher_col.create_index([("group_catches.chat_id", -1)])
     await _dedupe_groups_config()
     await groups_config_col.create_index("chat_id", unique=True)
     await muted_registry_col.create_index([("chat_id", 1), ("user_id", 1)])
@@ -613,7 +621,25 @@ def schedule_game_cleanup(client, chat_id, msg, delay=10):
     buried in old results. Accepts a Message object or a raw message id."""
     msg_id = getattr(msg, 'id', msg)
     asyncio.create_task(_delete_after_delay(client, chat_id, msg_id, delay))
-  
+
+import redis.asyncio as redis
+redis_client = redis.Redis(host='localhost', decode_responses=True)
+
+async def get_cached_user(user_id):
+    cached = await redis_client.get(f"user:{user_id}")
+    if cached:
+        return json.loads(cached)
+    user = await users_catcher_col.find_one({"user_id": user_id})
+    await redis_client.setex(f"user:{user_id}", 300, json.dumps(user))
+    return user
+# Daily claim အတွက် batch update သုံးပါ
+async def batch_daily_claim(user_ids):
+    bulk_ops = [
+        UpdateOne({"user_id": uid}, {"$inc": {"wallet_balance": bonus}})
+        for uid in user_ids
+    ]
+    await users_catcher_col.bulk_write(bulk_ops)
+    
 # ==========================================
 # ⚔️ ALL GROUPS COMMAND INTERCEPTOR (AUTO ACC OPENER)
 # ==========================================
