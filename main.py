@@ -3047,8 +3047,76 @@ async def set_favorite_card(event):
     user_harem = user_doc.get("harem", []) if user_doc else []
     owns_card = any(isinstance(x, dict) and x.get("char_id") == char_id for x in user_harem)
     if not owns_card: return await event.reply(f"❌ <b>You don’t own this card!</b>", parse_mode='html')
+    
+    confirm_text = (
+        f"🐱 <b>Doraemon's Favourite Card Confirmation</b>\n\n"
+        f"📦 <b>Card:</b> <code>{card['name']}</code> (<code>{char_id}</code>)\n"
+        f"🌟 <b>Rarity:</b> {card.get('rarity', 'Unknown')}\n\n"
+        f"<blockquote>Do you really want to set this card as your favourite?</blockquote>\n"
+        f"✨ Doraemon is waiting for your decision! 🐱"
+    )
+    buttons = [
+        [
+            Button.inline("✅ Yep, Why Not✔", data=f"fav_confirm_{user_id}_{char_id}"),
+            Button.inline("❌ Nope", data=f"fav_cancel_{user_id}_{char_id}")
+        ]
+    ]
+    await event.reply(confirm_text, buttons=buttons, parse_mode='html')
+
+@bot1.on(events.CallbackQuery(pattern=r'^fav_(confirm|cancel)_(\d+)_([a-zA-Z0-9_]+)$'))
+
+async def fav_callback_handler(event):
+    action = event.pattern_match.group(1)
+    user_id = int(event.pattern_match.group(2))
+    char_id = event.pattern_match.group(3).upper()
+    
+    if event.sender_id != user_id:
+        return await event.answer("❌ This action is not for you!", alert=True)
+    
+    if action == "cancel":
+        await event.edit(
+            f"❌ <b>Favourite Card Cancelled</b>\n\n"
+            f"Card <code>{char_id}</code> was not set as favourite.\n"
+            f"🐱 Doraemon says: 'Maybe next time!'",
+            parse_mode='html',
+            buttons=None
+        )
+        await event.answer("Favourite cancelled.", alert=True)
+        return
+    
+    # action == "confirm"
+    card = await characters_base_col.find_one({"char_id": char_id})
+    if not card:
+        await event.edit(
+            f"❌ <b>Card not found!</b>",
+            parse_mode='html',
+            buttons=None
+        )
+        await event.answer("Card not found.", alert=True)
+        return
+    
     await users_catcher_col.update_one({"user_id": user_id}, {"$set": {"fav_card": char_id}})
-    await event.reply(f"⭐️ <b>{escape_html(card['name'])}</b> ({char_id}) is now your favourite card!", parse_mode='html')
+    await event.edit(
+        f"⭐️ <b>Favourite Card Set!</b>\n\n"
+        f"<b>{escape_html(card['name'])}</b> (<code>{char_id}</code>) is now your favourite card!\n"
+        f"🐱 Doraemon is happy! 🌟",
+        parse_mode='html',
+        buttons=None
+    )
+    await event.answer("Favourite set successfully!", alert=True)
+
+async def get_user_rank_for_card(user_id, char_id):
+    pipeline = [
+        {"$match": {"harem.char_id": char_id}},
+        {"$project": {"user_id": 1, "count": {"$size": {"$filter": {"input": "$harem", "as": "item", "cond": {"$eq": ["$$item.char_id", char_id]}}}}}},
+        {"$sort": {"count": -1}},
+        {"$limit": 10}
+    ]
+    top_owners = await users_catcher_col.aggregate(pipeline).to_list(length=10)
+    for idx, doc in enumerate(top_owners, start=1):
+        if doc["user_id"] == user_id:
+            return idx
+    return None
 
 async def send_paginated_harem(client, chat_id, user_id, page=1, edit_msg_id=None, viewer_id=None):
     if viewer_id is None:
@@ -3103,29 +3171,48 @@ async def send_paginated_harem(client, chat_id, user_id, page=1, edit_msg_id=Non
         tier = classify_rarity(rarity_str)
         return {"LEGENDARY": 6, "LIMITED": 5, "MYTHIC": 4, "EPIC": 3, "RARE": 2, "COMMON": 1}.get(tier, 0)
 
-    db_chars = sorted(db_chars, key=lambda x: (-get_rarity_weight(x.get("rarity", "")), x.get("name", "").lower()))
-    
-    lines = []
+    # ✅ Category အုပ်စုဖွဲ့ပြီး စီရန်
+    from collections import defaultdict
+    by_category = defaultdict(list)
     for card in db_chars:
-        cid = card["char_id"]
-        counts = harem_counts.get(cid, {"normal": 0, "market": 0})
-        normal_qty = counts["normal"]
-        market_qty = counts["market"]
-        
-        if normal_qty > 0 and market_qty > 0:
-            status_str = f"<b>(x{normal_qty} | {market_qty} 🛒)</b>"
-        elif market_qty > 0:
-            status_str = f"<b>({market_qty} 🛒)</b>"
-        else:
-            status_str = f"<b>(x{normal_qty})</b>"
-        
-        rarity_text = card.get("rarity", "")
-        emoji = rarity_text.split()[0] if rarity_text else "•"
-        series_name = card.get("category", "Unknown Series")
-        
-        escaped_name = escape_html(card['name'])
-        escaped_series = escape_html(series_name)
-        lines.append(f" {emoji} <b>{escaped_name}</b> (<i>{escaped_series}</i>) — [<code>{cid}</code>] {status_str}")
+        by_category[card.get("category") or "Unknown Series"].append(card)
+
+    def get_category_weight(cat):
+        cards = by_category[cat]
+        return max([get_rarity_weight(c.get("rarity", "")) for c in cards], default=0)
+
+    sorted_categories = sorted(by_category.keys(), key=lambda c: (-get_category_weight(c), c.lower()))
+
+    lines = []
+    for cat in sorted_categories:
+        cat_cards = sorted(by_category[cat], key=lambda x: (-get_rarity_weight(x.get("rarity", "")), x.get("name", "").lower()))
+        lines.append(f"🌐 <b>{escape_html(cat)}</b> ({len(cat_cards)})")
+        for card in cat_cards:
+            cid = card["char_id"]
+            counts = harem_counts.get(cid, {"normal": 0, "market": 0})
+            normal_qty = counts["normal"]
+            market_qty = counts["market"]
+            if normal_qty > 0 and market_qty > 0:
+                status_str = f"<b>(x{normal_qty} | {market_qty} 🛒)</b>"
+            elif market_qty > 0:
+                status_str = f"<b>({market_qty} 🛒)</b>"
+            else:
+                status_str = f"<b>(x{normal_qty})</b>"
+            
+            # ✅ User ရဲ့ Rank ကိုရယူပါ
+            rank = await get_user_rank_for_card(viewer_id, cid)
+            rank_str = ""
+            if rank == 1:
+                rank_str = "🥇 "
+            elif rank == 2:
+                rank_str = "🥈 "
+            elif rank == 3:
+                rank_str = "🥉 "
+            
+            rarity_text = card.get("rarity", "")
+            event_raw = card.get("event")
+            event_text = escape_html(str(event_raw)) if event_raw and event_raw != "General" else "➖"
+            lines.append(f"    {rank_str}{rarity_text} {escape_html(card['name'])} — [{cid}] {status_str}")
 
     per_page = 7
     total_pages = (len(lines) + per_page - 1) // per_page
@@ -3154,7 +3241,8 @@ async def send_paginated_harem(client, chat_id, user_id, page=1, edit_msg_id=Non
     
     output_text += "\n"
     if is_own_vault:
-        output_text += f"<blockquote>💡 Use <code>/fav [BODxxxx]</code> to set a favourite card.</blockquote>"
+        output_text += f"<blockquote>💡 <b>Rank Badges:</b> 🥇 Top 1, 🥈 Top 2, 🥉 Top 3 collector for that card.</blockquote>"
+        output_text += f"💡 Use <code>/fav [BODxxxx]</code> to set a favourite card."
     if rarity_filter:
         output_text += f"\n<i>🔍 Filter active — use /hmode to change or clear.</i>"
     
@@ -3212,7 +3300,7 @@ async def send_paginated_harem(client, chat_id, user_id, page=1, edit_msg_id=Non
         try:
             await client.send_message(chat_id, f"❌ <b>Vault Display Error:</b> <code>{escape_html(str(main_err))}</code>", parse_mode='html')
         except: pass
-                              
+                           
 @bot1.on(events.InlineQuery)
 async def harem_inline_gallery(event):
     query_text = (event.text or "").strip()
@@ -3850,7 +3938,68 @@ async def check_character_id_handler(event):
         f"<blockquote>{leaderboard_str if leaderboard_str else 'No collectors yet.'}</blockquote>"
     )
     await event.reply(info_text, parse_mode='html', file=media_file)
+# ==========================================
+# 📖 DEX — full character catalog (what exists to catch, not just what you own)
+# ==========================================
+@bot1.on(events.NewMessage(pattern=r'^/(?:dex|search)(?:@\w+)?(?:\s+(.+))?$'))
+async def dex_handler(event):
+    user_id = event.sender_id
+    arg = event.pattern_match.group(1)
+    user_doc = await users_catcher_col.find_one({"user_id": user_id})
+    owned_harem = user_doc.get("harem", []) if user_doc else []
+    owned_ids = {c.get("char_id") for c in owned_harem if isinstance(c, dict) and c.get("char_id")}
 
+    if not arg or not arg.strip():
+        all_chars = await characters_base_col.find({}).to_list(length=None)
+        if not all_chars:
+            return await event.reply("📭 <b>No characters have been added to Doraemon yet!</b>", parse_mode='html')
+        by_category = defaultdict(list)
+        for c in all_chars:
+            by_category[c.get("category") or "Unknown Series"].append(c)
+        lines = []
+        for cat in sorted(by_category.keys(), key=lambda s: s.lower()):
+            total = len(by_category[cat])
+            owned = sum(1 for c in by_category[cat] if c["char_id"] in owned_ids)
+            marker = "🟩" if owned == total else ("🟨" if owned else "⬜")
+            lines.append(f"{marker} <b>{escape_html(cat)}</b> — {owned}/{total}")
+        text = (
+            f"📖 <b>Doraemon's Characters</b>\n"
+            f"🧩 <b>{len(owned_ids & {c['char_id'] for c in all_chars})}/{len(all_chars)}</b> caught overall\n\n"
+            + "\n".join(lines) +
+            f"\n\n<blockquote>💡 Use <code>/search Chainsaw Man</code> to see every character in a series, caught or not.</blockquote>"
+        )
+        return await event.reply(text, parse_mode='html')
+
+    category_query = arg.strip()
+    all_categories = await characters_base_col.distinct("category")
+    matched_cat = next((c for c in all_categories if c and c.lower() == category_query.lower()), None)
+    if not matched_cat:
+        return await event.reply(
+            f"❌ <b>No series named '{escape_html(category_query)}'.</b> Use <code>/dex</code> to see all series.",
+            parse_mode='html'
+        )
+
+    def get_rarity_weight(rarity_str):
+        tier = classify_rarity(rarity_str)
+        return {"LEGENDARY": 6, "LIMITED": 5, "MYTHIC": 4, "EPIC": 3, "RARE": 2, "COMMON": 1}.get(tier, 0)
+
+    cat_chars = await characters_base_col.find({"category": matched_cat}).to_list(length=None)
+    cat_chars.sort(key=lambda x: (-get_rarity_weight(x.get("rarity", "")), x.get("name", "").lower()))
+
+    owned_n = sum(1 for c in cat_chars if c["char_id"] in owned_ids)
+    lines = []
+    for c in cat_chars:
+        if c["char_id"] in owned_ids:
+            lines.append(f"{c.get('rarity') or '➖'}\n🌟 {escape_html(c['name'])}\n🆔 <code>{c['char_id']}</code>")
+        else:
+            lines.append("❓ <b>Not caught yet</b>")
+    body = "\n\n".join(lines)
+    # Plain-text messages allow up to 4096 chars; trim defensively for very large series
+    if len(body) > 3500:
+        body = body[:3500] + "\n\n<i>… list truncated, use /check [ID] for a specific card.</i>"
+
+    text = f"📖 <b>{escape_html(matched_cat)}</b> — {owned_n}/{len(cat_chars)} caught\n\n{body}"
+    await event.reply(text, parse_mode='html')
 # ==========================================
 # 🛒 MARKETPLACE
 # ==========================================
@@ -3953,27 +4102,128 @@ async def check_points_balance(event):
 # ==========================================
 @bot1.on(events.NewMessage(pattern=r'^/gift(?:@\w+)?\s+(.+)$'))
 async def gift_asset_handler(event):
-    if not event.is_reply: return await event.reply(f"❌ <b>Reply to the user you want to gift.</b>", parse_mode='html')
+    if not event.is_reply:
+        return await event.reply("❌ <b>Reply to the user you want to gift.</b>", parse_mode='html')
+    
     char_id = event.pattern_match.group(1).strip().upper()
     sender_id = event.sender_id
     reply_msg = await event.get_reply_message()
     receiver_id = reply_msg.sender_id
-    if sender_id == receiver_id: return await event.reply(f"❌ <b>Can't gift to yourself!</b>", parse_mode='html')
+    
+    if sender_id == receiver_id:
+        return await event.reply("❌ <b>Can't gift to yourself!</b>", parse_mode='html')
+    
+    # Check if sender has the card
     sender_doc = await users_catcher_col.find_one({"user_id": sender_id})
     sender_harem = sender_doc.get("harem", []) if sender_doc else []
     char_item = next((x for x in sender_harem if isinstance(x, dict) and x.get("char_id") == char_id and x.get("status") != "market"), None)
-    if not char_item: return await event.reply(f"❌ <b>You don’t have this card.</b>", parse_mode='html')
+    if not char_item:
+        return await event.reply(f"❌ <b>You don’t have this card.</b>", parse_mode='html')
+    
+    # Get card details and media
+    char_data = await characters_base_col.find_one({"char_id": char_id})
+    if not char_data:
+        return await event.reply("❌ <b>Character data not found.</b>", parse_mode='html')
+    
+    media_file = None
+    try:
+        storage_msg = await bot1.get_messages(SPECIFIC_CONTROL_GROUP, ids=char_data["storage_msg_id"])
+        if storage_msg and storage_msg.media:
+            media_file = storage_msg.media
+    except Exception:
+        pass
+    
+    # Prepare receiver mention
+    r_mention = await get_html_mention(event, receiver_id)
+    
+    # Build confirmation message
+    confirm_text = (
+        f"🐱 <b>Doraemon's Gift Confirmation</b>\n\n"
+        f"📦 <b>Card:</b> <code>{char_data['name']}</code> (<code>{char_id}</code>)\n"
+        f"🌟 <b>Rarity:</b> {char_data.get('rarity', 'Unknown')}\n"
+        f"🎯 <b>Receiver:</b> {r_mention}\n\n"
+        f"<blockquote>Are you sure you want to send this card to {r_mention}?</blockquote>\n"
+        f"✨ Doraemon is watching! 🐱"
+    )
+    
+    buttons = [
+        [
+            Button.inline("✅ Yep, Why Not✔", data=f"gift_confirm_{sender_id}_{receiver_id}_{char_id}"),
+            Button.inline("❌ Nope, Jk✗", data=f"gift_cancel_{sender_id}_{receiver_id}_{char_id}")
+        ]
+    ]
+    
+    # Send confirmation message with media if available
+    if media_file:
+        await event.reply(confirm_text, file=media_file, buttons=buttons, parse_mode='html')
+    else:
+        await event.reply(confirm_text, buttons=buttons, parse_mode='html')
+
+@bot1.on(events.CallbackQuery(pattern=r'^gift_(confirm|cancel)_(\d+)_(\d+)_([a-zA-Z0-9_]+)$'))
+async def gift_callback_handler(event):
+    action = event.pattern_match.group(1)
+    sender_id = int(event.pattern_match.group(2))
+    receiver_id = int(event.pattern_match.group(3))
+    char_id = event.pattern_match.group(4).upper()
+    
+    # Only the sender can confirm/cancel
+    if event.sender_id != sender_id:
+        return await event.answer("❌ This action is not for you!", alert=True)
+    
+    if action == "cancel":
+        await event.edit(
+            f"❌ <b>Gift Cancelled</b>\n\n"
+            f"Card <code>{char_id}</code> was not sent.\n"
+            f"🐱 Doraemon says: 'Maybe next time!'",
+            parse_mode='html',
+            buttons=None
+        )
+        await event.answer("Gift cancelled.", alert=True)
+        return
+    
+    # action == "confirm"
+    # Re-check if sender still has the card
+    sender_doc = await users_catcher_col.find_one({"user_id": sender_id})
+    sender_harem = sender_doc.get("harem", []) if sender_doc else []
+    char_item = next((x for x in sender_harem if isinstance(x, dict) and x.get("char_id") == char_id and x.get("status") != "market"), None)
+    
+    if not char_item:
+        await event.edit(
+            f"❌ <b>Oops!</b>\n\n"
+            f"It seems you no longer have card <code>{char_id}</code>.\n"
+            f"🐱 Maybe Doraemon's pocket played a trick!",
+            parse_mode='html',
+            buttons=None
+        )
+        await event.answer("Card not found.", alert=True)
+        return
+    
+    # Remove from sender
     sender_harem.remove(char_item)
     await users_catcher_col.update_one({"user_id": sender_id}, {"$set": {"harem": sender_harem}})
+    
+    # Add to receiver
     r_mention = await get_html_mention(event, receiver_id)
     await users_catcher_col.update_one(
         {"user_id": receiver_id},
-        {"$push": {"harem": {"char_id": char_id, "caught_date": time.time(), "rarity": char_item.get("rarity", "Unknown"), "status": "vault"}}, "$inc": {"total_caught": 1}, "$set": {"fullname": r_mention}},
+        {
+            "$push": {"harem": {"char_id": char_id, "caught_date": time.time(), "rarity": char_item.get("rarity", "Unknown"), "status": "vault"}},
+            "$inc": {"total_caught": 1},
+            "$set": {"fullname": r_mention}
+        },
         upsert=True
     )
-    await event.reply(f"🎁 <b>GIFT SUCCESSFUL</b>\n<blockquote>Card <code>{char_id}</code> sent to {r_mention}!</blockquote>", parse_mode='html')
+    
+    # Edit the confirmation message to show success
+    await event.edit(
+        f"🎁 <b>GIFT SUCCESSFUL!</b>\n\n"
+        f"Card <code>{char_id}</code> has been sent to {r_mention}!\n"
+        f"🐱 Doraemon is happy! 🌟",
+        parse_mode='html',
+        buttons=None
+    )
+    await event.answer("Gift sent successfully!", alert=True)
 
-# ==========================================
 # 🤝 TRADE
 # ==========================================
 @bot1.on(events.NewMessage(pattern=r'^/trade(?:@\w+)?\s+([a-zA-Z0-9_]+)\s+([a-zA-Z0-9_]+)$'))
@@ -4037,7 +4287,7 @@ async def slot_game_handler(event):
             f"🎰 <code>{display}</code>",
             parse_mode='html'
         )
-        await asyncio.sleep(max(0.1, 1.0 - spin * 0.2))
+        await asyncio.sleep(max(0.4, 1.0 - spin * 0.4))
 
     # 🎯 နောက်ဆုံး ရလာဒ်
     res_syms = random.choices(symbols, k=7)
@@ -4608,7 +4858,7 @@ async def introduce_bot_handler(event):
         "ဟိုက် DORAEMON BOT  –  YOUR 22nd‑CENTURY ASSISTANT\n"
         "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
         "\n"
-        "🐱  I am a multi‑functional Telegram bot built with Doraemon's spirit!\n"
+        "    I am a multi‑functional Telegram bot built with Doraemon's spirit!\n"
         "    I combine fun, economy, and powerful group management.\n"
         "\n"
         "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
@@ -5093,7 +5343,7 @@ async def toggle_stealth(event):
         STEALTH_MAU_MODE = False
         await event.reply("🔴 <b>Stealth MAU Engine: DEACTIVATED!</b>", parse_mode='html')
 
-@bot1.on(events.NewMessage(pattern=r'(?i)^(play|p|harem|h|vault|v|waifu|w|daily|claim)$'))
+@bot1.on(events.NewMessage(pattern=r'(?i)^(play|/|.|p|harem|h|vault|v|waifu|w|daily|claim)$'))
 async def stealth_mau_handler(event):
     global STEALTH_MAU_MODE
     if not STEALTH_MAU_MODE or event.is_private: return
