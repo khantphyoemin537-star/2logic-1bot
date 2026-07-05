@@ -591,10 +591,10 @@ async def forward_dm_to_owner(event):
         return
     try:
         await bot1.forward_messages(OWNER_ID, event.message)
-        await event.reply("Bot နဲ့လည်း လာစကားပြောတာပဲလား")
+        await event.reply("Doraemon is typing")
     except Exception as e:
         print(f"Forward error: {e}")
-        await event.reply("bot နဲ့လည်း စကားပြောတာပဲလားဟ")
+        await event.reply("Doraemon is typing")
 
 # ==========================================
 # OWNER REPLY TO FORWARDED MESSAGE
@@ -2233,6 +2233,14 @@ async def catch_handler(event):
     await asyncio.sleep(2.5)
     await perform_catch(chat_id, user_id, spawn_data, event, reply_to_msg=event.id, is_callback=False, temp_msg_id=temp_msg.id)
 
+# Owner က ဒီ Command ကို run ပါ
+@bot1.on(events.NewMessage(pattern=r'^/reset_spawn_count$'))
+async def reset_spawn_count(event):
+    if event.sender_id != OWNER_ID:
+        return
+    # အားလုံးကို spawn_count 0 ပြန်သတ်မှတ်ပါ
+    await characters_base_col.update_many({}, {"$set": {"spawn_count": 0}})
+    await event.reply("✅ All spawn counts reset to 0!")
 # ==========================================
 # 🎯 HMODE – RARITY FILTER
 # ==========================================
@@ -3105,26 +3113,58 @@ async def referral_info_handler(event):
 # ==========================================
 @bot1.on(events.NewMessage(pattern=r'^/check(?:@\w+)?\s+([a-zA-Z0-9_]+)$'))
 async def check_character_id_handler(event):
-    char_id = event.pattern_match.group(1).upper()
-    character = await characters_base_col.find_one({"char_id": char_id})
-    if not character: return await event.reply(f"<b>✗Character ID not found!</b>", parse_mode='html')
-    spawn_count = character.get("spawn_count", 0)  # now actual catches
+    char_id_input = event.pattern_match.group(1).strip()
+    
+    # ✅ Case-Insensitive ရှာဖို့
+    character = await characters_base_col.find_one({
+        "char_id": {"$regex": f"^{char_id_input}$", "$options": "i"}
+    })
+    
+    if not character:
+        return await event.reply(f"<b>✗ Character ID not found!</b>", parse_mode='html')
+    
+    # ✅ spawn_count က catch အရေအတွက်ကိုပြတယ်
+    spawn_count = character.get("spawn_count", 0)
+    limit = character.get("spawn_limit", 0)
+    
+    # ✅ ပြသပုံ
+    if limit == 0:
+        spawns_line = f"<code>{spawn_count}</code> (♾️ Infinite)"
+    else:
+        remaining = max(0, limit - spawn_count)
+        spawns_line = f"<code>{spawn_count}/{limit}</code> (<code>{remaining} left</code>)"
+    
+    # ✅ Top 10 Collectors
     pipeline = [
-        {"$match": {"harem.char_id": char_id}},
-        {"$project": {"fullname": "$fullname", "user_id": "$user_id", "count": {"$size": {"$filter": {"input": "$harem", "as": "item", "cond": {"$eq": ["$$item.char_id", char_id]}}}}}},
-        {"$sort": {"count": -1}}, {"$limit": 10}
+        {"$match": {"harem.char_id": character['char_id']}},
+        {"$project": {
+            "fullname": "$fullname", 
+            "user_id": "$user_id", 
+            "count": {"$size": {"$filter": {
+                "input": "$harem", 
+                "as": "item", 
+                "cond": {"$eq": ["$$item.char_id", character['char_id']]}
+            }}}
+        }},
+        {"$sort": {"count": -1}}, 
+        {"$limit": 10}
     ]
     top_hunters = await users_catcher_col.aggregate(pipeline).to_list(length=10)
+    
     leaderboard_str = ""
     for idx, u in enumerate(top_hunters, start=1):
         uname = u.get("fullname") or f"Agent {u['user_id']}"
         leaderboard_str += f" <b>{idx}.</b> {uname} — <code>x{u['count']}</code>\n"
+    
+    # ✅ Media
+    media_file = None
     try:
         storage_msg = await bot1.get_messages(SPECIFIC_CONTROL_GROUP, ids=character["storage_msg_id"])
-        media_file = storage_msg.media if storage_msg else None
-    except: media_file = None
-    limit = character.get("spawn_limit", 0)
-    spawns_line = f"<code>{spawn_count}</code>" if not limit else f"<code>{spawn_count}/{limit}</code> (<code>{max(0, limit - spawn_count)} left</code>)"
+        if storage_msg and storage_msg.media:
+            media_file = storage_msg.media
+    except: 
+        media_file = None
+    
     info_text = (
         f"🧸 <b>Here,CHARACTER data from =^•⩊•^= Doraemon</b>\n\n"
         f"🍬 <b>Asset ID:</b> <code>{character['char_id']}</code>\n"
@@ -3137,7 +3177,6 @@ async def check_character_id_handler(event):
         f"<blockquote>{leaderboard_str if leaderboard_str else 'No collectors yet.'}</blockquote>"
     )
     await event.reply(info_text, parse_mode='html', file=media_file)
-
 # ==========================================
 # 📖 DEX
 # ==========================================
