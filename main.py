@@ -2324,64 +2324,52 @@ async def show_harem_vault(event):
 @bot1.on(events.NewMessage(pattern=r'^/fav(?:@\w+)?\s+([a-zA-Z0-9_]+)$'))
 async def set_favorite_card(event):
     user_id = event.sender_id
-    char_id = event.pattern_match.group(1).upper()
-    card = await characters_base_col.find_one({"char_id": char_id})
-    if not card: return await event.reply(f"❌ <b>Card not found!</b>", parse_mode='html')
+    char_id_input = event.pattern_match.group(1).strip()
+    
+    # ✅ Case-Insensitive ရှာဖို့
+    card = await characters_base_col.find_one({
+        "char_id": {"$regex": f"^{char_id_input}$", "$options": "i"}
+    })
+    
+    if not card:
+        # ✅ အနီးဆုံး ID တွေကို ပြပေးမယ်
+        similar = await characters_base_col.find(
+            {"char_id": {"$regex": char_id_input[:3], "$options": "i"}}
+        ).limit(5).to_list(length=5)
+        reply = f"❌ <b>Card not found!</b>\n\n"
+        if similar:
+            reply += "💡 <b>Did you mean:</b>\n"
+            for s in similar:
+                reply += f"• <code>{s['char_id']}</code> - {s.get('name', 'Unknown')}\n"
+        else:
+            reply += "📭 No similar cards found in database."
+        return await event.reply(reply, parse_mode='html')
+    
+    # ✅ Card ကိုတွေ့ရင် ဆက်လုပ်ပါ
+    actual_char_id = card["char_id"]  # Database ထဲက အတိအကျ ID
+    
     user_doc = await users_catcher_col.find_one({"user_id": user_id})
     user_harem = user_doc.get("harem", []) if user_doc else []
-    owns_card = any(isinstance(x, dict) and x.get("char_id") == char_id for x in user_harem)
-    if not owns_card: return await event.reply(f"❌ <b>You don’t own this card!</b>", parse_mode='html')
+    owns_card = any(isinstance(x, dict) and x.get("char_id").upper() == actual_char_id.upper() for x in user_harem)
+    
+    if not owns_card:
+        return await event.reply(f"❌ <b>You don't own this card!</b>", parse_mode='html')
+    
+    # ✅ Confirmation Buttons
     confirm_text = (
         f"🐱 <b>Doraemon's Favourite Card Confirmation</b>\n\n"
-        f"📦 <b>Card:</b> <code>{card['name']}</code> (<code>{char_id}</code>)\n"
+        f"📦 <b>Card:</b> <code>{card['name']}</code> (<code>{actual_char_id}</code>)\n"
         f"🌟 <b>Rarity:</b> {card.get('rarity', 'Unknown')}\n\n"
         f"<blockquote>Do you really want to set this card as your favourite?</blockquote>\n"
         f"✨ Doraemon is waiting for your decision! 🐱"
     )
     buttons = [
         [
-            Button.inline("✅ Yep, Why Not✔", data=f"fav_confirm_{user_id}_{char_id}"),
-            Button.inline("❌ Nope", data=f"fav_cancel_{user_id}_{char_id}")
+            Button.inline("✅ Yep, Why Not✔", data=f"fav_confirm_{user_id}_{actual_char_id}"),
+            Button.inline("❌ Nope", data=f"fav_cancel_{user_id}_{actual_char_id}")
         ]
     ]
-    await event.reply(confirm_text, buttons=buttons, parse_mode='html')
-
-@bot1.on(events.CallbackQuery(pattern=r'^fav_(confirm|cancel)_(\d+)_([a-zA-Z0-9_]+)$'))
-async def fav_callback_handler(event):
-    action = event.pattern_match.group(1)
-    user_id = int(event.pattern_match.group(2))
-    char_id = event.pattern_match.group(3).upper()
-    if event.sender_id != user_id:
-        return await event.answer("❌ This action is not for you!", alert=True)
-    if action == "cancel":
-        await event.edit(
-            f"❌ <b>Favourite Card Cancelled</b>\n\n"
-            f"Card <code>{char_id}</code> was not set as favourite.\n"
-            f"🐱 Doraemon says: 'Maybe next time!'",
-            parse_mode='html',
-            buttons=None
-        )
-        await event.answer("Favourite cancelled.", alert=True)
-        return
-    # action == "confirm"
-    card = await characters_base_col.find_one({"char_id": char_id})
-    if not card:
-        await event.edit(
-            f"❌ <b>Card not found!</b>",
-            parse_mode='html',
-            buttons=None
-        )
-        await event.answer("Card not found.", alert=True)
-        return
-    await users_catcher_col.update_one({"user_id": user_id}, {"$set": {"fav_card": char_id}})
-    await event.edit(
-        f"⭐️ <b>Favourite Card Set!</b>\n\n"
-        f"<b>{escape_html(card['name'])}</b> (<code>{char_id}</code>) is now your favourite card!\n"
-        f"🐱 Doraemon is happy! 🌟",
-        parse_mode='html',
-        buttons=None
-    )
-    await event.answer("Favourite set successfully!", alert=True)
+    await event.reply(confirm_text, buttons=buttons, parse_mode='html') 
 
 # ---- Helper functions for harem ----
 async def get_user_rank_for_card(user_id, char_id):
