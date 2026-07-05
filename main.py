@@ -419,7 +419,8 @@ groups_counters_col = db["groups_msg_counters"]
 groups_config_col = db["groups_catcher_config"]
 marketplace_col = db["marketplace_data"]
 guilds_col = db["guilds_data"]
-gift_history_col = db["gift_history"]  # records each person-to-person /gift for profile stats
+gift_history_col = db["gift_history"]
+haido_history_col = db["haido_history"] # records each person-to-person /gift for profile stats
 
 # Redis caching with connection pool
 redis_client = redis.Redis(host='localhost', decode_responses=True, max_connections=20)
@@ -539,7 +540,6 @@ async def create_indexes():
     await users_catcher_col.create_index([("daily_streak", -1)])
     await users_catcher_col.create_index([("last_daily", 1)])
     await users_catcher_col.create_index([("group_catches.chat_id", -1)])
-    # ✅ Daily leaderboard needs a fast "who caught today, ranked" lookup
     await users_catcher_col.create_index([("last_catch_date", -1), ("daily_catches", -1)])
     await users_catcher_col.create_index([("quiz_correct", -1)])
     await _dedupe_groups_config()
@@ -547,20 +547,17 @@ async def create_indexes():
     await muted_registry_col.create_index([("chat_id", 1), ("user_id", 1)])
     await user_game_profiles_col.create_index("user_id", unique=True)
     await characters_col.create_index("name", unique=True)
-    # ✅ These were missing on the LIVE character collection (characters_base_data) —
-    # char_id/category lookups were doing full collection scans (and case-insensitive
-    # regex lookups on char_id were especially slow without this).
     await characters_base_col.create_index("char_id", unique=True)
     await characters_base_col.create_index("category")
     await characters_base_col.create_index("rarity_tier")
     await characters_base_col.create_index("spawn_limit")
     await gift_history_col.create_index([("sender_id", 1), ("timestamp", -1)])
     await gift_history_col.create_index([("receiver_id", 1), ("timestamp", -1)])
-    await gotu_pairs_col.create_index("pair")
-    await gotu_games_col.create_index([("chat_id", 1), ("status", 1)])
-    await gotu_players_col.create_index("game_id")
-    await quiz_questions_col.create_index("chat_id")
-    await quiz_msg_counters_col.create_index("chat_id", unique=True)
+    # haido_history_col indexes
+    await haido_history_col.create_index([("chat_id", 1), ("timestamp", -1)])
+    await haido_history_col.create_index([("claimed_by", 1), ("timestamp", -1)])
+    await haido_history_col.create_index("claimed")
+    # ❌ REMOVED: gotu_pairs_col, gotu_games_col, gotu_players_col, quiz_questions_col, quiz_msg_counters_col
     await _migrate_rarity_tiers()
     print("Database Indexes synchronized! ✔️")
 
@@ -599,15 +596,8 @@ user_cooldowns = {}
 # Spam & Daily catch tracking
 user_spam_data = {}  # user_id -> list of timestamps
 user_mute_until = {}  # user_id -> timestamp
-
-# Quiz system states
-group_quiz_active = {}  # chat_id -> {"correct","reward_char_id","token","msg_id"}
-group_quiz_answered = {}  # chat_id -> set of user_ids who already answered
-group_quiz_correct_answer = {}  # chat_id -> correct choice text (legacy, unused)
-
-# /setq quiz-creation conversation states (owner-only)
-pending_setq_sessions = {}    # owner_id -> {"question","media","answers":[...],"chat_id"}
-pending_setq_prompt_ids = {}  # bot_message_id -> owner_id (which reply we're waiting for)
+active_haido_events = {}  # chat_id -> {"char_id", "char_name", "rarity", "spawn_time", "claimed_by", "claimed"}
+HAIDO_TIMEOUT_SECONDS = 900  # 15 minutes
 
 def bq(text): return f"<blockquote><b>{text}</b></blockquote>"
 def owner_tag():
@@ -2200,39 +2190,133 @@ async def catch_handler(event):
     # Check spam mute
     if user_id in user_mute_until and time.time() < user_mute_until[user_id]:
         return await event.reply("🐱 You're currently muted from catching. Please wait a few minutes.")
+    
     chat_id = event.chat_id
     catch_name = event.pattern_match.group(1).strip()
     if not catch_name:
         return await event.reply(CATCH_USAGE_TEXT, parse_mode='html')
+
+    # ==========================================
+    # 🎁 CHECK HAIDO EVENT FIRST
+    # ==========================================
+    if chat_id in active_haido_events:
+        haido_data = active_haido_events[chat_id]
+        
+        # Check if already claimed
+        if haido_data["claimed"]:
+            return await event.reply("❌ <b>Doraemon:</b> ဒီ Haido ကတ်ကို ရသွားပြီး!", parse_mode='html')
+        
+        # Check if name matches
+        if normalize_name(catch_name) == normalize_name(haido_data["char_name"]):
+            # Check if time is still valid
+            if time.time() - haido_data["spawn_time"] > HAIDO_TIMEOUT_SECONDS:
+                # Expired - clean up
+                if chat_id in active_haido_events:
+                    del active_haido_events[chat_id]
+                return await event.reply("⏰ <b>Doraemon:</b> အချိန်ကုန်သွားပါပြီ!", parse_mode='html')
+            
+            # ✅ Claim the Haido card!
+            haido_data["claimed"] = True
+            haido_data["claimed_by"] = user_id
+            
+            mention = await get_html_mention(event, user_id)
+            await ensure_user_registered(user_id, mention)
+            
+            # Add to user's harem
+            await users_catcher_col.update_one(
+                {"user_id": user_id},
+                {
+                    "$push": {
+                        "harem": {
+                            "char_id": haido_data["char_id"],
+                            "caught_date": time.time(),
+                            "rarity": haido_data["rarity"],
+                            "status": "vault"
+                        }
+                    },
+                    "$inc": {
+                        "total_caught": 1,
+                        "wallet_balance": 1000,  # Bonus for Haido
+                        f"group_catches.{str(chat_id)}": 1
+                    },
+                    "$set": {"fullname": mention, "last_catch_date": datetime.now(TZ)}
+                },
+                upsert=True
+            )
+            
+            # Increment spawn count
+            await characters_base_col.update_one(
+                {"char_id": haido_data["char_id"]},
+                {"$inc": {"spawn_count": 1}}
+            )
+            
+            # Record in history
+            try:
+                await haido_history_col.insert_one({
+                    "chat_id": chat_id,
+                    "char_id": haido_data["char_id"],
+                    "char_name": haido_data["char_name"],
+                    "rarity": haido_data["rarity"],
+                    "rarity_tier": haido_data["rarity_tier"],
+                    "claimed_by": user_id,
+                    "claimed": True,
+                    "claimed_name": mention,
+                    "timestamp": time.time()
+                })
+            except Exception as e:
+                print(f"Haido history insert error: {e}")
+            
+            # Send success message
+            rarity_emoji = RARITY_EMOJI.get(haido_data["rarity_tier"], "🌟")
+            success_msg = f"""
+🎉 <b>DORAEMON'S HAIDO GIVEAWAY WINNER!</b> 🎉
+
+{rarity_emoji} <b>Rarity:</b> {haido_data['rarity']}
+🧑 <b>Winner:</b> {mention}
+🐾 <b>Buddy:</b> <b>{escape_html(haido_data['char_name'])}</b>
+🔖 <b>Pocket ID:</b> <code>{haido_data['char_id']}</code>
+💰 <b>Bonus:</b> <code>+1000 MMK</code>
+
+<blockquote>🎊 Doraemon says: ဂုဏ်ပြုပါတယ်! မင်းက Rarity အမြင့်ဆုံးကတ်ကို ရသွားပြီ!</blockquote>
+
+🐱 <i>Check your collection with /hai!</i>
+"""
+            
+            await event.reply(success_msg, parse_mode='html')
+            
+            # Clean up
+            del active_haido_events[chat_id]
+            return
+        
+        else:
+            # Name doesn't match Haido card
+            return await event.reply(
+                f"❌ <b>Doraemon:</b> ဒီနာမည်က မှားနေတယ်!\n"
+                f"💡 <code>/catch {haido_data['char_name']}</code> ကို ရိုက်ပါ!",
+                parse_mode='html'
+            )
+
+    # ==========================================
+    # 🛸 NORMAL SPAWN CATCH LOGIC
+    # ==========================================
     if chat_id not in active_group_spawns:
         return await event.reply(f"🛸 <b>Nothing to catch here!</b>", parse_mode='html')
+    
     spawn_data = active_group_spawns[chat_id]
     if spawn_data["claimed"]:
         return await event.reply(f"❌ <b>Already caught!</b>", parse_mode='html')
+    
     if time.time() - spawn_data["spawn_time"] > 300:
-        if chat_id in active_group_spawns: del active_group_spawns[chat_id]
+        if chat_id in active_group_spawns: 
+            del active_group_spawns[chat_id]
         return await event.reply(f"⏱️ <b>Too late! The gadget ran away.</b>", parse_mode='html')
+    
     if normalize_name(catch_name) != normalize_name(spawn_data["name"]):
         return await event.reply(f"❌ <b>Wrong name! Use the exact name shown in /who.</b>", parse_mode='html')
+    
     temp_msg = await event.reply("👾")
     await asyncio.sleep(2.5)
     await perform_catch(chat_id, user_id, spawn_data, event, reply_to_msg=event.id, is_callback=False, temp_msg_id=temp_msg.id)
-
-# Owner က ဒီ Command ကို run ပါ
-@bot1.on(events.NewMessage(pattern=r'^/reset_spawn_count$'))
-async def reset_spawn_count(event):
-    if event.sender_id != OWNER_ID:
-        return
-    # အားလုံးကို spawn_count 0 ပြန်သတ်မှတ်ပါ (spawn_count = catch count, so this also resets Global Spawns)
-    await characters_base_col.update_many({}, {"$set": {"spawn_count": 0}})
-    await invalidate_character_caches()
-    await event.reply(
-        "✅ All spawn counts (= catch counts) reset to 0!\n"
-        "⚠️ <i>Note: this makes every character's Global Spawn count out-of-sync with what "
-        "players actually own. Run</i> <code>/refillcatch</code> <i>if you want it to match reality again.</i>",
-        parse_mode='html'
-    )
-
 # ---- /refillcatch: recompute spawn_count from what's ACTUALLY in players' vaults ----
 @bot1.on(events.NewMessage(pattern=r'^/refillcatch(?:@\w+)?(?:\s+([a-zA-Z0-9_]+))?$'))
 async def refillcatch_handler(event):
@@ -3093,6 +3177,280 @@ async def unified_callback_handler(event):
             except Exception:
                 pass
             return
+# ==========================================
+# 🏆 LEADERBOARD (Daily / All-Time, paginated)
+# ==========================================
+LEADERBOARD_PAGE_SIZE = 10
+LB_MEDALS = {0: "🥇", 1: "🥈", 2: "🥉"}
+
+async def render_leaderboard_page(mode, page):
+    """Generate leaderboard text and buttons for a given mode and page."""
+    today_str = datetime.now(TZ).strftime("%Y-%m-%d") if mode == "daily" else None
+    data = await get_cached_leaderboard(mode, today_str)
+    
+    total = len(data)
+    start = page * LEADERBOARD_PAGE_SIZE
+    page_rows = data[start:start + LEADERBOARD_PAGE_SIZE]
+    field = "daily_catches" if mode == "daily" else "total_caught"
+    title = "📅 <b>Today's Top Catchers</b>" if mode == "daily" else "🏆 <b>All-Time Top Catchers</b>"
+    
+    if not page_rows:
+        body = "<i>Nobody's caught anything yet — be the first! 🐟</i>" if page == 0 else "<i>No more entries.</i>"
+    else:
+        lines = []
+        for i, row in enumerate(page_rows):
+            rank = start + i
+            medal = LB_MEDALS.get(rank, f"<code>#{rank + 1}</code>")
+            # ✅ name ကို escape_html မသုံးဘဲ တိုက်ရိုက်ပြပါ (mention အတိုင်း အလုပ်လုပ်မယ်)
+            name = row.get("fullname") or f"User {row.get('user_id')}"
+            lines.append(f"{medal}  {name} — <code>{row.get(field, 0)}</code>")
+        body = "\n".join(lines)
+    
+    text = f"{title}\n<blockquote>{body}</blockquote>"
+    
+    # Tab buttons
+    tab_row = [
+        Button.inline(("🔘 " if mode == "daily" else "") + "📅 Daily", data="lb_daily_0"),
+        Button.inline(("🔘 " if mode == "all" else "") + "🏆 All-Time", data="lb_all_0")
+    ]
+    
+    # Navigation buttons
+    nav_row = []
+    if page > 0:
+        nav_row.append(Button.inline("◀ Prev", data=f"lb_{mode}_{page - 1}"))
+    if start + LEADERBOARD_PAGE_SIZE < total:
+        nav_row.append(Button.inline("Next ▶", data=f"lb_{mode}_{page + 1}"))
+    
+    buttons = [tab_row]
+    if nav_row:
+        buttons.append(nav_row)
+    
+    return text, buttons
+
+@bot1.on(events.NewMessage(pattern=r'^/(leaderboard|lb)(?:@\w+)?$'))
+async def leaderboard_handler(event):
+    """Handle /leaderboard and /lb commands."""
+    text, buttons = await render_leaderboard_page("all", 0)
+    await event.reply(text, parse_mode='html', buttons=buttons)
+
+# ---- Callback handler for leaderboard navigation ----
+@bot1.on(events.CallbackQuery(pattern=r'^lb_(daily|all)_(\d+)$'))
+async def leaderboard_callback_handler(event):
+    """Handle leaderboard page/tab switching via inline buttons."""
+    mode = event.pattern_match.group(1)  # "daily" or "all"
+    page = int(event.pattern_match.group(2))
+    
+    text, buttons = await render_leaderboard_page(mode, page)
+    
+    try:
+        await event.edit(text, parse_mode='html', buttons=buttons)
+        await event.answer("✅ Updated!")
+    except errors.MessageNotModifiedError:
+        # Message content hasn't changed, just acknowledge the click
+        await event.answer()
+    except Exception as e:
+        await event.answer(f"❌ Error: {e}", alert=True)
+
+async def get_cached_leaderboard(mode, today_str=None):
+    """mode: 'daily' or 'all'. Leaderboard staleness of a few seconds is harmless, so this
+    caches the whole top-50 snapshot instead of hitting Mongo on every /leaderboard tap."""
+    cache_key = f"cache:leaderboard:{mode}:{today_str or 'x'}"
+    try:
+        cached = await redis_client.get(cache_key)
+        if cached:
+            return json.loads(cached)
+    except Exception as e:
+        print(f"⚠️ Redis leaderboard cache error: {e}")
+        # Redis မရရင် DB ကို တိုက်ရိုက်ရှာမယ်
+    
+    # Fetch from database
+    if mode == "daily":
+        today_start = datetime.now(TZ).replace(hour=0, minute=0, second=0, microsecond=0)
+        cursor = users_catcher_col.find(
+            {"last_catch_date": {"$gte": today_start}, "daily_catches": {"$gt": 0}},
+            {"_id": 0, "user_id": 1, "fullname": 1, "daily_catches": 1}
+        ).sort("daily_catches", -1).limit(50)
+    else:
+        cursor = users_catcher_col.find(
+            {"total_caught": {"$gt": 0}},
+            {"_id": 0, "user_id": 1, "fullname": 1, "total_caught": 1}
+        ).sort("total_caught", -1).limit(50)
+    
+    data = await cursor.to_list(length=50)
+    
+    # Try to cache it
+    try:
+        await redis_client.setex(cache_key, 20, json.dumps(data, default=str))
+    except Exception as e:
+        print(f"⚠️ Redis leaderboard cache write error: {e}")
+    
+    return data
+# ==========================================
+# 🎁 HAIDO - Rarity 1-4 Spawn Event (Owner Only)
+# ==========================================
+@bot1.on(events.NewMessage(pattern=r'^/haido(?:@\w+)?$'))
+async def haido_spawn_handler(event):
+    if event.sender_id != OWNER_ID:
+        return await event.reply("❌ ဒီ Command ကို Owner ပဲသုံးလို့ရပါတယ်။")
+    
+    chat_id = event.chat_id
+    
+    # Check if there's already an active haido event in this chat
+    if chat_id in active_haido_events:
+        remaining = int(active_haido_events[chat_id]["spawn_time"] + HAIDO_TIMEOUT_SECONDS - time.time())
+        if remaining > 0:
+            minutes = remaining // 60
+            seconds = remaining % 60
+            return await event.reply(
+                f"⚠️ <b>Doraemon:</b> ဒီ Chat မှာ Haido Event ရှိပြီးသားပါ! 🐱\n"
+                f"⏳ ကျန်ချိန်: <code>{minutes} မိနစ် {seconds} စက္ကန့်</code>\n"
+                f"💡 <code>/catch [Name]</code> နဲ့ ကောက်လို့ရပါသေးတယ်!",
+                parse_mode='html'
+            )
+    
+    # Get all characters with Rarity 1-4 (LEGENDARY, LIMITED, MYTHIC, EPIC)
+    all_chars = await get_all_characters_cached()
+    if not all_chars:
+        return await event.reply("❌ <b>Doraemon:</b> ကတ်တွေ မရှိသေးပါဘူး! ကြိုထည့်ပါဦး 🐱", parse_mode='html')
+    
+    # Filter: Rarity 1-4 (LEGENDARY, LIMITED, MYTHIC, EPIC)
+    eligible_rarities = ["LEGENDARY", "LIMITED", "MYTHIC", "EPIC"]
+    eligible_chars = []
+    for char in all_chars:
+        tier = char.get("rarity_tier") or classify_rarity(char.get("rarity", ""))
+        if tier not in eligible_rarities:
+            continue
+        # Check spawn limit
+        limit = char.get("spawn_limit", 0)
+        if limit and limit > 0 and char.get("spawn_count", 0) >= limit:
+            continue
+        eligible_chars.append(char)
+    
+    if not eligible_chars:
+        return await event.reply(
+            f"😅 <b>Doraemon:</b> ကံဆိုးချင်တယ်! Rarity 1-4 ကတ်တွေ အကုန်ကုန်သွားပြီ!\n"
+            f"💡 နောက်တစ်ခါ ကြိုးစားပါဦး 🐱",
+            parse_mode='html'
+        )
+    
+    # Randomly select one character
+    chosen_char = random.choice(eligible_chars)
+    char_id = chosen_char["char_id"]
+    char_name = chosen_char["name"]
+    char_rarity = chosen_char.get("rarity", "Unknown")
+    tier = classify_rarity(char_rarity)
+    
+    # Store the event
+    active_haido_events[chat_id] = {
+        "char_id": char_id,
+        "char_name": char_name,
+        "rarity": char_rarity,
+        "rarity_tier": tier,
+        "spawn_time": time.time(),
+        "claimed_by": None,
+        "claimed": False,
+        "msg_id": None
+    }
+    
+    # Get media
+    media_file = None
+    try:
+        storage_msg = await bot1.get_messages(SPECIFIC_CONTROL_GROUP, ids=chosen_char["storage_msg_id"])
+        if storage_msg and storage_msg.media:
+            media_file = storage_msg.media
+    except:
+        pass
+    
+    # Send spawn message
+    rarity_emoji = RARITY_EMOJI.get(tier, "🌟")
+    spawn_msg = f"""
+🎁 <b>DORAEMON'S HAIDO GIVEAWAY!</b> 🎁
+
+{rarity_emoji} <b>Rarity:</b> {char_rarity}
+📦 <b>Buddy:</b> <code>{char_name}</code>
+🆔 <b>ID:</b> <code>{char_id}</code>
+
+⏳ <b>Time Limit:</b> 15 မိနစ်
+
+<blockquote>➠ Reply with <code>/catch {char_name}</code> to claim!</blockquote>
+
+🐱 <i>Doraemon says: ဘယ်သူအရင်ရမလဲ? ပြိုင်ကြည့်ကြရအောင်!</i>
+"""
+    
+    try:
+        if media_file:
+            sent = await bot1.send_message(chat_id, spawn_msg, file=media_file, parse_mode='html')
+        else:
+            sent = await bot1.send_message(chat_id, spawn_msg, parse_mode='html')
+        active_haido_events[chat_id]["msg_id"] = sent.id
+    except Exception as e:
+        await event.reply(f"❌ <b>Doraemon:</b> Spawn မအောင်မြင်ဘူး! {e}", parse_mode='html')
+        del active_haido_events[chat_id]
+        return
+    
+    # Start timeout watcher
+    asyncio.create_task(haido_timeout_watcher(chat_id))
+    
+    # Log to owner
+    await event.reply(
+        f"✅ <b>Haido Event Started!</b>\n"
+        f"📦 <b>Card:</b> <code>{char_name}</code> ({char_id})\n"
+        f"🌟 <b>Rarity:</b> {char_rarity}\n"
+        f"⏳ <b>Time Limit:</b> 15 မိနစ်\n"
+        f"📍 <b>Chat:</b> <code>{chat_id}</code>",
+        parse_mode='html'
+    )
+
+
+# ---- Haido Timeout Watcher ----
+async def haido_timeout_watcher(chat_id):
+    """Check if haido event expires after 15 minutes."""
+    await asyncio.sleep(HAIDO_TIMEOUT_SECONDS)
+    
+    if chat_id not in active_haido_events:
+        return
+    
+    event_data = active_haido_events[chat_id]
+    if event_data["claimed"]:
+        return  # Already claimed
+    
+    # Expired - send timeout message
+    char_name = event_data["char_name"]
+    char_rarity = event_data["rarity"]
+    rarity_emoji = RARITY_EMOJI.get(event_data["rarity_tier"], "🌟")
+    
+    timeout_msg = f"""
+⏰ <b>DORAEMON SAYS: TIME'S UP!</b> ⏰
+
+{rarity_emoji} <b>{char_rarity}</b> — <code>{char_name}</code>
+
+<blockquote>😅 မင်းတို့တော့ Rarity အမြင့်ဆုံးကတ်ကို မရလိုက်ဘူး!</blockquote>
+
+🐱 <i>နောက်တစ်ခါ ပိုမြန်မြန်လုပ်ကြပါဦး! Doraemon က စောင့်ပေးမယ် 😄</i>
+"""
+    
+    try:
+        await bot1.send_message(chat_id, timeout_msg, parse_mode='html')
+    except Exception:
+        pass
+    
+    # Record as unclaimed
+    try:
+        await haido_history_col.insert_one({
+            "chat_id": chat_id,
+            "char_id": event_data["char_id"],
+            "char_name": event_data["char_name"],
+            "rarity": event_data["rarity"],
+            "rarity_tier": event_data["rarity_tier"],
+            "claimed_by": None,
+            "claimed": False,
+            "timestamp": time.time()
+        })
+    except Exception as e:
+        print(f"Haido history insert error: {e}")
+    
+    # Clean up
+    del active_haido_events[chat_id]
 
 # ==========================================
 # 📊 PROFILE
@@ -3332,7 +3690,7 @@ async def check_character_id_handler(event):
     await event.reply(info_text, parse_mode='html', file=media_file)
 # ==========================================
 # ==========================================
-# 📖 DEX (with Pagination & Copy)
+# 📖 DEX (Fixed - No Redis Dependency)
 # ==========================================
 DEX_CATEGORIES_PER_PAGE = 15
 DEX_CARDS_PER_PAGE = 15
@@ -3341,11 +3699,13 @@ def _dex_rarity_weight(rarity_str):
     tier = classify_rarity(rarity_str)
     return {"LEGENDARY": 6, "LIMITED": 5, "MYTHIC": 4, "EPIC": 3, "RARE": 2, "COMMON": 1}.get(tier, 0)
 
-async def _dex_get_category_card_count(category):
-    """Get total cards and owned cards for a category."""
-    all_chars = await get_all_characters_cached()
-    cat_chars = [c for c in all_chars if c.get("category") == category]
-    return len(cat_chars)
+async def _dex_get_all_characters():
+    """Get all characters directly from DB (bypass Redis cache for reliability)."""
+    return await characters_base_col.find({}, {"_id": 0}).to_list(length=None)
+
+async def _dex_get_all_categories():
+    """Get all categories directly from DB."""
+    return await characters_base_col.distinct("category")
 
 async def _dex_get_owned_ids(user_id):
     user_doc = await users_catcher_col.find_one({"user_id": user_id})
@@ -3358,30 +3718,28 @@ async def _dex_get_owned_ids(user_id):
 async def dex_categories_handler(event):
     user_id = event.sender_id
     owned_ids = await _dex_get_owned_ids(user_id)
-    all_categories = await get_all_categories_cached()
+    all_categories = await _dex_get_all_categories()
     
     if not all_categories:
         return await event.reply("📭 <b>No categories found!</b>", parse_mode='html')
     
-    # Sort categories by name
     all_categories = sorted(all_categories, key=lambda x: x.lower())
+    all_chars = await _dex_get_all_characters()
     
-    # Build category list with counts
     category_data = []
     for cat in all_categories:
-        total = await _dex_get_category_card_count(cat)
-        owned = sum(1 for c in await get_all_characters_cached() if c.get("category") == cat and c["char_id"] in owned_ids)
+        total = sum(1 for c in all_chars if c.get("category") == cat)
+        owned = sum(1 for c in all_chars if c.get("category") == cat and c["char_id"] in owned_ids)
         category_data.append((cat, total, owned))
     
     total_pages = (len(category_data) + DEX_CATEGORIES_PER_PAGE - 1) // DEX_CATEGORIES_PER_PAGE
-    await _dex_send_categories_page(event, category_data, 0, total_pages, owned_ids)
+    await _dex_send_categories_page(event, category_data, 0, total_pages, owned_ids, all_chars)
 
-async def _dex_send_categories_page(event, category_data, page, total_pages, owned_ids, edit_msg_id=None):
+async def _dex_send_categories_page(event, category_data, page, total_pages, owned_ids, all_chars, edit_msg_id=None):
     start = page * DEX_CATEGORIES_PER_PAGE
     end = min(start + DEX_CATEGORIES_PER_PAGE, len(category_data))
     page_data = category_data[start:end]
     
-    all_chars = await get_all_characters_cached()
     total_all = len(all_chars)
     owned_all = len(owned_ids & {c["char_id"] for c in all_chars})
     
@@ -3394,10 +3752,6 @@ async def _dex_send_categories_page(event, category_data, page, total_pages, own
         marker = "🟩" if owned == total else ("🟨" if owned > 0 else "⬜")
         text += f"{marker} <b>{idx}.</b> <code>{escape_html(cat)}</code> — <b>{owned}/{total}</b>\n"
     
-    # Copy button for categories
-    copy_text = "\n".join([f"{idx}. {cat} ({owned}/{total})" for idx, (cat, total, owned) in enumerate(category_data, start=1)])
-    copy_button = Button.inline("📋 Copy All Categories", data=f"dex_copy_cat_{page}")
-    
     buttons = []
     nav_buttons = []
     if page > 0:
@@ -3406,7 +3760,6 @@ async def _dex_send_categories_page(event, category_data, page, total_pages, own
         nav_buttons.append(Button.inline("Next ▶", data=f"dex_cat_page_{page + 1}"))
     if nav_buttons:
         buttons.append(nav_buttons)
-    buttons.append([copy_button])
     
     if edit_msg_id:
         try:
@@ -3416,14 +3769,14 @@ async def _dex_send_categories_page(event, category_data, page, total_pages, own
     else:
         await event.reply(text, parse_mode='html', buttons=buttons)
 
-# ---- /search [Category] : Show cards in a category with pagination ----
+# ---- /search [Category] ----
 @bot1.on(events.NewMessage(pattern=r'^/search(?:@\w+)?\s+(.+)$'))
 async def dex_search_handler(event):
     user_id = event.sender_id
     category_query = event.pattern_match.group(1).strip()
     owned_ids = await _dex_get_owned_ids(user_id)
     
-    all_categories = await get_all_categories_cached()
+    all_categories = await _dex_get_all_categories()
     matched_cat = next((c for c in all_categories if c and c.lower() == category_query.lower()), None)
     
     if not matched_cat:
@@ -3433,7 +3786,8 @@ async def dex_search_handler(event):
             parse_mode='html'
         )
     
-    cat_chars = [c for c in await get_all_characters_cached() if c.get("category") == matched_cat]
+    all_chars = await _dex_get_all_characters()
+    cat_chars = [c for c in all_chars if c.get("category") == matched_cat]
     cat_chars.sort(key=lambda x: (-_dex_rarity_weight(x.get("rarity", "")), x.get("name", "").lower()))
     
     total_pages = (len(cat_chars) + DEX_CARDS_PER_PAGE - 1) // DEX_CARDS_PER_PAGE
@@ -3448,7 +3802,6 @@ async def _dex_send_category_detail(event, category, cat_chars, owned_ids, page,
     owned_n = sum(1 for c in cat_chars if c["char_id"] in owned_ids)
     pct = int((owned_n / total_n) * 100) if total_n else 0
     
-    # Rarity breakdown
     rarity_counter = Counter(classify_rarity(c.get("rarity", "")) for c in cat_chars)
     breakdown_lines = " | ".join(
         f"{RARITY_EMOJI.get(tier, '🃏')}{tier[:3]} <code>{rarity_counter[tier]}</code>"
@@ -3469,10 +3822,6 @@ async def _dex_send_category_detail(event, category, cat_chars, owned_ids, page,
         text += f"{owned} <b>{idx}.</b> {rarity_display} <code>{escape_html(card['name'])}</code> [<code>{char_id}</code>]\n"
         text += f"   🎪 {escape_html(event_text)}\n"
     
-    # Copy button for cards in this category
-    copy_text = "\n".join([f"{idx}. {c['name']} ({c['char_id']}) - {c.get('rarity', '')}" for idx, c in enumerate(cat_chars, start=1)])
-    copy_button = Button.inline("📋 Copy All Cards", data=f"dex_copy_cards_{category}_{page}")
-    
     buttons = []
     nav_buttons = []
     if page > 0:
@@ -3481,10 +3830,7 @@ async def _dex_send_category_detail(event, category, cat_chars, owned_ids, page,
         nav_buttons.append(Button.inline("Next ▶", data=f"dex_detail_{category}_{page + 1}"))
     if nav_buttons:
         buttons.append(nav_buttons)
-    buttons.append([copy_button])
     buttons.append([Button.inline("🔙 Back to Categories", data="dex_back_categories")])
-    
-    # Inline gallery button
     buttons.append([Button.switch_inline(f"👀 View {category} Gallery", query=f"dex.{category}", same_peer=True)])
     
     if edit_msg_id:
@@ -3495,22 +3841,23 @@ async def _dex_send_category_detail(event, category, cat_chars, owned_ids, page,
     else:
         await event.reply(text, parse_mode='html', buttons=buttons)
 
-# ---- Callback handlers for dex ----
+# ---- Callback handlers ----
 @bot1.on(events.CallbackQuery(pattern=r'^dex_cat_page_(\d+)$'))
 async def dex_cat_page_callback(event):
     page = int(event.pattern_match.group(1))
     user_id = event.sender_id
     owned_ids = await _dex_get_owned_ids(user_id)
-    all_categories = sorted(await get_all_categories_cached(), key=lambda x: x.lower())
+    all_categories = sorted(await _dex_get_all_categories(), key=lambda x: x.lower())
+    all_chars = await _dex_get_all_characters()
     
     category_data = []
     for cat in all_categories:
-        total = await _dex_get_category_card_count(cat)
-        owned = sum(1 for c in await get_all_characters_cached() if c.get("category") == cat and c["char_id"] in owned_ids)
+        total = sum(1 for c in all_chars if c.get("category") == cat)
+        owned = sum(1 for c in all_chars if c.get("category") == cat and c["char_id"] in owned_ids)
         category_data.append((cat, total, owned))
     
     total_pages = (len(category_data) + DEX_CATEGORIES_PER_PAGE - 1) // DEX_CATEGORIES_PER_PAGE
-    await _dex_send_categories_page(event, category_data, page, total_pages, owned_ids, edit_msg_id=event.message_id)
+    await _dex_send_categories_page(event, category_data, page, total_pages, owned_ids, all_chars, edit_msg_id=event.message_id)
     await event.answer()
 
 @bot1.on(events.CallbackQuery(pattern=r'^dex_detail_([^_]+)_(\d+)$'))
@@ -3519,8 +3866,9 @@ async def dex_detail_page_callback(event):
     page = int(event.pattern_match.group(2))
     user_id = event.sender_id
     owned_ids = await _dex_get_owned_ids(user_id)
+    all_chars = await _dex_get_all_characters()
     
-    cat_chars = [c for c in await get_all_characters_cached() if c.get("category") == category]
+    cat_chars = [c for c in all_chars if c.get("category") == category]
     cat_chars.sort(key=lambda x: (-_dex_rarity_weight(x.get("rarity", "")), x.get("name", "").lower()))
     total_pages = (len(cat_chars) + DEX_CARDS_PER_PAGE - 1) // DEX_CARDS_PER_PAGE
     
@@ -3531,75 +3879,28 @@ async def dex_detail_page_callback(event):
 async def dex_back_categories_callback(event):
     user_id = event.sender_id
     owned_ids = await _dex_get_owned_ids(user_id)
-    all_categories = sorted(await get_all_categories_cached(), key=lambda x: x.lower())
+    all_categories = sorted(await _dex_get_all_categories(), key=lambda x: x.lower())
+    all_chars = await _dex_get_all_characters()
     
     category_data = []
     for cat in all_categories:
-        total = await _dex_get_category_card_count(cat)
-        owned = sum(1 for c in await get_all_characters_cached() if c.get("category") == cat and c["char_id"] in owned_ids)
+        total = sum(1 for c in all_chars if c.get("category") == cat)
+        owned = sum(1 for c in all_chars if c.get("category") == cat and c["char_id"] in owned_ids)
         category_data.append((cat, total, owned))
     
     total_pages = (len(category_data) + DEX_CATEGORIES_PER_PAGE - 1) // DEX_CATEGORIES_PER_PAGE
-    await _dex_send_categories_page(event, category_data, 0, total_pages, owned_ids, edit_msg_id=event.message_id)
+    await _dex_send_categories_page(event, category_data, 0, total_pages, owned_ids, all_chars, edit_msg_id=event.message_id)
     await event.answer()
 
-# ---- Copy handlers ----
-@bot1.on(events.CallbackQuery(pattern=r'^dex_copy_cat_(\d+)$'))
-async def dex_copy_categories_callback(event):
-    page = int(event.pattern_match.group(1))
-    user_id = event.sender_id
-    owned_ids = await _dex_get_owned_ids(user_id)
-    all_categories = sorted(await get_all_categories_cached(), key=lambda x: x.lower())
-    
-    lines = []
-    for idx, cat in enumerate(all_categories, start=1):
-        total = await _dex_get_category_card_count(cat)
-        owned = sum(1 for c in await get_all_characters_cached() if c.get("category") == cat and c["char_id"] in owned_ids)
-        lines.append(f"{idx}. {cat} ({owned}/{total})")
-    
-    copy_text = "📋 DEX CATEGORIES\n" + "=" * 30 + "\n" + "\n".join(lines)
-    
-    # Send as a code block so user can copy
-    await event.answer("📋 Copied! Check the message below.", alert=True)
-    await bot1.send_message(
-        event.chat_id,
-        f"<code>{escape_html(copy_text)}</code>",
-        parse_mode='html',
-        reply_to=event.message_id
-    )
-
-@bot1.on(events.CallbackQuery(pattern=r'^dex_copy_cards_([^_]+)_(\d+)$'))
-async def dex_copy_cards_callback(event):
-    category = event.pattern_match.group(1)
-    page = int(event.pattern_match.group(2))
-    
-    cat_chars = [c for c in await get_all_characters_cached() if c.get("category") == category]
-    cat_chars.sort(key=lambda x: (-_dex_rarity_weight(x.get("rarity", "")), x.get("name", "").lower()))
-    
-    lines = []
-    for idx, card in enumerate(cat_chars, start=1):
-        lines.append(f"{idx}. {card['name']} ({card['char_id']}) - {card.get('rarity', '')}")
-    
-    copy_text = f"📋 {category} CARDS\n" + "=" * 30 + "\n" + "\n".join(lines)
-    
-    await event.answer("📋 Copied! Check the message below.", alert=True)
-    await bot1.send_message(
-        event.chat_id,
-        f"<code>{escape_html(copy_text)}</code>",
-        parse_mode='html',
-        reply_to=event.message_id
-    )
-
-# ---- /dex [Category] - shortcut to search ----
+# ---- /dex [Category] - shortcut ----
 @bot1.on(events.NewMessage(pattern=r'^/dex(?:@\w+)?\s+(.+)$'))
 async def dex_with_category_handler(event):
-    # This is the same as /search but with /dex
-    # Just call the search handler logic
-    category_query = event.pattern_match.group(1).strip()
+    # Same as /search
     user_id = event.sender_id
+    category_query = event.pattern_match.group(1).strip()
     owned_ids = await _dex_get_owned_ids(user_id)
     
-    all_categories = await get_all_categories_cached()
+    all_categories = await _dex_get_all_categories()
     matched_cat = next((c for c in all_categories if c and c.lower() == category_query.lower()), None)
     
     if not matched_cat:
@@ -3609,15 +3910,12 @@ async def dex_with_category_handler(event):
             parse_mode='html'
         )
     
-    cat_chars = [c for c in await get_all_characters_cached() if c.get("category") == matched_cat]
+    all_chars = await _dex_get_all_characters()
+    cat_chars = [c for c in all_chars if c.get("category") == matched_cat]
     cat_chars.sort(key=lambda x: (-_dex_rarity_weight(x.get("rarity", "")), x.get("name", "").lower()))
     
     total_pages = (len(cat_chars) + DEX_CARDS_PER_PAGE - 1) // DEX_CARDS_PER_PAGE
     await _dex_send_category_detail(event, matched_cat, cat_chars, owned_ids, 0, total_pages)
-    
-
-# ==========================================
-# 🛒 MARKETPLACE
 # ==========================================
 @bot1.on(events.NewMessage(pattern=r'^/sell(?:@\w+)?$'))
 async def sell_bare_usage_handler(event):
@@ -4747,7 +5045,7 @@ async def stealth_mau_handler(event):
         pass
 
 # ==========================================
-# 📡 WEATHER ENGINE
+# 📡 WEATHER ENGINE (Fixed)
 # ==========================================
 def fetch_live_weather(city_id="Yangon"):
     try:
@@ -4777,23 +5075,39 @@ def fetch_live_weather(city_id="Yangon"):
 
 @bot1.on(events.NewMessage(pattern=r"(?i)^/weather$"))
 async def weather_cmd_handler(event):
-    buttons = [[Button.inline("🇲🇲 Myanmar", b"w_country_mm"), Button.inline("🇹🇭 Thailand", b"w_country_th")]]
+    buttons = [[Button.inline("🇲🇲 Myanmar", data="w_country_mm"), Button.inline("🇹🇭 Thailand", data="w_country_th")]]
     await event.reply("🌍 <b>Select Country</b>\nChoose a country.", parse_mode='html', buttons=buttons)
 
 @bot1.on(events.CallbackQuery(pattern=r"^w_(.+)$"))
 async def weather_callback_engine(event):
-    action = event.pattern_match.group(1).decode('utf-8') if isinstance(event.pattern_match.group(1), bytes) else event.pattern_match.group(1)
+    # ✅ Handle both string and bytes data
+    raw_data = event.data.decode('utf-8') if isinstance(event.data, bytes) else event.data
+    action = raw_data.replace("w_", "")
+    
     if action == "main_menu":
-        buttons = [[Button.inline("🇲🇲 Myanmar", b"w_country_mm"), Button.inline("🇹🇭 Thailand", b"w_country_th")]]
+        buttons = [[Button.inline("🇲🇲 Myanmar", data="w_country_mm"), Button.inline("🇹🇭 Thailand", data="w_country_th")]]
         await event.edit("🌍 <b>Select Country</b>", parse_mode='html', buttons=buttons)
+        await event.answer()
         return
     elif action == "country_mm":
-        buttons = [[Button.inline("Yangon", b"w_city_Yangon"), Button.inline("Mandalay", b"w_city_Mandalay")], [Button.inline("Naypyidaw", b"w_city_Naypyidaw"), Button.inline("Taunggyi", b"w_city_Taunggyi")], [Button.inline("Bago", b"w_city_Bago"), Button.inline("Mawlamyine", b"w_city_Mawlamyine")], [Button.inline("⬅️ Back", b"w_main_menu")]]
+        buttons = [
+            [Button.inline("Yangon", data="w_city_Yangon"), Button.inline("Mandalay", data="w_city_Mandalay")],
+            [Button.inline("Naypyidaw", data="w_city_Naypyidaw"), Button.inline("Taunggyi", data="w_city_Taunggyi")],
+            [Button.inline("Bago", data="w_city_Bago"), Button.inline("Mawlamyine", data="w_city_Mawlamyine")],
+            [Button.inline("⬅️ Back", data="w_main_menu")]
+        ]
         await event.edit("🇲🇲 <b>Myanmar Regions</b>", parse_mode='html', buttons=buttons)
+        await event.answer()
         return
     elif action == "country_th":
-        buttons = [[Button.inline("Bangkok", b"w_city_Bangkok"), Button.inline("Chiang Mai", b"w_city_Chiang_Mai")], [Button.inline("Phuket", b"w_city_Phuket"), Button.inline("Pattaya", b"w_city_Pattaya")], [Button.inline("Hat Yai", b"w_city_Hat_Yai"), Button.inline("Khon Kaen", b"w_city_Khon_Kaen")], [Button.inline("⬅️ Back", b"w_main_menu")]]
+        buttons = [
+            [Button.inline("Bangkok", data="w_city_Bangkok"), Button.inline("Chiang Mai", data="w_city_Chiang_Mai")],
+            [Button.inline("Phuket", data="w_city_Phuket"), Button.inline("Pattaya", data="w_city_Pattaya")],
+            [Button.inline("Hat Yai", data="w_city_Hat_Yai"), Button.inline("Khon Kaen", data="w_city_Khon_Kaen")],
+            [Button.inline("⬅️ Back", data="w_main_menu")]
+        ]
         await event.edit("🇹🇭 <b>Thai Provinces</b>", parse_mode='html', buttons=buttons)
+        await event.answer()
         return
     elif action.startswith("city_"):
         city_name = action.replace("city_", "")
@@ -4801,14 +5115,25 @@ async def weather_callback_engine(event):
         loop = asyncio.get_event_loop()
         w_data = await loop.run_in_executor(None, fetch_live_weather, city_name)
         mm_cities = ["Yangon", "Mandalay", "Naypyidaw", "Taunggyi", "Bago", "Mawlamyine"]
-        back_target = b"w_country_mm" if city_name in mm_cities else b"w_country_th"
-        control_buttons = [[Button.inline("🔄 Refresh", f"w_city_{city_name}".encode('utf-8'))], [Button.inline("⬅️ Back", back_target)]]
+        back_target = "w_country_mm" if city_name in mm_cities else "w_country_th"
+        control_buttons = [[Button.inline("🔄 Refresh", data=f"w_city_{city_name}")], [Button.inline("⬅️ Back", data=back_target)]]
+        
         if w_data["success"]:
-            response_text = f"🌍 <b>LIVE WEATHER</b>\n📍 <b>Location:</b> <code>{w_data['city']}</code>\n━━━━━━━━━━━━━━━━━━━━\n🌡️ <b>Temp:</b> <code>{w_data['temp']}°C</code>\n💧 <b>Humidity:</b> <code>{w_data['humidity']}%</code>\n💨 <b>Wind:</b> <code>{w_data['wind']} Km/h</code>\n━━━━━━━━━━━━━━━━━━━━\n🌤️ <b>Condition:</b> <code>{w_data['desc']}</code>"
+            response_text = (
+                f"🌍 <b>LIVE WEATHER</b>\n"
+                f"📍 <b>Location:</b> <code>{w_data['city']}</code>\n"
+                f"━━━━━━━━━━━━━━━━━━━━\n"
+                f"🌡️ <b>Temp:</b> <code>{w_data['temp']}°C</code>\n"
+                f"💧 <b>Humidity:</b> <code>{w_data['humidity']}%</code>\n"
+                f"💨 <b>Wind:</b> <code>{w_data['wind']} Km/h</code>\n"
+                f"━━━━━━━━━━━━━━━━━━━━\n"
+                f"🌤️ <b>Condition:</b> <code>{w_data['desc']}</code>"
+            )
         else:
             response_text = f"❌ <b>ERROR:</b> Could not retrieve data for {city_name}."
+        
         await event.edit(response_text, parse_mode='html', buttons=control_buttons)
-
+        await event.answer()
 # ==========================================
 # 🚀 SYSTEM INITIALIZATION
 # ==========================================
