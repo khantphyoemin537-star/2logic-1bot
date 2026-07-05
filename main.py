@@ -2236,33 +2236,84 @@ CATCH_USAGE_TEXT = (
 async def catch_bare_usage_handler(event):
     if event.is_private: return
     await event.reply(CATCH_USAGE_TEXT, parse_mode='html')
-
-@bot1.on(events.NewMessage(pattern=r'^/catch(?:@\w+)?\s+(.*)$'))
-async def catch_handler(event):
+@bot1.on(events.NewMessage(pattern=r'^/catch(?:@\w+)?(?:\s+(.*))?$'))
+async def catch_unified_handler(event):
     if event.is_private: return
     user_id = event.sender_id
+    
     # Check spam mute
     if user_id in user_mute_until and time.time() < user_mute_until[user_id]:
         return await event.reply("🐱 You're currently muted from catching. Please wait a few minutes.")
+    
     chat_id = event.chat_id
-    catch_name = event.pattern_match.group(1).strip()
-    if not catch_name:
-        return await event.reply(CATCH_USAGE_TEXT, parse_mode='html')
+    catch_name = event.pattern_match.group(1)
+    
+    # Get user daily stats
+    user_doc = await users_catcher_col.find_one({"user_id": user_id})
+    today = datetime.now(TZ).date()
+    daily_catches = 0
+    if user_doc:
+        last_catch_date = user_doc.get("last_catch_date")
+        if last_catch_date:
+            last_date = last_catch_date.date() if isinstance(last_catch_date, datetime) else last_catch_date
+            if last_date == today:
+                daily_catches = user_doc.get("daily_catches", 0)
+    remaining = max(0, 22 - daily_catches)
+    
+    # ✅ /catch ချည်းရိုက်ရင် ဒီနေ့ရတဲ့အရေအတွက်ပြမယ်
+    if not catch_name or not catch_name.strip():
+        if remaining == 0:
+            reply_text = (
+                f"🚫 <b>Daily Limit Reached!</b>\n\n"
+                f"📊 <b>Today's Progress:</b>\n"
+                f"   • <b>Caught today:</b> <code>{daily_catches}/22</code> ✅\n"
+                f"   • <b>Remaining:</b> <code>0</code>\n\n"
+                f"🐱 <b>Doraemon says:</b> You've caught 22 characters today!\n"
+                f"🌟 Please come back tomorrow, Nobita!\n\n"
+                f"💡 <i>Use /daily to claim your daily bonus while you wait!</i>"
+            )
+        else:
+            reply_text = (
+                f"📌 <b>Usage:</b> <code>/catch [Character Name]</code>\n"
+                f"<i>Reply with /who to reveal a spawn, then use the exact name shown.</i>\n\n"
+                f"📊 <b>Today's Progress:</b>\n"
+                f"   • <b>Caught today:</b> <code>{daily_catches}/22</code>\n"
+                f"   • <b>Remaining:</b> <code>{remaining}</code>\n"
+                f"   • ✅ Keep catching!"
+            )
+        return await event.reply(reply_text, parse_mode='html')
+    
+    # ✅ Daily Limit ပြည့်နေရင် /catch [Name] ရိုက်လို့မရဘူး
+    if remaining == 0:
+        return await event.reply(
+            f"🚫 <b>Daily Limit Reached!</b>\n\n"
+            f"🐱 <b>Doraemon says:</b> You've caught 22 characters today!\n"
+            f"🌟 Please come back tomorrow, Nobita!\n"
+            f"💡 <i>Use /daily to claim your daily bonus while you wait!</i>",
+            parse_mode='html'
+        )
+    
+    # ✅ /catch [Name] ရိုက်ရင် ဆက်ဖမ်းမယ်
+    catch_name = catch_name.strip()
+    
     if chat_id not in active_group_spawns:
         return await event.reply(f"🛸 <b>Nothing to catch here!</b>", parse_mode='html')
+    
     spawn_data = active_group_spawns[chat_id]
     if spawn_data["claimed"]:
         return await event.reply(f"❌ <b>Already caught!</b>", parse_mode='html')
+    
     if time.time() - spawn_data["spawn_time"] > 300:
         if chat_id in active_group_spawns: del active_group_spawns[chat_id]
         return await event.reply(f"⏱️ <b>Too late! The gadget ran away.</b>", parse_mode='html')
+    
     if normalize_name(catch_name) != normalize_name(spawn_data["name"]):
         return await event.reply(f"❌ <b>Wrong name! Use the exact name shown in /who.</b>", parse_mode='html')
+    
     temp_msg = await event.reply("👾")
-    await asyncio.sleep(2.5)
+    await asyncio.sleep(2.0)
     await perform_catch(chat_id, user_id, spawn_data, event, reply_to_msg=event.id, is_callback=False, temp_msg_id=temp_msg.id)
-
-# Owner က ဒီ Command ကို run ပါ
+    
 @bot1.on(events.NewMessage(pattern=r'^/reset_spawn_count$'))
 async def reset_spawn_count(event):
     if event.sender_id != OWNER_ID:
