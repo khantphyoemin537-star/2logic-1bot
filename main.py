@@ -1973,10 +1973,10 @@ async def trigger_dynamic_spawn(chat_id):
         event_display = escape_html(event_name) if event_name and event_name != "General" else "➖"
         spawn_msg = await bot1.send_message(
             chat_id,
-            f"🫧 <b>Ring ring! A Character popped out of the Anywhere Door!</b>\n\n"
+            f"🫧 <b>A Character spawned in this group chat!</b>\n\n"
             f"⚡ <b>Rarity:</b> {rarity_display}\n"
             f"🎡 <b>Event:</b> {event_display}\n\n"
-            f"➠➠ Reply with <code>/who</code> to reveal!",
+            f"➠➠ Reply with <code>/who</code> to get /catch[name]!",
             parse_mode='html',
             file=storage_msg.media
         )
