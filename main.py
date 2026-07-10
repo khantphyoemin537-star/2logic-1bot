@@ -2378,7 +2378,7 @@ async def trigger_dynamic_spawn(chat_id):
             eligible_characters.append(char)
         if not eligible_characters:
             return
-        RARITY_WEIGHTS = {"LEGENDARY": 3, "LIMITED": 5, "MYTHIC": 8, "EPIC": 15, "RARE": 25, "COMMON": 40}
+        RARITY_WEIGHTS = {"LEGENDARY": 4, "LIMITED": 5, "MYTHIC": 12, "EPIC": 20, "RARE": 30, "COMMON": 25}
         weights = []
         for char in eligible_characters:
             tier = char.get("rarity_tier") or classify_rarity(char.get("rarity", ""))
@@ -2392,7 +2392,7 @@ async def trigger_dynamic_spawn(chat_id):
         event_display = escape_html(event_name) if event_name and event_name != "General" else "➖"
         spawn_msg = await bot1.send_message(
             chat_id,
-            f"🫧 <b>A new chain has surfaced. Makima has brought someone here.</b>\n\n"
+            f"❔ <b>A new character spawned in this SuperGroup.</b>\n\n"
             f"🏷️ <b>Rarity:</b> {rarity_display}\n"
             f"🎡 <b>Event:</b> {event_display}\n\n"
             f"➠➠ Reply with <code>/who</code> to reveal!",
