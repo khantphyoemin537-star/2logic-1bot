@@ -2270,7 +2270,7 @@ async def trigger_dynamic_spawn(chat_id):
             eligible_characters.append(char)
         if not eligible_characters:
             return
-        RARITY_WEIGHTS = {"LEGENDARY": 3, "LIMITED": 5, "MYTHIC": 8, "EPIC": 15, "RARE": 25, "COMMON": 40}
+        RARITY_WEIGHTS = {"LEGENDARY": 4, "LIMITED": 5, "MYTHIC": 12, "EPIC": 20, "RARE": 30, "COMMON": 25}
         weights = []
         for char in eligible_characters:
             tier = char.get("rarity_tier") or classify_rarity(char.get("rarity", ""))
@@ -2284,7 +2284,7 @@ async def trigger_dynamic_spawn(chat_id):
         event_display = escape_html(event_name) if event_name and event_name != "General" else "➖"
         spawn_msg = await bot1.send_message(
             chat_id,
-            f"🫧 <b>A new chain has surfaced. Makima has brought someone here.</b>\n\n"
+            f"{rarity_display} <b>A new character spawned in this chat. Makima has brought someone here.</b>\n\n"
             f"⚡ <b>Rarity:</b> {rarity_display}\n"
             f"🎡 <b>Event:</b> {event_display}\n\n"
             f"➠➠ Reply with <code>/who</code> to reveal!",
@@ -2307,7 +2307,6 @@ async def trigger_dynamic_spawn(chat_id):
         }
     except Exception as e:
         print(f"Spawn Error Tracker: {e}")
-
 # ---- /who ----
 @bot1.on(events.NewMessage(pattern=r'^/who(?:@\w+)?$'))
 async def who_reveal_handler(event):
@@ -2347,12 +2346,11 @@ async def who_reveal_handler(event):
             f"✨ <b>Ready to catch?</b>\n"
         )
         try:
-            # ✅ Button ကိုနှိပ်လိုက်ရင် Input Box ထဲ /catch {char_name} ထည့်ပေးမယ်
+            # ✅ Button ကိုနှိပ်လိုက်ရင် Bot က `/catch` ကို တိုက်ရိုက်ပို့ပေးမယ် (switch_inline မဟုတ်တော့ဘူး)
             buttons = [
-                [Button.switch_inline(
+                [Button.inline(
                     text=f"🐛 Catch {char_name} Now!",
-                    query=f"/catch {char_name}",
-                    same_peer=True
+                    data=f"catchbtn_{char_name}"  # Button ကိုနှိပ်ရင် ဒီ data ကိုယူပြီး Bot ကနေ ပို့ပေးမယ်
                 )]
             ]
             await event.reply(reveal_text, parse_mode='html', buttons=buttons)
@@ -2375,7 +2373,6 @@ async def who_reveal_handler(event):
             "❌ <b>Something went wrong while revealing! Makima is correcting it...</b>",
             parse_mode='html'
         )
-
 # ---- CATCH LOGIC (with daily limit and spawn_count increment on success) ----
 async def perform_catch(chat_id, user_id, spawn_data, event, reply_to_msg=None, is_callback=False, temp_msg_id=None):
     if chat_id not in active_group_spawns:
