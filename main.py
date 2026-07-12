@@ -1562,8 +1562,8 @@ async def welcome_goodbye(event):
                     user_first_name = u.first_name or "User"
                     mention = f"<a href='tg://user?id={uid}'><b>{escape_html(user_first_name)}</b></a>"
                     welcome_text = (
-                        f"<blockquote>ဟိုက် {mention}... {escape_html(group_name)} ကနေ ကြိုဆိုလိုက်ပါတယ်\n"
-                        f"⛓️ Makima has her eyes on you now.</blockquote>"
+                        f"<blockquote>Hello {mention}... {escape_html(group_name)} ကနေ ကြိုဆိုလိုက်ပါတယ်\n"
+                        f"Makima has her eyes on you now.</blockquote>"
                     )
                     await bot1.send_message(
                         event.chat_id,
@@ -1586,7 +1586,7 @@ async def welcome_goodbye(event):
                     u = await bot1.get_entity(event.user_id)
                     user_first_name = u.first_name or "User"
                     mention = f"<a href='tg://user?id={event.user_id}'><b>{escape_html(user_first_name)}</b></a>"
-                    goodbye_text = f"<blockquote> တာ့တာ {mention}!\nWe'll miss you.</blockquote>"
+                    goodbye_text = f"<blockquote> Goodbye{mention}!\nWe'll miss you.</blockquote>"
                     await bot1.send_message(event.chat_id, goodbye_text, parse_mode='html')
                 except:
                     pass
@@ -3099,7 +3099,7 @@ async def trigger_dynamic_spawn(chat_id):
                 eligible_characters.append(char)
             if not eligible_characters:
                 return
-            RARITY_WEIGHTS = dict(zip(RARITY_TIERS, [2, 4, 7, 12, 18, 26, 36, 48, 60]))
+            RARITY_WEIGHTS = dict(zip(RARITY_TIERS, [10, 10, 10, 10, 10, 10, 10, 10, 10]))
             weights = []
             for char in eligible_characters:
                 tier = char.get("rarity_tier") or classify_rarity(char.get("rarity", ""))
@@ -3128,7 +3128,7 @@ async def release_spawn(chat_id, chosen_char):
         # Spelled out step-by-step on purpose — players were missing that /who has to be a
         # REPLY to this exact message, and that there's a second /catch step after that.
         spawn_text = (
-            f"🫧 <b>A wild chain has surfaced!</b>\n\n"
+            f"🫧 <b>A Character has summoned!</b>\n\n"
             f"🏷️ <b>Rarity:</b> {rarity_display}\n"
             f"🎡 <b>Event:</b> {event_display}\n\n"
             f"1️⃣ <b>Reply to THIS message with</b> <code>/who</code> <b>(or tap the button below)</b>\n"
