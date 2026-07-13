@@ -7014,7 +7014,61 @@ async def btc_market_tick_engine():
             await _write_btc_price(market, new_price, extra)
         except Exception as e:
             logging.error(f"BTC market tick engine error: {e}")
-
+# ==========================================
+# 📤 EXPORT CHARACTERS DATABASE (OWNER ONLY)
+# ==========================================
+@bot1.on(events.NewMessage(pattern=r'^/exportchars(?:@\w+)?$'))
+async def export_characters_handler(event):
+    if event.sender_id != OWNER_ID:
+        return await event.reply("❌ Owner only command.")
+    
+    status_msg = await event.reply("⏳ <b>Fetching character database...</b>", parse_mode='html')
+    
+    # Database ထဲက ဇာတ်ကောင်အားလုံးကို ဆွဲထုတ်မယ်
+    all_chars = await characters_base_col.find({}, {
+        "name": 1, "category": 1, "rarity": 1, "event": 1, "char_id": 1, "artist": 1, "_id": 0
+    }).to_list(length=None)
+    
+    if not all_chars:
+        return await status_msg.edit("📭 <b>No characters found in the database.</b>", parse_mode='html')
+    
+    # File ထဲ ရေးဖို့အတွက် Data တွေကို Format ချမယ်
+    import io
+    output = io.StringIO()
+    output.write("CHARACTER DATABASE EXPORT\n")
+    output.write("=" * 60 + "\n\n")
+    
+    for char in all_chars:
+        name = char.get('name', 'N/A')
+        category = char.get('category', 'N/A')
+        rarity = char.get('rarity', 'N/A')
+        event = char.get('event', 'General')
+        char_id = char.get('char_id', 'N/A')
+        artist = char.get('artist', '')
+        
+        # Format ကို ဒီအတိုင်း ရေးသွားမယ်
+        output.write(f"Character: {name}\n")
+        output.write(f"ID: {char_id}\n")
+        output.write(f"Series/Category: {category}\n")
+        output.write(f"Rarity: {rarity}\n")
+        output.write(f"Event: {event}\n")
+        if artist:
+            output.write(f"Artist: {artist}\n")
+        output.write("-" * 40 + "\n")
+    
+    output.seek(0)
+    
+    # StringIO ကို BytesIO အဖြစ် ပြောင်းပြီး Document အနေနဲ့ ပို့မယ်
+    file_bytes = io.BytesIO(output.getvalue().encode('utf-8'))
+    file_bytes.name = "character_database_export.txt"
+    
+    await status_msg.delete()  # Loading message ကို ဖျက်လိုက်မယ်
+    await bot1.send_file(
+        event.chat_id,
+        file_bytes,
+        caption=f"📄 <b>Exported {len(all_chars)} characters successfully.</b>\n<i>Format: Name | Series | Rarity | Event</i>",
+        parse_mode='html'
+    )
 # ==========================================
 # 👥 /users – LIST ALL USERS (LIVE NAMES)
 # ==========================================
