@@ -7630,4 +7630,4 @@ if __name__ == "__main__":
         asyncio.run(start_system())
     except (KeyboardInterrupt, SystemExit):
         print("Bot System Shutting Down.")
-        
+#🦖        
