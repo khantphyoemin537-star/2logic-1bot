@@ -1031,61 +1031,60 @@ HAIDO_TIMEOUT_SECONDS = 900  # 15 minutes
 # the FIRST correct tap actually releases the spawn (normal /who + /catch flow after that).
 # chat_id -> {"char", "options", "correct_index", "question", "msg_id", "quiz_time", "solved"}
 pending_rarity_quiz = {}
-RARITY_GATE_TIERS = {RARITY_TIERS[0], RARITY_TIERS[1]}  # rarity No.1 and No.2, by position
-RARITY_GATE_TIMEOUT_SECONDS = 120
+RARITY_GATE_TIERS = {RARITY_TIERS[0]}  # rarity No.1 and No.2, by position
+RARITY_GATE_TIMEOUT_SECONDS = 360
 RARITY_QUIZ_BANK = [
-    {"question": "ဂျပန်နိုင်ငံရဲ့ မြို့တော်ကဘာလဲ?", "options": ["တိုကျို", "အိုစာကာ", "ကျိုတို", "နာဂိုယာ"], "correct_index": 0},
-    {"question": "ကမ္ဘာပေါ်မှာ တိုက်ကြီးမည်မျှ ရှိသလဲ?", "options": ["၅ခု", "၆ခု", "၇ခု", "၈ခု"], "correct_index": 2},
-    {"question": "ရွှေရဲ့ ဓာတုသင်္ကေတကဘာလဲ?", "options": ["Ag", "Au", "Gd", "Go"], "correct_index": 1},
-    {"question": "\"အနီရောင်ဂြိုဟ်\" လို့ခေါ်တဲ့ ဂြိုဟ်ကဘာလဲ?", "options": ["ဗီးနပ်စ်", "အင်္ဂါ", "ဂျူပီတာ", "ဇာတန်"], "correct_index": 1},
-    {"question": "12 × 12 ဖြေရလဒ်ကဘာလဲ?", "options": ["124", "144", "132", "156"], "correct_index": 1},
-    {"question": "ကမ္ဘာပေါ်က အကြီးဆုံးသမုဒ္ဒရာကဘာလဲ?", "options": ["အတလန္တိတ်", "အိန္ဒိယ", "အာတိတ်", "ပစိဖိတ်"], "correct_index": 3},
-    {"question": "နှစ်ခုန်နှစ် (Leap Year) တစ်နှစ်မှာ ရက်ပေါင်းမည်မျှ ရှိသလဲ?", "options": ["364", "365", "366", "367"], "correct_index": 2},
-    {"question": "လူ့ခန္ဓာကိုယ်ထဲက အကြီးဆုံးအင်္ဂါကဘာလဲ?", "options": ["နှလုံး", "အသည်း", "အရေပြား", "အဆုတ်"], "correct_index": 2},
-    {"question": "လွတ်လပ်မှုရုပ်တု (Statue of Liberty) ကို အမေရိကန်ကိုပေးလှူခဲ့တဲ့ နိုင်ငံကဘာလဲ?", "options": ["စပိန်", "ပြင်သစ်", "ယူကေ", "အီတလီ"], "correct_index": 1},
-    {"question": "အငယ်ဆုံး ပင်ရင်းကိန်း (Prime Number) ကဘာလဲ?", "options": ["0", "1", "2", "3"], "correct_index": 2},
-    {"question": "ကမ္ဘာပေါ်မှာ မွေးရာပါ ပြောသူအများဆုံး ဘာသာစကားကဘာလဲ?", "options": ["အင်္ဂလိပ်", "ဟိန္ဒီ", "တရုတ် (မန်ဒရင်း)", "စပိန်"], "correct_index": 2},
-    {"question": "ကြာအိုတစ်ကောင်မှာ နှလုံးမည်မျှ ရှိသလဲ?", "options": ["1", "2", "3", "4"], "correct_index": 2},
-    {"question": "ရေရဲ့ ရေခဲမှတ်ချက်ကို စင်တီဂရိတ်နဲ့ဖော်ပြရင် ဘယ်လောက်ဖြစ်သလဲ?", "options": ["0°C", "32°C", "-1°C", "100°C"], "correct_index": 0},
-    {"question": "အပင်တွေက အစာဖန်တီးဖို့ လေထုထဲကနေ ဘာဓာတ်ငွေ့ကို စုပ်ယူသလဲ?", "options": ["အောက်စီဂျင်", "နိုက်ထရိုဂျင်", "ကာဗွန်ဒိုင်အောက်ဆိုဒ်", "ဟိုက်ဒရိုဂျင်"], "correct_index": 2},
-    {"question": "ကမ္ဘာပေါ်က အမြင့်ဆုံးတောင်ကဘာလဲ?", "options": ["K2", "ကန်ချင်ဂျန်ဂါ", "ဧဝရတ်တောင်", "လိုဟော့ဆေ"], "correct_index": 2},
-    {"question": "မြန်မာနိုင်ငံရဲ့ မြို့တော်ကဘာလဲ?", "options": ["ရန်ကုန်", "နေပြည်တော်", "မန္တလေး", "တောင်ကြီး"], "correct_index": 1},
-    {"question": "ကမ္ဘာပေါ်မှာ ဧရိယာအကျယ်ဆုံးနိုင်ငံကဘာလဲ?", "options": ["ကနေဒါ", "တရုတ်", "ရုရှား", "အမေရိကန်"], "correct_index": 2},
-    {"question": "နေအဖွဲ့ (Solar System) ထဲမှာ အကြီးဆုံးဂြိုဟ်ကဘာလဲ?", "options": ["ဂျူပီတာ", "ဇာတန်", "ကမ္ဘာ", "နက်ပကျွန်း"], "correct_index": 0},
-    {"question": "ပုံမှန်လူတစ်ဦးရဲ့ ခန္ဓာကိုယ်မှာ အရိုးပေါင်းမည်မျှ ရှိသလဲ?", "options": ["186", "206", "226", "246"], "correct_index": 1},
-    {"question": "ကမ္ဘာမြေကြီးက နေကို တစ်ပတ်လှည့်ပတ်ဖို့ အချိန်မည်မျှကြာသလဲ?", "options": ["၂၄ နာရီ", "၃၆၅ ရက်", "၂၉ ရက်", "၁၂ လ"], "correct_index": 1},
-    {"question": "ရေရဲ့ ဓာတုပုံသေနည်းကဘာလဲ?", "options": ["H2O", "CO2", "O2", "NaCl"], "correct_index": 0},
-    {"question": "အီဂျစ်ရဲ့ ပိရမစ်ကြီးများကို ဘယ်နေရာမှာ တွေ့နိုင်သလဲ?", "options": ["ဂီဇာ", "လူဇော်", "အလက်ဇန္ဒြီးယား", "ကိုင်ရိုမြို့လယ်"], "correct_index": 0},
-    {"question": "ကမ္ဘာပေါ်က အကြီးဆုံးသတ္တဝါကဘာလဲ?", "options": ["ဆင်", "ဘလူးဝေလငါး", "ဂျီရာဖ်", "အိမ်မွေးကျား"], "correct_index": 1},
-    {"question": "တစ်နှစ်မှာ လမည်မျှ ရှိသလဲ?", "options": ["10", "11", "12", "13"], "correct_index": 2},
-    {"question": "စတန်ဒတ်ဂစ်တာတစ်လုံးမှာ ကြိုးမည်မျှ ပုံမှန်ရှိသလဲ?", "options": ["4", "5", "6", "7"], "correct_index": 2},
-    {"question": "ကမ္ဘာပေါ်က အသေးဆုံးတိုက်ကြီးကဘာလဲ?", "options": ["ဥရောပ", "အိုစတြေးလျ", "အန်တာတိကတ်", "အာဖရိက"], "correct_index": 1},
-    {"question": "လေထုထဲမှာ အများဆုံးပါဝင်တဲ့ ဓာတ်ငွေ့ကဘာလဲ?", "options": ["အောက်စီဂျင်", "နိုက်ထရိုဂျင်", "ကာဗွန်ဒိုင်အောက်ဆိုဒ်", "ဟိုက်ဒရိုဂျင်"], "correct_index": 1},
-    {"question": "100 ÷ 4 ဖြေရလဒ်ကဘာလဲ?", "options": ["20", "25", "30", "40"], "correct_index": 1},
-    {"question": "\"Mona Lisa\" ပန်းချီကားကို ဆွဲခဲ့သူကဘယ်သူလဲ?", "options": ["ပီကာဆို", "ဗင်းဆန့်ဗန်ဂို", "လီယိုနာဒို ဒါဗင်ချီ", "မိုနေး"], "correct_index": 2},
-    {"question": "\"Hello\" ကို ပြင်သစ်လိုပြောရင် ဘယ်လိုပြောသလဲ?", "options": ["Hola", "Bonjour", "Ciao", "Hallo"], "correct_index": 1},
-    {"question": "ABO စနစ်အရ လူ့သွေးအုပ်စု မည်မျှ ရှိသလဲ?", "options": ["2", "3", "4", "5"], "correct_index": 2},
-    {"question": "ဘောလုံးအသင်းတစ်သင်းမှာ ကွင်းထဲကစားသမား ပုံမှန်ဘယ်နှစ်ယောက် ရှိသလဲ?", "options": ["9", "10", "11", "12"], "correct_index": 2},
-    {"question": "ကမ္ဘာပေါ်က အရှည်ဆုံးမြစ်ကဘာလဲ?", "options": ["အမေဇုန်မြစ်", "နိုင်းမြစ်", "ယန်စီမြစ်", "မစ္စစ္စပီမြစ်"], "correct_index": 1},
-    {"question": "\"www\" ဆိုတာ ဘာကိုကိုယ်စားပြုသလဲ?", "options": ["World Wide Web", "World Wide Wire", "Web World Wide", "Wide World Web"], "correct_index": 0},
-    {"question": "1 ကီလိုဂရမ်မှာ ဂရမ်မည်မျှ ရှိသလဲ?", "options": ["100", "1000", "10", "10000"], "correct_index": 1},
-    {"question": "ထိုင်းနိုင်ငံရဲ့ မြို့တော်ကဘာလဲ?", "options": ["ဘန်ကောက်", "ချင်းမိုင်", "ဖူးခက်", "ပတ္တရား"], "correct_index": 0},
-    {"question": "ကမ္ဘာပေါ်က ဧရိယာအငယ်ဆုံးနိုင်ငံကဘာလဲ?", "options": ["မိုနကို", "ဗာတီကန်", "စင်္ကာပူ", "မော်လ်ဒိုက်"], "correct_index": 1},
-    {"question": "လက ကမ္ဘာမြေကို တစ်ပတ်လှည့်ပတ်ဖို့ ခန့်မှန်းအားဖြင့် ရက်မည်မျှကြာသလဲ?", "options": ["7 ရက်", "14 ရက်", "27 ရက်", "60 ရက်"], "correct_index": 2},
-    {"question": "\"Mona Lisa\" ပန်းချီကားကို ဘယ်ပြတိုက်မှာ ထားရှိသလဲ?", "options": ["British Museum", "Louvre", "Uffizi", "MoMA"], "correct_index": 1},
-    {"question": "ဘောလုံးကွင်းမှာ ဂိုးကိုအကာအကွယ်ပေးသူကို ဘာလို့ခေါ်သလဲ?", "options": ["Striker", "Goalkeeper", "Defender", "Midfielder"], "correct_index": 1},
-    {"question": "9 x 9 ဖြေရလဒ်ကဘာလဲ?", "options": ["72", "81", "90", "99"], "correct_index": 1},
-    {"question": "လူသားတွေ အသက်ရှင်ရပ်တည်ဖို့ အသက်ရှုသွင်းအသုံးပြုတဲ့ ဓာတ်ငွေ့ကဘာလဲ?", "options": ["ကာဗွန်ဒိုင်အောက်ဆိုဒ်", "နိုက်ထရိုဂျင်", "အောက်စီဂျင်", "ဟီလီယမ်"], "correct_index": 2},
-    {"question": "ကမ္ဘာပေါ်က အကြီးဆုံး အပူပိုင်းသဲကန္တာရကဘာလဲ?", "options": ["ဆာဟာရ", "ဂိုဘီ", "ကာလဟာရီ", "အာရေဗျ"], "correct_index": 0},
-    {"question": "\"Eiffel Tower\" ကို ဘယ်နိုင်ငံမှာ တွေ့နိုင်သလဲ?", "options": ["အီတလီ", "စပိန်", "ပြင်သစ်", "ဂျာမနီ"], "correct_index": 2},
-    {"question": "တစ်ပတ်မှာ ရက်မည်မျှ ရှိသလဲ?", "options": ["5 ရက်", "6 ရက်", "7 ရက်", "8 ရက်"], "correct_index": 2},
-    {"question": "π (pi) ရဲ့ ခန့်မှန်းတန်ဖိုးကဘာလဲ?", "options": ["3.14", "2.71", "1.61", "4.13"], "correct_index": 0},
-    {"question": "\"Hollywood\" ကို ဘယ်နိုင်ငံမှာ တွေ့နိုင်သလဲ?", "options": ["ယူကေ", "အမေရိကန်", "ကနေဒါ", "ဩစတြေးလျ"], "correct_index": 1},
-    {"question": "ခန္ဓာကိုယ်ထဲက သွေးတွေကို စုပ်ယူပြီး ပတ်လည်ပို့ဆောင်ပေးတဲ့ အင်္ဂါကဘာလဲ?", "options": ["အဆုတ်", "နှလုံး", "အသည်း", "ကျောက်ကပ်"], "correct_index": 1},
-    {"question": "ကမ္ဘာပေါ်က ရေအများစုဆုံး ရှိတဲ့နေရာကဘာလဲ?", "options": ["မြစ်များ", "အိုင်များ", "သမုဒ္ဒရာများ", "ရေခဲပြင်များ"], "correct_index": 2},
-    {"question": "မြန်မာ့ရိုးရာ သင်္ကြန်ပွဲတော်ကို ပုံမှန် ဘယ်လအတွင်း ကျင်းပလေ့ရှိသလဲ?", "options": ["ဇန်နဝါရီ", "ဧပြီ", "ဩဂုတ်", "ဒီဇင်ဘာ"], "correct_index": 1},
+    {"question": "၅ + ၃ ဘယ်လောက်လဲ?", "options": ["၇", "၈", "၉", "၁၀"], "correct_index": 1},
+    {"question": "၁၀ - ၄ ဘယ်လောက်လဲ?", "options": ["၄", "၅", "၆", "၇"], "correct_index": 2},
+    {"question": "၃ x ၄ ဘယ်လောက်လဲ?", "options": ["၁၀", "၁၁", "၁၂", "၁၃"], "correct_index": 2},
+    {"question": "၂၀ ÷ ၅ ဘယ်လောက်လဲ?", "options": ["၃", "၄", "၅", "၆"], "correct_index": 1},
+    {"question": "၁၅ + ၇ ဘယ်လောက်လဲ?", "options": ["၂၀", "၂၁", "၂၂", "၂၃"], "correct_index": 2},
+    {"question": "၈ x ၉ ဘယ်လောက်လဲ?", "options": ["၆၂", "၇၂", "၈၂", "၉၂"], "correct_index": 1},
+    {"question": "၁၀၀ - ၃၇ ဘယ်လောက်လဲ?", "options": ["၆၁", "၆၂", "၆၃", "၆၄"], "correct_index": 2},
+    {"question": "၂၄ ÷ ၃ ဘယ်လောက်လဲ?", "options": ["၆", "၇", "၈", "၉"], "correct_index": 2},
+    {"question": "၇ + ၈ ဘယ်လောက်လဲ?", "options": ["၁၃", "၁၄", "၁၅", "၁၆"], "correct_index": 2},
+    {"question": "၅ x ၅ ဘယ်လောက်လဲ?", "options": ["၂၀", "၂၄", "၂၅", "၃၀"], "correct_index": 2},
+    {"question": "၅၀ - ၂၃ ဘယ်လောက်လဲ?", "options": ["၂၅", "၂၆", "၂၇", "၂၈"], "correct_index": 2},
+    {"question": "၃၆ ÷ ၆ ဘယ်လောက်လဲ?", "options": ["၄", "၅", "၆", "၇"], "correct_index": 2},
+    {"question": "၉ + ၁၁ ဘယ်လောက်လဲ?", "options": ["၁၈", "၁၉", "၂၀", "၂၁"], "correct_index": 2},
+    {"question": "၁၂ x ၃ ဘယ်လောက်လဲ?", "options": ["၃၀", "၃၄", "၃၆", "၃၈"], "correct_index": 2},
+    {"question": "၈၀ - ၄၅ ဘယ်လောက်လဲ?", "options": ["၃၃", "၃၄", "၃၅", "၃၆"], "correct_index": 2},
+    {"question": "၄၉ ÷ ၇ ဘယ်လောက်လဲ?", "options": ["၅", "၆", "၇", "၈"], "correct_index": 2},
+    {"question": "၈ x ၇ ဘယ်လောက်လဲ?", "options": ["၄၆", "၅၆", "၆၆", "၇၆"], "correct_index": 1},
+    {"question": "၁၁ + ၁၃ ဘယ်လောက်လဲ?", "options": ["၂၂", "၂၃", "၂၄", "၂၅"], "correct_index": 2},
+    {"question": "၃ x ၉ ဘယ်လောက်လဲ?", "options": ["၂၅", "၂၆", "၂၇", "၂၈"], "correct_index": 2},
+    {"question": "၉၀ - ၆၈ ဘယ်လောက်လဲ?", "options": ["၂၀", "၂၁", "၂၂", "၂၃"], "correct_index": 2},
+    {"question": "၇၂ ÷ ၈ ဘယ်လောက်လဲ?", "options": ["၇", "၈", "၉", "၁၀"], "correct_index": 2},
+    {"question": "၁၄ + ၁၅ ဘယ်လောက်လဲ?", "options": ["၂၇", "၂၈", "၂၉", "၃၀"], "correct_index": 2},
+    {"question": "၄ x ၁၃ ဘယ်လောက်လဲ?", "options": ["၄၂", "၅၂", "၆၂", "၇၂"], "correct_index": 1},
+    {"question": "၅၀ - ၁၂ ဘယ်လောက်လဲ?", "options": ["၃၆", "၃၇", "၃၈", "၃၉"], "correct_index": 2},
+    {"question": "၆၀ ÷ ၅ ဘယ်လောက်လဲ?", "options": ["၁၀", "၁၁", "၁၂", "၁၃"], "correct_index": 2},
+    {"question": "၁ + ၇ ဘယ်လောက်လဲ?", "options": ["၆", "၇", "၈", "၉"], "correct_index": 2},
+    {"question": "၂၀ x ၄ ဘယ်လောက်လဲ?", "options": ["၇၀", "၈၀", "၉၀", "၁၀၀"], "correct_index": 1},
+    {"question": "၉၉ - ၂၀ ဘယ်လောက်လဲ?", "options": ["၇၇", "၇၈", "၇၉", "၈၀"], "correct_index": 2},
+    {"question": "၅၆ ÷ ၇ ဘယ်လောက်လဲ?", "options": ["၆", "၇", "၈", "၉"], "correct_index": 2},
+    {"question": "၁၀၀ + ၂၅ ဘယ်လောက်လဲ?", "options": ["၁၁၅", "၁၂၀", "၁၂၅", "၁၃၀"], "correct_index": 2},
+    {"question": "၆ x ၁၁ ဘယ်လောက်လဲ?", "options": ["၅၆", "၆၆", "၇၆", "၈၆"], "correct_index": 1},
+    {"question": "၇၃ - ၄၈ ဘယ်လောက်လဲ?", "options": ["၂၃", "၂၄", "၂၅", "၂၆"], "correct_index": 2},
+    {"question": "၄၅ ÷ ၉ ဘယ်လောက်လဲ?", "options": ["၄", "၅", "၆", "၇"], "correct_index": 1},
+    {"question": "၂ + ၈ ဘယ်လောက်လဲ?", "options": ["၈", "၉", "၁၀", "၁၁"], "correct_index": 2},
+    {"question": "၃ x ၁၅ ဘယ်လောက်လဲ?", "options": ["၄၀", "၄၅", "၅၀", "၅၅"], "correct_index": 1},
+    {"question": "၈၀ - ၃၃ ဘယ်လောက်လဲ?", "options": ["၄၅", "၄၆", "၄၇", "၄၈"], "correct_index": 2},
+    {"question": "၈၄ ÷ ၄ ဘယ်လောက်လဲ?", "options": ["၁၉", "၂၀", "၂၁", "၂၂"], "correct_index": 2},
+    {"question": "၆၆ + ၁၂ ဘယ်လောက်လဲ?", "options": ["၇၆", "၇၇", "၇၈", "၇၉"], "correct_index": 2},
+    {"question": "၇ x ၈ ဘယ်လောက်လဲ?", "options": ["၄၆", "၅၆", "၆၆", "၇၆"], "correct_index": 1},
+    {"question": "၁၀၀ - ၅၆ ဘယ်လောက်လဲ?", "options": ["၄၂", "၄၃", "၄၄", "၄၅"], "correct_index": 2},
+    {"question": "၉၀ ÷ ၁၀ ဘယ်လောက်လဲ?", "options": ["၇", "၈", "၉", "၁၀"], "correct_index": 2},
+    {"question": "၁၂ + ၂၃ ဘယ်လောက်လဲ?", "options": ["၃၃", "၃၄", "၃၅", "၃၆"], "correct_index": 2},
+    {"question": "၆ x ၆ ဘယ်လောက်လဲ?", "options": ["၃၀", "၃၄", "၃၆", "၃၈"], "correct_index": 2},
+    {"question": "၇၅ - ၂၆ ဘယ်လောက်လဲ?", "options": ["၄၇", "၄၈", "၄၉", "၅၀"], "correct_index": 2},
+    {"question": "၄၈ ÷ ၆ ဘယ်လောက်လဲ?", "options": ["၆", "၇", "၈", "၉"], "correct_index": 2},
+    {"question": "၅ + ၁၀ ဘယ်လောက်လဲ?", "options": ["၁၃", "၁၄", "၁၅", "၁၆"], "correct_index": 2},
+    {"question": "၉ x ၄ ဘယ်လောက်လဲ?", "options": ["၃၀", "၃၄", "၃၆", "၃၈"], "correct_index": 2},
+    {"question": "၅၀ - ၁၉ ဘယ်လောက်လဲ?", "options": ["၂၉", "၃၀", "၃၁", "၃၂"], "correct_index": 2},
+    {"question": "၃၆ ÷ ၄ ဘယ်လောက်လဲ?", "options": ["၇", "၈", "၉", "၁၀"], "correct_index": 2},
+    {"question": "၈ + ၇ ဘယ်လောက်လဲ?", "options": ["၁၃", "၁၄", "၁၅", "၁၆"], "correct_index": 2},
 ]
-
 # ---- /ban, /unban, /kick fire a ChatAction (participant update) themselves — e.g. lifting a
 # ban via /unban shows up to Telethon as the user "leaving", which used to trigger a spurious
 # goodbye message right after the UNBAN OPERATION confirmation. Anything we changed ourselves
@@ -1118,8 +1117,8 @@ def owner_tag():
 # shown everywhere — it always carries the emoji + fancy font tier name + its number, so
 # players can instantly see both the rarity tier and its rank (1–9).
 _RARITY_VALUE_MAP = {
-    "ULTRA": 10000, "LEGEND": 750, "MYTHIC": 500, "EPIC": 300, "INCREDIBLE": 150,
-    "GOLD": 100, "RARE": 70, "COMMON": 40, "UNCOMMON": 20
+    "ULTRA": 100000, "LEGEND": 75000, "MYTHIC": 50000, "EPIC": 30000, "INCREDIBLE": 15000,
+    "GOLD": 100, "RARE": 7000, "COMMON": 4000, "UNCOMMON": 2000
 }
 RARITY_NUM_MAP = {
     str(i + 1): {
@@ -1258,43 +1257,6 @@ async def dm_auto_identify_handler(event):
     if _has_command_prefix(text):
         return  # an explicit "/who" (or ".who") caption is handled by who_reveal_handler's Path B instead
     await _identify_media_and_reply(event, event.message)
-
-# ==========================================
-# OWNER REPLY TO FORWARDED MESSAGE
-# ==========================================
-@bot1.on(events.NewMessage(incoming=True))
-async def reply_to_user_from_owner(event):
-    if not event.is_private:
-        return
-    if event.sender_id != OWNER_ID:
-        return
-    if not event.is_reply:
-        return
-    if event.reply_to_msg_id in pending_editchar_prompt_ids:
-        return
-    reply_msg = await event.get_reply_message()
-    if not reply_msg:
-        return
-    if not reply_msg.fwd_from:
-        await event.reply("⚠️ ဒီစာက Forward လုပ်ထားတာမဟုတ်ဘူး။ ကျေးဇူးပြုပြီး Forward လုပ်ထားတဲ့စာကို Reply လုပ်ပါ။")
-        return
-    try:
-        original_user_id = reply_msg.fwd_from.from_id.user_id
-    except Exception:
-        await event.reply("❌ မူရင်းလူရဲ့ ID ကို ရှာမတွေ့ဘူး။")
-        return
-    if not original_user_id:
-        await event.reply("❌ မူရင်းလူရဲ့ ID မရှိဘူး။")
-        return
-    try:
-        if event.media:
-            await bot1.send_file(original_user_id, event.media, caption=event.text)
-        else:
-            await bot1.send_message(original_user_id, event.text)
-        await event.reply(f"✅ သင့်အဖြေကို မူရင်းလူ (ID: {original_user_id}) ဆီ ပြန်ပို့လိုက်ပါပြီ။")
-    except Exception as e:
-        await event.reply(f"❌ ပြန်ပို့ရာမှာ အမှားရှိသွားပါတယ်: {e}")
-
 # ==========================================
 # ADMIN CAPABILITY
 # ==========================================
@@ -2772,7 +2734,7 @@ async def protection_logic(event):
             try:
                 await event.delete()
                 mention = f"<a href='tg://user?id={sender_id}'>{escape_html(sender.first_name)}</a>"
-                await event.respond(bq(f"🔗 {mention}, no links allowed! Deleted."), parse_mode='html')
+                await event.respond(bq(f"🤺 {mention}, no links allowed! Deleted."), parse_mode='html')
             except:
                 pass
                 
@@ -2830,7 +2792,7 @@ async def global_traffic_processing_matrix(event):
                 await event.delete()
                 sender = await event.get_sender()
                 mention = f"<a href='tg://user?id={sender_id}'>{escape_html(sender.first_name if sender else 'User')}</a>"
-                await event.respond(bq(f"🚫 <b>CHANNEL FORWARD NOT ALLOWED!</b>\n{mention} <b>[Deleted]</b>"), parse_mode='html')
+                await event.respond(bq(f"🐇 <b>CHANNEL FORWARD NOT ALLOWED!</b>\n{mention} <b>[Deleted]</b>"), parse_mode='html')
             except Exception: pass
 
 # ---- SMART REPLY TOGGLES ----
@@ -3088,12 +3050,12 @@ async def start_rarity_gate_quiz(chat_id, chosen_char):
 
         rarity_display = chosen_char.get("rarity", "Unknown")
         quiz_text = (
-            f"🔐 <b>HIGH-RARITY GATE ENGAGED</b>\n"
-            f"🏷️ <b>Rarity:</b> {rarity_display}\n\n"
+            f"<b>Choose The Correct Answer🍭</b>\n"
+            f"<b>Rarity:</b> {rarity_display}\n\n"
             f"<b>Nobody gets through unless someone proves themselves.</b>\n"
             f"❓ <b>{escape_html(q['question'])}</b>\n\n"
             f"⏳ <b>{RARITY_GATE_TIMEOUT_SECONDS} seconds</b> — first correct tap unlocks the spawn!\n"
-            f"⚠️ <i>One attempt each — a wrong tap uses it up.</i>"
+            f"⚠️ <i>မှားဖြေမိရင် အခွင့်အရေး ထပ်မရနိုင်ပါ.🐸</i>"
         )
         buttons = [[Button.inline(f"{chr(65 + i)}. {opt}", data=f"rgate_{chat_id}_{i}")] for i, opt in enumerate(shuffled_options)]
 
@@ -3142,7 +3104,7 @@ async def rarity_gate_answer_callback(event):
     mention = await get_html_mention(event, winner_id)
     try:
         await event.edit(
-            f"🔓 <b>GATE UNLOCKED by {mention}!</b>\n"
+            f"🐇 <b> အဖြေမှန် နှိပ်ခဲ့သူ - {mention}!</b>\n"
             f"✅ <b>Correct answer:</b> {escape_html(quiz['options'][quiz['correct_index']])}\n\n"
             f"🫧 <i>Bringing them through now...</i>",
             parse_mode='html',
@@ -3890,8 +3852,8 @@ async def set_favorite_card(event):
     # ✅ Confirmation Buttons
     confirm_text = (
         f"🎠 <b>Favourite Card Confirmation</b>\n\n"
-        f"📦 <b>Card:</b> <code>{card['name']}</code> (<code>{display_char_id(actual_char_id)}</code>)\n"
-        f"🏷️ <b>Rarity:</b> {card.get('rarity', 'Unknown')}\n"
+        f"🦢 <b>Character:</b> <code>{card['name']}</code> (<code>{display_char_id(actual_char_id)}</code>)\n"
+        f" <b>Rarity:</b> {card.get('rarity', 'Unknown')}\n"
         f"{artist_line(card)}\n"
         f"<blockquote>Do you really want to set this card as your favourite?</blockquote>\n"
         f"✨ Waiting for your decision! 🦋"
@@ -4060,7 +4022,7 @@ async def send_paginated_harem(client, chat_id, user_id, page=1, edit_msg_id=Non
         cat_cards = sorted(by_category[cat], key=lambda x: (-get_rarity_weight(x.get("rarity", "")), x.get("name", "").lower()))
         owned_in_cat = len(cat_cards)
         total_in_cat = category_totals.get(cat, owned_in_cat)
-        block = [f"⚜️ <b>{escape_html(cat)}</b> (<code>{owned_in_cat}/{total_in_cat}</code>)",
+        block = [f"🦢 <b>{escape_html(cat)}</b> (<code>{owned_in_cat}/{total_in_cat}</code>)",
                  f"<code>{build_progress_bar(owned_in_cat, total_in_cat, length=15)}</code>"]
         for card in cat_cards:
             cid = card["char_id"]
@@ -4132,15 +4094,15 @@ async def send_paginated_harem(client, chat_id, user_id, page=1, edit_msg_id=Non
     buttons.append([Button.switch_inline(f"👀 Take A Look ({total_cards})", query=f"harem.{user_id}", same_peer=True)])
     nav_buttons = []
     if page > 1:
-        nav_buttons.append(Button.inline("⬅️ Prev", data=f"harem_{page-1}_{user_id}_{viewer_id}"))
+        nav_buttons.append(Button.inline("← Previous", data=f"harem_{page-1}_{user_id}_{viewer_id}"))
     if page < total_pages:
-        nav_buttons.append(Button.inline("Next ➡️", data=f"harem_{page+1}_{user_id}_{viewer_id}"))
+        nav_buttons.append(Button.inline("Next ➡", data=f"harem_{page+1}_{user_id}_{viewer_id}"))
     if nav_buttons:
         buttons.append(nav_buttons)
     if is_own_vault:
         if rarity_filter:
             buttons.append([Button.inline("🔓 Clear Filter", data=f"hfilter_clear_{user_id}")])
-        buttons.append([Button.inline("🎯 Change Rarity Filter", data="nav_hmode")])
+        buttons.append([Button.inline("🦖 Change Rarity Filter", data="nav_hmode")])
     if not buttons:
         buttons = None
     fav_card_id = user_doc.get("fav_card")
@@ -4243,12 +4205,12 @@ async def handle_harem_inline_query(event, query_text):
             if not storage_msg or not storage_msg.media:
                 continue
             caption = (
-                f"🌟 <b>{escape_html(card['name'])}</b>\n"
-                f"🆔 <code>{display_char_id(cid)}</code>\n"
-                f"🌐 <b>Category:</b> {escape_html(card.get('category', ''))}\n"
-                f"🏷️ <b>Rarity:</b> {card.get('rarity', '')}\n"
+                f"Character Name🐇<b>{escape_html(card['name'])}</b>\n"
+                f"ID <code>{display_char_id(cid)}</code>\n"
+                f"🏞️ <b>Category:</b> {escape_html(card.get('category', ''))}\n"
+                f" <b>Rarity:</b> {card.get('rarity', '')}\n"
                 f"{artist_line(card)}"
-                f"🐇 <b>Card Owner:</b> <a href='tg://user?id={target_user_id}'>{escape_html(owner_name)}</a> (x{qty})"
+                f"🐇 <b>This Character Card Owner:</b> <a href='tg://user?id={target_user_id}'>{escape_html(owner_name)}</a> (x{qty})"
             )
             results.append(_inline_media_result(builder, storage_msg, cid, card['name'], caption))
         except Exception as e:
@@ -4256,7 +4218,7 @@ async def handle_harem_inline_query(event, query_text):
             continue
     total_cards = len(filtered_harem)
     shown_note = f" — showing {min(total_cards, 50)}" if total_cards > 50 else ""
-    filter_note = f"🏷️ {classify_rarity(rarity_filter)} filter" if rarity_filter else "📦 All rarities"
+    filter_note = f" {classify_rarity(rarity_filter)} filter" if rarity_filter else "🦢 All rarities"
     await event.answer(
         results, cache_time=0,
         switch_pm=f"{filter_note} · Total: {total_cards}{shown_note}",
@@ -4295,10 +4257,10 @@ async def handle_dex_inline_query(event, query_text):
             if not storage_msg or not storage_msg.media:
                 continue
             caption = (
-                f"🌟 <b>{escape_html(card['name'])}</b>\n"
-                f"🆔 <code>{display_char_id(cid)}</code>\n"
-                f"🌐 <b>Series:</b> {escape_html(matched_cat)}\n"
-                f"🏷️ <b>Rarity:</b> {card.get('rarity', '')}\n"
+                f"Character Name🐇<b>{escape_html(card['name'])}</b>\n"
+                f"ID <code>{display_char_id(cid)}</code>\n"
+                f"🏞️<b>Category:</b> {escape_html(matched_cat)}\n"
+                f" <b>Rarity:</b> {card.get('rarity', '')}\n"
                 f"{artist_line(card)}"
                 f"{'✅ You caught this!' if owned else '❓ Not caught yet'}"
             )
@@ -4315,7 +4277,7 @@ async def handle_catch_inline_query(event, query_text):
         return await event.answer([], cache_time=0)
     builder = event.builder
     result = builder.article(
-        title=f"🎯 Catch {char_name}!",
+        title=f"🦢 Catch {char_name}!",
         description="Tap here to send this catch command",
         text=f"/catch {char_name}",
         id=f"catch_{abs(hash(char_name)) % (10 ** 12)}"
@@ -4731,7 +4693,7 @@ async def unified_callback_handler(event):
 # ==========================================
 # 🏆 LEADERBOARD (Daily / All-Time, paginated)
 # ==========================================
-LEADERBOARD_PAGE_SIZE = 10
+LEADERBOARD_PAGE_SIZE = 15
 LB_MEDALS = {0: "🥇", 1: "🥈", 2: "🥉"}
 
 async def render_leaderboard_page(mode, page):
@@ -5067,8 +5029,8 @@ async def render_profile_main_page(event, user_id, mention):
     text = (
         f"<b>CATCHER ID</b>\n"
         f"<blockquote>"
-        f"➤ 👤 <b>Trainer:</b> {mention}\n"
-        f"➤ 🔖 <b>ID:</b> <code>{user_id}</code>\n"
+        f"➤ 🫅 <b>Collector:</b> {mention}\n"
+        f"➤ 🔖 <b>Your ID:</b> <code>{user_id}</code>\n"
         f"➤ 🏆 <b>Global Rank:</b> <code>#{rank}</code>\n"
         f"{chat_rank_line}"
         f"➤ 🎒 <b>Total Caught:</b> <code>{total_caught}</code>\n"
@@ -5273,11 +5235,11 @@ async def check_character_id_handler(event):
         media_file = None
     
     info_text = (
-        f"☄️ <b>Here's the record on this one</b>\n\n"
+        f"🎒 <b>Here's the record on this one</b>\n\n"
         f"🍬 <b>Asset ID:</b> <code>{display_char_id(character['char_id'])}</code>\n"
         f"☃️ <b>Name:</b> <code>{character['name']}</code>\n"
         f"🫧 <b>Category:</b> <code>{character['category']}</code>\n"
-        f"🚩 <b>Rarity:</b> {character['rarity']}\n"
+        f"🦋 <b>Rarity:</b> {character['rarity']}\n"
         f"{artist_line(character)}"
         f"🎡 <b>Event:</b> <code>{escape_html(character.get('event', 'General'))}</code>\n"
         f"📈 <b>Global Catches:</b> {spawns_line}\n\n"
@@ -6228,8 +6190,8 @@ async def gift_asset_handler(event):
     r_mention = await get_html_mention(event, receiver_id)
     confirm_text = (
         f"🎠 <b>Gift Confirmation</b>\n\n"
-        f"📦 <b>Card:</b> <code>{char_data['name']}</code> (<code>{display_char_id(char_id)}</code>)\n"
-        f"🏷️ <b>Rarity:</b> {char_data.get('rarity', 'Unknown')}\n"
+        f"🐇 <b>Character Card:</b> <code>{char_data['name']}</code> (<code>{display_char_id(char_id)}</code>)\n"
+        f"🦋 <b>Rarity:</b> {char_data.get('rarity', 'Unknown')}\n"
         f"{artist_line(char_data)}"
         f"🎯 <b>Receiver:</b> {r_mention}\n\n"
         f"<blockquote>Are you sure you want to send this card to {r_mention}?</blockquote>\n"
