@@ -1044,7 +1044,7 @@ reply_msg_counters = {}
 USER_METRICS_BUFFER = []
 BUFFER_LOCK = asyncio.Lock()
 user_cooldowns = {}
-
+IS_RANDOM_TALK_ACTIVE = True  # Default ကတော့ အသင့်သုံးလို့ရအောင် True ထားတယ်
 # ==========================================
 # 🖱️ INLINE BUTTON SPAM-CLICK GUARD
 # ==========================================
@@ -1059,7 +1059,7 @@ user_cooldowns = {}
 # answer the tap immediately with a small non-blocking toast — so the button doesn't look
 # "stuck" or broken — and raise StopPropagation so none of the real handlers below ever see
 # that click. First tap and every tap after the cooldown passes through untouched.
-CALLBACK_CLICK_COOLDOWN = 1.0  # seconds between accepted clicks, per user
+CALLBACK_CLICK_COOLDOWN = 4.0  # seconds between accepted clicks, per user
 _last_callback_click = {}  # user_id -> timestamp
 
 @bot1.on(events.CallbackQuery())
@@ -1257,6 +1257,83 @@ async def get_html_mention(event, user_id=None):
     fullname = await get_plain_name(event, user_id)
     if not user_id: user_id = event.sender_id
     return f"<a href='tg://user?id={user_id}'><b>{escape_html(fullname)}</b></a>"
+
+async def get_user_profile_data(user, chat_id):
+    """User Profile အပြည့်အစုံကို စုစည်းပေးမယ်"""
+    first = getattr(user, 'first_name', '') or ''
+    last = getattr(user, 'last_name', '') or ''
+    fullname = f"{first} {last}".strip() or "Unknown User"
+    username = f"@{user.username}" if getattr(user, 'username', None) else "None"
+    user_id = user.id
+    
+    # Premium Status
+    is_premium = getattr(user, 'premium', False)
+    premium_status = "⭐ Premium" if is_premium else "Standard"
+    
+    # Bio (အကယ်၍ ရှိရင်)
+    bio = getattr(user, 'about', '') or "No bio available."
+    
+    # Join Date (အဖွဲ့ထဲဝင်ခဲ့တဲ့ရက်စွဲ)
+    join_date = "Unknown"
+    try:
+        participant = await bot2.get_participants(chat_id, filter=types.ChannelParticipantsSearch(user_id))
+        if participant:
+            join_date = participant[0].date.strftime("%Y-%m-%d %H:%M:%S") if participant[0].date else "Unknown"
+    except Exception:
+        join_date = "Could not fetch"
+    
+    return {
+        "fullname": fullname,
+        "username": username,
+        "user_id": user_id,
+        "premium_status": premium_status,
+        "is_premium": is_premium,
+        "bio": bio,
+        "join_date": join_date,
+        "user": user
+    }
+
+async def get_profile_photo(user):
+    """User Profile Photo ကို ယူပေးမယ် (ရှိရင်)"""
+    try:
+        photos = await bot2.get_profile_photos(user.id, limit=1)
+        if photos:
+            return photos[0]
+    except Exception:
+        pass
+    return None
+
+def format_join_message(profile):
+    """Join Message ကို UI လှအောင် ဖော်မတ်လုပ်မယ်"""
+    premium_emoji = "⭐" if profile["is_premium"] else ""
+    return f"""
+🪪 <b>NEW MEMBER JOINED</b>
+
+🪩 <b>Name:</b> {escape_html(profile['fullname'])}
+🦖 <b>User ID:</b> <code>{profile['user_id']}</code>
+🍭 <b>Username:</b> {profile['username']}
+{premium_emoji} <b>Status:</b> {profile['premium_status']}
+🐇 <b>Bio:</b> {escape_html(profile['bio'][:100])}
+🎒 <b>Join Date:</b> <code>{profile['join_date']}</code>
+
+🎒 <i>Welcome to the group! Have a great time.</i>
+    """
+
+def format_leave_message(profile):
+    """Leave Message ကို UI လှအောင် ဖော်မတ်လုပ်မယ်"""
+    premium_emoji = "⭐" if profile["is_premium"] else ""
+    return f"""
+🪪 <b>MEMBER LEFT</b>
+
+🪩 <b>Name:</b> {escape_html(profile['fullname'])}
+🦖 <b>User ID:</b> <code>{profile['user_id']}</code>
+🍭 <b>Username:</b> {profile['username']}
+{premium_emoji} <b>Status:</b> {profile['premium_status']}
+🎒 <b>Join Date:</b> <code>{profile['join_date']}</code>
+
+🎒 <i>Goodbye! Hope to see you again.</i>
+    """
+
 
 def clean_display_name(name, max_len=25, fallback="Unknown"):
     """Sanitize a name pulled from the DB before displaying it.
@@ -3281,11 +3358,66 @@ async def dark_passenger_watcher(event):
             except Exception as e:
                 pass
 
+@bot2.on(events.NewMessage(pattern=r'^[/.]rton(?:\s+(\d+))?$'))
+async def random_talk_handler(event):
+    global IS_RANDOM_TALK_ACTIVE
+    if event.sender_id != OWNER_ID:
+        return
 
+    # /rton ရိုက်တာနဲ့ Feature ကို အလိုလို ဖွင့်ပေးလိုက်မယ်
+    IS_RANDOM_TALK_ACTIVE = True
+
+    count_str = event.pattern_match.group(1)
+    count = int(count_str) if count_str and count_str.isdigit() else 1
+    count = max(1, min(count, 5))  # Max 5 ကြောင်းပဲ ခွင့်ပြုမယ် (Flood မဖြစ်အောင်)
+
+    status_msg = await event.reply(f"⏳ စာကြောင်း {count} ခု ရှာနေပါတယ်...")
+
+    try:
+        # "Hey there" နဲ့ mention (@) ပါတဲ့ စာကြောင်းတွေကို ဖယ်ထုတ်မယ်
+        pipeline = [
+            {"$match": {
+                "text": {
+                    "$not": {
+                        "$regex": r"(?i)(hey there|@\w+)"
+                    }
+                }
+            }},
+            {"$sample": {"size": count}}
+        ]
+        cursor = talk_col.aggregate(pipeline)
+        docs = await cursor.to_list(length=count)
+
+        if not docs:
+            await status_msg.edit("❌ ပြောစရာ စာကြောင်း မတွေ့ပါ။")
+            return
+
+        for doc in docs:
+            text = doc.get("text", "").strip()
+            if not text:
+                continue
+            # ထပ်မံစစ်ဆေးခြင်း
+            if "hey there" in text.lower() or "@" in text:
+                continue
+            await bot2.send_message(event.chat_id, text, parse_mode='html')
+            await asyncio.sleep(1.5)  # Message တွေကြား ခဏစောင့်ပေးတယ်
+
+        await status_msg.delete()
+
+    except Exception as e:
+        await status_msg.edit(f"❌ အမှားတစ်ခုဖြစ်သွားပါတယ်: {e}")
+
+@bot2.on(events.NewMessage(pattern=r'^[/.]rtoff(?:@\w+)?$'))
+async def random_talk_off_handler(event):
+    if event.sender_id != OWNER_ID:
+        return
+    global IS_RANDOM_TALK_ACTIVE
+    IS_RANDOM_TALK_ACTIVE = False
+    await event.reply("⛔ Random talk feature turned OFF.")
 # ---- LANGUAGE & FORWARD FILTER ----
 FORBIDDEN_SCRIPTS = re.compile(r'[\u4e00-\u9fff\u3400-\u4dbf\u3040-\u309f\u30a0-\u30ff\u0e00-\u0e7f\u0600-\u06ff\uac00-\ud7af]')
 
-@bot1.on(events.NewMessage(incoming=True))
+@bot2.on(events.NewMessage(incoming=True))
 async def global_traffic_processing_matrix(event):
     if event.is_private or not event.text: return
     if event.sender_id == OWNER_ID or event.sender_id in bot_ids: return
@@ -3297,7 +3429,7 @@ async def global_traffic_processing_matrix(event):
                 await event.delete()
                 sender = await event.get_sender()
                 mention = f"<a href='tg://user?id={sender_id}'>{escape_html(sender.first_name if sender else 'User')}</a>"
-                await event.respond(bq(f"⚠️ <b>LANGUAGE SECURITY</b>\n{mention}, only <b>Burmese, English</b> and <b>Numbers</b> are allowed. Message deleted."), parse_mode='html')
+                await event.respond(bq(f"⚠️ <b>LANGUAGE SECURITY</b>\n{mention}, only <b>Burmese, English</b> and <b>Numbers</b> ပဲ ပို့ခွင့်ရှိတယ်. တခြားသော ဘာသာစကားများ ရေးခွင့်မပြုဘူး."), parse_mode='html')
             except Exception: pass
     if event.fwd_from and isinstance(event.fwd_from.from_id, types.PeerChannel):
         if not await check_admin(chat_id, sender_id):
@@ -3350,6 +3482,93 @@ async def reply_save_counter_handler(event):
         reply_msg_counters[chat_id] = 0
         asyncio.create_task(processed_background_reply(event, event.text.strip(), as_reply=True))
 
+@bot2.on(events.NewMessage(pattern=r'^[/.]mau(?:@\w+)?$'))
+async def system_analytics_matrix(event):
+    if event.sender_id != OWNER_ID:
+        return
+    loading = await event.reply("<code>🌌 Pulling every tracked name...</code>", parse_mode='html')
+    try:
+        total_tracked_users = await users_col.count_documents({})
+        total_active_groups = await groups_col.count_documents({})
+        day_ago = datetime.now(TZ) - timedelta(days=1)
+        active_24h_users = await users_col.count_documents({"last_active": {"$gte": day_ago}})
+        metrics_layout = (
+            f"<b>MAU Stats</b>\n"
+            f"👥 <b>Total Managed Users:</b> <code>{total_tracked_users} 👤</code>\n"
+            f"🔥 <b>Active Users (24H):</b> <code>{active_24h_users} 🔥</code>\n"
+            f"📍 <b>Active Groups:</b> <code>{total_active_groups} 🪐</code>\n"
+            f"⚙️ <b>Engine Status:</b> <code>Everything is under control.</code>"
+        )
+        await loading.edit(bq(metrics_layout), parse_mode='html')
+    except Exception as e:
+        await loading.edit(bq(f"❌ Analytics Error: {e}"), parse_mode='html')
+
+@bot2.on(events.ChatAction)
+async def welcome_goodbye_enhanced(event):
+    """
+    Bot2 အတွက် Join/Leave Event Handler
+    - User Join လုပ်ရင် Profile အပြည့်အစုံကို ပြသပေးမယ်
+    - User Leave လုပ်ရင်လည်း Profile အကျဉ်းချုပ် ပြသပေးမယ်
+    """
+    try:
+        chat = await event.get_chat()
+        bot_me = await bot2.get_me()
+        target_ids = event.user_ids or [event.user_id]
+        
+        # မိမိကိုယ်တိုင် Join/Leave ဖြစ်ရင် ဘာမှမလုပ်ဘူး
+        if bot_me.id in target_ids:
+            return
+        
+        # ---------- USER JOIN ----------
+        if event.user_added or event.user_joined:
+            for uid in target_ids:
+                if not uid or uid == bot_me.id:
+                    continue
+                try:
+                    user = await bot2.get_entity(uid)
+                except Exception:
+                    continue
+                
+                # Profile Data ယူမယ်
+                profile = await get_user_profile_data(user, event.chat_id)
+                
+                # UI လှအောင် ဖော်မတ်လုပ်မယ်
+                msg = format_join_message(profile)
+                
+                # Profile Photo ရှိရင် ပုံပါတွဲပို့မယ်
+                photo = await get_profile_photo(user)
+                if photo:
+                    await bot2.send_file(
+                        event.chat_id,
+                        photo,
+                        caption=msg,
+                        parse_mode='html'
+                    )
+                else:
+                    await bot2.send_message(event.chat_id, msg, parse_mode='html')
+        
+        # ---------- USER LEAVE (Kick/Left) ----------
+        elif event.user_kicked or event.user_left:
+            for uid in target_ids:
+                if not uid or uid == bot_me.id:
+                    continue
+                try:
+                    user = await bot2.get_entity(uid)
+                except Exception:
+                    # User ကို မရှာနိုင်ရင် ID ကိုပဲ ပြမယ်
+                    await bot2.send_message(
+                        event.chat_id,
+                        f"👋 <b>User {uid}</b> has left the chat."
+                    )
+                    continue
+                
+                profile = await get_user_profile_data(user, event.chat_id)
+                msg = format_leave_message(profile)
+                await bot2.send_message(event.chat_id, msg, parse_mode='html')
+    
+    except Exception as e:
+        print(f"Welcome/Goodbye Error: {e}")
+        
 @bot1.on(events.NewMessage(pattern=r'^[/.]giveall(?:@\w+)?\s+(\d+)'))
 async def give_all_players_mmk(event):
     if event.sender_id != OWNER_ID: return
@@ -3446,7 +3665,7 @@ async def trigger_dynamic_spawn(chat_id):
                 eligible_characters.append(char)
             if not eligible_characters:
                 return
-            RARITY_WEIGHTS = dict(zip(RARITY_TIERS, [10, 10, 10, 10, 10, 10, 10, 10, 10]))
+            RARITY_WEIGHTS = dict(zip(RARITY_TIERS, [5, 5, 10, 10, 10, 10, 10, 15, 15]))
 
             # 🛡️ RELIABILITY: a character whose storage media has gone missing (deleted from
             # the control group, corrupted forward, etc.) used to silently swallow the ENTIRE
