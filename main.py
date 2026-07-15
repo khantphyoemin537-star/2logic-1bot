@@ -2383,13 +2383,13 @@ async def add_character(event):
             # connection (bot2 received this event), so its file_reference is only valid
             # for bot2's session. Passing it to a different client instance would fail.
             forwarded_msg = await asyncio.wait_for(
-                send_safe_message(bot2, SPECIFIC_CONTROL_GROUP, "", file=reply_msg.media),
+                send_safe_message(bot1, SPECIFIC_CONTROL_GROUP, "", file=reply_msg.media),
                 timeout=ADDCHAR_UPLOAD_TIMEOUT
             )
         except errors.FileReferenceExpiredError:
             # Reference went stale (common with older or larger media) — refetch the
             # original message once to get a fresh reference, then retry a single time.
-            fresh_reply_msg = await bot2.get_messages(event.chat_id, ids=reply_msg.id)
+            fresh_reply_msg = await bot1.get_messages(event.chat_id, ids=reply_msg.id)
             if not fresh_reply_msg or not fresh_reply_msg.media:
                 raise RuntimeError("media reference expired and the original message is no longer available")
             reply_msg = fresh_reply_msg
