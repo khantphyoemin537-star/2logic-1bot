@@ -1876,7 +1876,7 @@ async def welcome_goodbye(event):
         await report_system_error("Welcome Goodbye Event", e)
 
 # ---- AUTO RESPONDER ----
-@bot1.on(events.NewMessage(incoming=True))
+@bot2.on(events.NewMessage(incoming=True))
 async def chatbot_auto_responder(event):
     if event.sender_id:
         sender = await event.get_sender()
@@ -2293,7 +2293,7 @@ def is_duplicate_event(event):
     return last_ts is not None and (now - last_ts) <= EVENT_DEDUP_WINDOW
 
 # ---- ADD CHARACTER (owner-only bot2) ----
-@bot2.on(events.NewMessage(pattern=r'^[/.]addchar(?:@\w+)?(?:\s+(.+))?'))
+@bot1.on(events.NewMessage(pattern=r'^[/.]addchar(?:@\w+)?(?:\s+(.+))?'))
 async def add_character(event):
     if event.sender_id != OWNER_ID: return
     if is_duplicate_event(event): return
