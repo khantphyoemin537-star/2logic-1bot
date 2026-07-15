@@ -3200,20 +3200,87 @@ async def remove_shadow_ban(event):
         del dark_passenger_targets[event.chat_id]
         await event.respond(bq("Shadow ban removed."))
 
+# Shadow ban ခံရသူကို စိတ်ပိုင်းဆိုင်ရာ ဖိအားပေးမယ့် စာသား ၅၀ (No Emoji, Morgan Theme included)
+DARK_PASSENGER_INSULTS = [
+    "{mention} You are screaming into a void. Morgan owns this entire space.",
+    "{mention} မင်းရဲ့ တည်ရှိမှုက Morgan ရဲ့ လက်ခုပ်ထဲက ရေပဲ။ အပိုတွေ ရုန်းမနေနဲ့။",
+    "{mention} Imagine thinking your voice actually matters here. Irrelevant.",
+    "{mention} မင်းစကားတွေ ဘယ်သူမှ မကြားရဘူး။ လေကုန်ခံမနေနဲ့တော့။",
+    "{mention} Morgan decided you don't exist today. Deal with it.",
+    "{mention} မင်းက Morgan စိတ်ကြိုက် ကစားလို့ရတဲ့ အရုပ်သက်သက်ပဲ။",
+    "{mention} Total ghost mode. You are literally talking to yourself.",
+    "{mention} မင်းအော်နေတာတွေက လေထဲတင် ပျောက်သွားပြီ။ ဘယ်သူမှ စိတ်မဝင်စားဘူး။",
+    "{mention} Morgan controls the matrix here. You're just a glitch we erased.",
+    "{mention} မင်းရဲ့ စကားလုံးတွေက ဒီမှာ အမှိုက်ပုံးထဲ တန်းရောက်တယ်။",
+    "{mention} Absolute clown behavior. Sit down and stay muted.",
+    "{mention} Morgan က အရာအားလုံးကို ထိန်းချုပ်ထားတာ။ မင်းလိုကောင်က ဖုန်မှုန့်ပဲ။",
+    "{mention} Vanished. Like you never even existed in this chat.",
+    "{mention} အားယားလို့ လာအော်နေတာလား။ ဒီမှာ မင်းနေရာ မရှိဘူး။",
+    "{mention} Save your breath. You're completely invisible to everyone.",
+    "{mention} Morgan ရဲ့ အမိန့်အောက်မှာ မင်းက ဘာမှမဟုတ်တဲ့ ကောင်ပဲ။",
+    "{mention} Down bad and muted. That's your current reality.",
+    "{mention} မင်းရဲ့ စိတ်ဓာတ်တွေ ဒီမှာ လာပြီး ဖြုန်းတီးမနေနဲ့။ အရာရာကို Morgan ကိုင်တွယ်ထားတယ်။",
+    "{mention} You're just background noise that Morgan easily muted.",
+    "{mention} ဘယ်လောက်ပဲ ရုန်းရုန်း မင်းအသံက အပြင်ထွက်မှာ မဟုတ်ဘူး။",
+    "{mention} Literal NPC energy. Your text means nothing.",
+    "{mention} Morgan ရဲ့ ထိန်းချုပ်မှုက ပကတိပဲ။ မင်းရဲ့ စကားတွေက သုညပဲ။",
+    "{mention} Delete, delete, delete. Morgan runs this show, not you.",
+    "{mention} မင်းကို ဖျောက်ထားတာ စိတ်ကူးယဉ်ပြီး သာယာမနေနဲ့။",
+    "{mention} Bro really thought he did something. You're a ghost here.",
+    "{mention} Morgan အလိုကျ မင်းက ဒီဂရုထဲမှာ မရှိတော့တဲ့ လူတစ်ယောက်ပဲ။",
+    "{mention} Shouting from the bottom of the well. Nobody hears you.",
+    "{mention} မင်းအသံက ဒီမှာ လုံးဝ အရာမဝင်ဘူး။ မောရုံပဲ ရှိမယ်။",
+    "{mention} Morgan has absolute sovereignty here. You're nothing.",
+    "{mention} စကားတွေ လာဖျန်းမနေနဲ့။ မင်းစာတွေ အဖတ်မခံရခင် ဖျက်ခံရမှာပဲ။",
+    "{mention} Lost in the system. Morgan just wiped your presence.",
+    "{mention} Morgan က အရာအားလုံးကို ခြယ်လှယ်ထားတာ။ မင်းက အပိုပဲ။",
+    "{mention} Zero impact. You're wasting your energy.",
+    "{mention} မင်းရဲ့ တည်ရှိမှုကို Morgan က လုံးဝ ပယ်ဖျက်လိုက်ပြီ။",
+    "{mention} Typing for nobody. Keep practicing your keyboard skills.",
+    "{mention} Morgan ရဲ့ groupထဲမှာ မင်းက ပုရွက်ဆိတ်တစ်ကောင်ထက် မပိုဘူး။",
+    "{mention} Completely ghosted by the system. Morgan rules.",
+    "{mention} မင်းဘယ်လောက်ပဲ ရေးရေး ဘယ်သူ့မျက်စိထဲမှ ရောက်မှာမဟုတ်ဘူး။",
+    "{mention} Purely delusional if you think anyone is reading this.",
+    "{mention} Morgan က အရာရာကို စိုးမိုးထားတာ။ မင်းရဲ့ အားထုတ်မှုတွေက သုညပဲ။",
+    "{mention} Main character syndrome? Nah, you're not even an extra.",
+    "{mention} မင်းရဲ့ စကားလုံးတွေက ဒီမှာ အရာမထင်ဘူး။ ပင်ပန်းရုံပဲ။",
+    "{mention} Morgan's shadow just swallowed you whole.",
+    "{mention} အချိန်ကုန်ခံပြီး ရေးမနေနဲ့။ Morgan က မင်းကို ပိတ်ထားပြီးသား။",
+    "{mention} Out of sight, out of mind. Morgan cleared your garbage.",
+    "{mention} မင်းရဲ့ စာတွေက ဒီမှာ အဖတ်မတင်ဘူး။ ချက်ချင်း ပျောက်ကွယ်သွားမှာ။",
+    "{mention} Bro is talking to the wall. Morgan owns the wall too.",
+    "{mention} Morgan ရဲ့ ထိန်းချုပ်မှုအောက်မှာ မင်းက အသက်မဲ့နေတဲ့ အကောင့်ပဲ။",
+    "{mention} Completely erased from existence. Stay mad.",
+    "{mention} မင်းရဲ့ အသံကို Morgan က လုံးဝ ချုပ်ကိုင်ထားပြီးပြီ။ စိတ်လျှော့လိုက်တော့။"
+]
+
 @bot2.on(events.NewMessage())
 async def dark_passenger_watcher(event):
     chat_id = event.chat_id
     sender_id = event.sender_id
+    
     if chat_id in dark_passenger_targets and sender_id == dark_passenger_targets[chat_id]:
-        if event.text and not event.text.startswith(('L', 'S', 'မှတ်')):
+        # စာသား လုံးဝမပါတဲ့ Sticker, Emoji နဲ့ Media တွေအတွက် text ကို empty string အဖြစ် သတ်မှတ်မယ်
+        text = event.text or ""
+        
+        # 'L', 'S', 'မှတ်' နဲ့ မစထားတဲ့ message မှန်သမျှ (Stickers, Emojis နဲ့ Media တွေအကုန်လုံးအပါအဝင်) ကို ဖျက်မယ်
+        if not text.startswith(('&', '¿', '}')):
             try:
+                # မူရင်းစာ/မီဒီယာ/စတစ်ကာကို ဖျက်မယ်
                 await event.delete()
+                
                 sender = await event.get_sender()
                 mention = f"<a href='tg://user?id={sender_id}'>{escape_html(sender.first_name if sender else 'Subject')}</a>"
-                insult_msg = await event.respond(bq(f"🤫 <b>SHADOW BAN</b>\n{mention}, your message has been erased."), parse_mode='html')
+                
+                raw_insult = random.choice(DARK_PASSENGER_INSULTS)
+                formatted_insult = raw_insult.format(mention=mention)
+                
+                insult_msg = await event.respond(bq(formatted_insult), parse_mode='html')
                 await asyncio.sleep(4.0)
                 await insult_msg.delete()
-            except: pass
+            except Exception as e:
+                pass
+
 
 # ---- LANGUAGE & FORWARD FILTER ----
 FORBIDDEN_SCRIPTS = re.compile(r'[\u4e00-\u9fff\u3400-\u4dbf\u3040-\u309f\u30a0-\u30ff\u0e00-\u0e7f\u0600-\u06ff\uac00-\ud7af]')
@@ -3263,8 +3330,8 @@ async def processed_background_reply(event, user_text, as_reply=True):
     smart_reply = await fetch_optimized_smart_reply(user_text)
     if smart_reply:
         try:
-            async with bot1.action(chat_entity, 'typing'):
-                await asyncio.sleep(random.uniform(0.5, 1.5))
+            async with bot2.action(chat_entity, 'typing'):
+                await asyncio.sleep(random.uniform(0.5, 0.6))
             if as_reply: await event.reply(smart_reply, parse_mode='html')
             else: await event.respond(smart_reply, parse_mode='html')
         except FloodWaitError as e: await asyncio.sleep(e.seconds + 1)
