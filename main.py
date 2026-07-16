@@ -1690,6 +1690,19 @@ async def auto_calculator_handler(event):
             except Exception:
                 pass
 
+@bot2.on(events.NewMessage)
+async def auto_calculator_handler(event):
+    if event.text.startswith('/'): return
+    text = event.text.strip()
+    if re.match(r'^[\d\.\s\+\-\*\/\(\)\*\*]+$', text):
+        if any(op in text for op in ['+', '-', '*', '/']):
+            if len(text) > 50 or (text.count('**') > 1): return
+            try:
+                result = eval(text, {"__builtins__": None}, {})
+                await event.reply(f"🍺<b>Result:</b>\n<code>{text} = {result}</code>", parse_mode='html')
+            except Exception:
+                pass
+
 # ---- INFO / ID — shared target resolution + a richer profile card for both ----
 async def resolve_info_target(event):
     """Figures out who /info or /id should describe: the replied-to user, an @username or
@@ -1770,30 +1783,48 @@ async def welcome_goodbye(event):
         bot_me = await bot1.get_me()
         group_name = chat.title or "Unknown Group"
         target_ids = event.user_ids or [event.user_id]
-        # Broadcast channels (not groups/supergroups) never get welcome/goodbye/intro text —
-        # only a private heads-up to the owner when the bot itself is added, further down.
         is_broadcast_channel = bool(getattr(chat, 'broadcast', False) and not getattr(chat, 'megagroup', False))
+        
+        # ---------- BOT ADDED TO GROUP ----------
         if (event.user_added or event.user_joined) and any(uid == bot_me.id for uid in target_ids if uid):
             async with bot_added_locks[chat.id]:
                 now_ts = time.time()
                 last_ts = _recent_bot_added_chats.get(chat.id)
                 if last_ts and (now_ts - last_ts) <= BOT_ADDED_DEDUP_WINDOW:
-                    return  # duplicate raw update for the same add-to-group event — already handled
+                    return
                 _recent_bot_added_chats[chat.id] = now_ts
+                
+                # ✅ Member count ကို get_participants နဲ့ မှန်ကန်အောင် ရယူမယ်
+                member_count = "Unknown"
                 try:
-                    full_chat = await event.client.get_full_chat(chat.id)
-                    members_cnt = getattr(full_chat, 'participants_count', None)
-                    member_count = f"{members_cnt:,}" if members_cnt else "Unknown"
-                except Exception:
-                    member_count = "N/A"
+                    # get_participants က total ကို ပြန်ပေးတယ်
+                    participants = await bot1.get_participants(chat.id, limit=0)
+                    if hasattr(participants, 'total'):
+                        member_count = f"{participants.total:,}"
+                    elif isinstance(participants, list):
+                        member_count = f"{len(participants):,}"
+                except Exception as e:
+                    print(f"Member count error (get_participants): {e}")
+                    # Fallback: get_full_chat ကို စမ်းကြည့်မယ်
+                    try:
+                        full_chat = await bot1.get_full_chat(chat.id)
+                        if hasattr(full_chat, 'participants_count'):
+                            member_count = f"{full_chat.participants_count:,}"
+                    except Exception as e2:
+                        print(f"Member count error (get_full_chat): {e2}")
+                        member_count = "N/A"
+                
+                # ✅ Invite link ရယူမယ်
                 group_link = None
                 try:
-                    invite = await event.client(ExportChatInviteRequest(chat.id))
+                    invite = await bot1(ExportChatInviteRequest(chat.id))
                     group_link = invite.link if invite else None
                 except Exception:
                     group_link = "Cannot fetch (need admin rights)"
                 if not group_link:
                     group_link = "Not available (or bot not admin)"
+                
+                # Owner ကို ပို့မယ့် Message
                 owner_msg = (
                     f"✅ <b>Bot Added to New {'Channel' if is_broadcast_channel else 'Group'}!</b>\n"
                     f"━━━━━━━━━━━━━━━━━━━━\n"
@@ -1808,9 +1839,12 @@ async def welcome_goodbye(event):
                     await bot1.send_message(SPECIFIC_GROUP, owner_msg, parse_mode='html')
                 except Exception:
                     pass
+                
+                # Channel ဆိုရင် ဒီမှာပဲ ရပ်မယ်
                 if is_broadcast_channel:
-                    # No public intro/welcome message in channels — owner has already been notified above.
                     return
+                
+                # Group ဆိုရင် intro message ပို့မယ် (ဖယ်ရှားချင်ရင် ဒီအောက်က ၅ ကြောင်းကို comment လုပ်ပါ)
                 intro_msg = (
                     f"<blockquote><b>This group is now being looked after.</b>\n\n"
                     f"I'll manage things here, run a few games, and keep everyone in line.\n"
@@ -1826,54 +1860,15 @@ async def welcome_goodbye(event):
                     upsert=True
                 )
                 return
-        if is_broadcast_channel:
-            # Individual member join/leave events in a channel never get a welcome/goodbye text.
-            return
-        elif (event.user_added or event.user_joined):
-            for uid in target_ids:
-                if uid and uid != bot_me.id:
-                    # A join immediately following our own /unban on this user is not a real
-                    # join — it's Telegram reflecting the permission change. Skip it silently.
-                    if was_recent_mod_action(chat.id, uid):
-                        continue
-                    try:
-                        u = await bot1.get_entity(uid)
-                    except:
-                        continue
-                    track_user_metrics(u.id, u.username, u.first_name)
-                    user_first_name = u.first_name or "User"
-                    mention = f"<a href='tg://user?id={uid}'><b>{escape_html(user_first_name)}</b></a>"
-                    welcome_text = (
-                        f"<blockquote>Hello {mention}... {escape_html(group_name)} ကနေ ကြိုဆိုလိုက်ပါတယ်\n"
-                        f"Glad to have you here.</blockquote>"
-                    )
-                    await bot1.send_message(
-                        event.chat_id,
-                        welcome_text,
-                        buttons=[
-                            [Button.url("Bot OWNER DM", "t.me/Hello_Im_DexterMorgan")],
-                            [Button.url("Join Our Group", "https://t.me/Comeback_BoD")]
-                        ],
-                        parse_mode='html'
-                    )
-        elif event.user_kicked or event.user_left:
-            if event.user_id == bot_me.id:
-                await groups_col.delete_one({"chat_id": chat.id})
-            else:
-                # A leave immediately following our own /ban, /unban, or /kick on this user is
-                # an admin action we already confirmed in-chat, not a real departure — skip it.
-                if was_recent_mod_action(chat.id, event.user_id):
-                    return
-                try:
-                    u = await bot1.get_entity(event.user_id)
-                    user_first_name = u.first_name or "User"
-                    mention = f"<a href='tg://user?id={event.user_id}'><b>{escape_html(user_first_name)}</b></a>"
-                    goodbye_text = f"<blockquote> Goodbye{mention}!\nWe'll miss you.</blockquote>"
-                    await bot1.send_message(event.chat_id, goodbye_text, parse_mode='html')
-                except:
-                    pass
+        
+        # ---------- WELCOME & GOODBYE ကို လုံးဝ ဖယ်ရှားမယ် ----------
+        # အောက်က ကျန်တဲ့ welcome/goodbye code တွေအကုန်ကို ဖယ်ရှားလိုက်မယ်
+        # ဘယ်သူမှ join/leave လုပ်ရင် ဘာမှ မပို့တော့ဘူး
+        return
+        
     except Exception as e:
         await report_system_error("Welcome Goodbye Event", e)
+
 
 # ---- AUTO RESPONDER ----
 @bot2.on(events.NewMessage(incoming=True))
@@ -3260,6 +3255,52 @@ async def protection_logic(event):
                 await event.respond(bq(f"🤺 {mention}, no links allowed! Deleted."), parse_mode='html')
             except:
                 pass
+
+@bot2.on(events.NewMessage())
+async def protection_logic(event):
+    if event.is_private: return
+    if not event.text or event.sender_id == OWNER_ID or event.sender_id in bot_ids: return
+    
+    text, chat_id, sender_id = event.text.strip(), event.chat_id, event.sender_id
+    sender = await event.get_sender()
+    
+    # ❌ REMOVED: The /harrrem and /waaaifu detection block is GONE.
+    # Those commands will now be processed normally (if they are valid commands) or ignored.
+    
+    # ---- BIO Keywords Filter (still active) ----
+    if text:
+        text_lower = text.lower()
+        BIO_KEYWORDS = ["bio", "ဘိုင်O", "b i o", "biolink", "bio-link", "b-i-o", "tg bio", 
+                        "ဘိုင်အို", "ဘိုင်-အို", "ဘိုင်-o", "ဘီအိုင်အို", "b.i.o", 
+                        "ဘိုင်အိုလင့်", "ဘိုင်အိုလင့်ခ်"]
+        if any(key in text_lower for key in BIO_KEYWORDS) and not await check_admin(chat_id, sender_id):
+            try:
+                await event.delete()
+                first_name = sender.first_name if sender else "User"
+                mention = f"<a href='tg://user?id={sender_id}'>{escape_html(first_name)}</a>"
+                await event.respond(bq(f"⚠️ <b>BIO ALERT</b>\n{mention}, bio links are not allowed.\n⚡ <b>Status:</b> <blockquote expandable>Message deleted 🗑️</blockquote>"), parse_mode='html')
+                return
+            except Exception as e:
+                print(f"Bio Filter Error: {e}")
+    
+    # ---- Links Filter ----
+    urls = re.findall(r'(https?://\S+|www\.\S+)', text)
+    if urls and not (event.audio or event.voice):
+        if await check_admin(chat_id, sender_id):
+            try:
+                f_msg = await bot1.forward_messages(event.chat_id, event.message)
+                mention = f"<a href='tg://user?id={sender_id}'>{escape_html(sender.first_name)}</a>"
+                await f_msg.reply(f"<b>Link posted by Admin {mention}</b>", parse_mode='html')
+                await event.delete()
+            except:
+                pass
+        else:
+            try:
+                await event.delete()
+                mention = f"<a href='tg://user?id={sender_id}'>{escape_html(sender.first_name)}</a>"
+                await event.respond(bq(f"🤺 {mention}, no links allowed! Deleted."), parse_mode='html')
+            except:
+                pass
                 
 # ---- SHADOW BAN (owner-only bot2) ----
 @bot2.on(events.NewMessage(pattern=r'^[/.]shadow(?:@\w+)?$'))
@@ -3358,64 +3399,32 @@ async def dark_passenger_watcher(event):
             except Exception as e:
                 pass
 
-@bot2.on(events.NewMessage(pattern=r'^[/.]rton(?:\s+(\d+))?$'))
-async def random_talk_handler(event):
-    global IS_RANDOM_TALK_ACTIVE
-    if event.sender_id != OWNER_ID:
-        return
 
-    # /rton ရိုက်တာနဲ့ Feature ကို အလိုလို ဖွင့်ပေးလိုက်မယ်
-    IS_RANDOM_TALK_ACTIVE = True
-
-    count_str = event.pattern_match.group(1)
-    count = int(count_str) if count_str and count_str.isdigit() else 1
-    count = max(1, min(count, 5))  # Max 5 ကြောင်းပဲ ခွင့်ပြုမယ် (Flood မဖြစ်အောင်)
-
-    status_msg = await event.reply(f"⏳ စာကြောင်း {count} ခု ရှာနေပါတယ်...")
-
-    try:
-        # "Hey there" နဲ့ mention (@) ပါတဲ့ စာကြောင်းတွေကို ဖယ်ထုတ်မယ်
-        pipeline = [
-            {"$match": {
-                "text": {
-                    "$not": {
-                        "$regex": r"(?i)(hey there|@\w+)"
-                    }
-                }
-            }},
-            {"$sample": {"size": count}}
-        ]
-        cursor = talk_col.aggregate(pipeline)
-        docs = await cursor.to_list(length=count)
-
-        if not docs:
-            await status_msg.edit("❌ ပြောစရာ စာကြောင်း မတွေ့ပါ။")
-            return
-
-        for doc in docs:
-            text = doc.get("text", "").strip()
-            if not text:
-                continue
-            # ထပ်မံစစ်ဆေးခြင်း
-            if "hey there" in text.lower() or "@" in text:
-                continue
-            await bot2.send_message(event.chat_id, text, parse_mode='html')
-            await asyncio.sleep(1.5)  # Message တွေကြား ခဏစောင့်ပေးတယ်
-
-        await status_msg.delete()
-
-    except Exception as e:
-        await status_msg.edit(f"❌ အမှားတစ်ခုဖြစ်သွားပါတယ်: {e}")
-
-@bot2.on(events.NewMessage(pattern=r'^[/.]rtoff(?:@\w+)?$'))
-async def random_talk_off_handler(event):
-    if event.sender_id != OWNER_ID:
-        return
-    global IS_RANDOM_TALK_ACTIVE
-    IS_RANDOM_TALK_ACTIVE = False
-    await event.reply("⛔ Random talk feature turned OFF.")
 # ---- LANGUAGE & FORWARD FILTER ----
 FORBIDDEN_SCRIPTS = re.compile(r'[\u4e00-\u9fff\u3400-\u4dbf\u3040-\u309f\u30a0-\u30ff\u0e00-\u0e7f\u0600-\u06ff\uac00-\ud7af]')
+
+@bot1.on(events.NewMessage(incoming=True))
+async def global_traffic_processing_matrix(event):
+    if event.is_private or not event.text: return
+    if event.sender_id == OWNER_ID or event.sender_id in bot_ids: return
+    chat_id = event.chat_id
+    sender_id = event.sender_id
+    if chat_id == SPECIFIC_GROUP and not await check_admin(chat_id, sender_id):
+        if FORBIDDEN_SCRIPTS.search(event.text):
+            try:
+                await event.delete()
+                sender = await event.get_sender()
+                mention = f"<a href='tg://user?id={sender_id}'>{escape_html(sender.first_name if sender else 'User')}</a>"
+                await event.respond(bq(f"⚠️ <b>LANGUAGE SECURITY</b>\n{mention}, only <b>Burmese, English</b> and <b>Numbers</b> ပဲ ပို့ခွင့်ရှိတယ်. တခြားသော ဘာသာစကားများ ရေးခွင့်မပြုဘူး."), parse_mode='html')
+            except Exception: pass
+    if event.fwd_from and isinstance(event.fwd_from.from_id, types.PeerChannel):
+        if not await check_admin(chat_id, sender_id):
+            try:
+                await event.delete()
+                sender = await event.get_sender()
+                mention = f"<a href='tg://user?id={sender_id}'>{escape_html(sender.first_name if sender else 'User')}</a>"
+                await event.respond(bq(f"🐇 <b>CHANNEL FORWARD NOT ALLOWED!</b>\n{mention} <b>[Deleted]</b>"), parse_mode='html')
+            except Exception: pass
 
 @bot2.on(events.NewMessage(incoming=True))
 async def global_traffic_processing_matrix(event):
@@ -3439,7 +3448,7 @@ async def global_traffic_processing_matrix(event):
                 mention = f"<a href='tg://user?id={sender_id}'>{escape_html(sender.first_name if sender else 'User')}</a>"
                 await event.respond(bq(f"🐇 <b>CHANNEL FORWARD NOT ALLOWED!</b>\n{mention} <b>[Deleted]</b>"), parse_mode='html')
             except Exception: pass
-
+                
 # ---- SMART REPLY TOGGLES (owner-only bot2) ----
 @bot2.on(events.NewMessage(pattern=r'^[/.]ktr(?:@\w+)?(?:\s+(\d+))?$'))
 async def turn_on_reply_save_match(event):
@@ -3504,6 +3513,72 @@ async def system_analytics_matrix(event):
         await loading.edit(bq(f"❌ Analytics Error: {e}"), parse_mode='html')
 
 @bot2.on(events.ChatAction)
+async def welcome_goodbye_enhanced(event):
+    """
+    Bot2 အတွက် Join/Leave Event Handler
+    - User Join လုပ်ရင် Profile အပြည့်အစုံကို ပြသပေးမယ်
+    - User Leave လုပ်ရင်လည်း Profile အကျဉ်းချုပ် ပြသပေးမယ်
+    """
+    try:
+        chat = await event.get_chat()
+        bot_me = await bot2.get_me()
+        target_ids = event.user_ids or [event.user_id]
+        
+        # မိမိကိုယ်တိုင် Join/Leave ဖြစ်ရင် ဘာမှမလုပ်ဘူး
+        if bot_me.id in target_ids:
+            return
+        
+        # ---------- USER JOIN ----------
+        if event.user_added or event.user_joined:
+            for uid in target_ids:
+                if not uid or uid == bot_me.id:
+                    continue
+                try:
+                    user = await bot2.get_entity(uid)
+                except Exception:
+                    continue
+                
+                # Profile Data ယူမယ်
+                profile = await get_user_profile_data(user, event.chat_id)
+                
+                # UI လှအောင် ဖော်မတ်လုပ်မယ်
+                msg = format_join_message(profile)
+                
+                # Profile Photo ရှိရင် ပုံပါတွဲပို့မယ်
+                photo = await get_profile_photo(user)
+                if photo:
+                    await bot2.send_file(
+                        event.chat_id,
+                        photo,
+                        caption=msg,
+                        parse_mode='html'
+                    )
+                else:
+                    await bot2.send_message(event.chat_id, msg, parse_mode='html')
+        
+        # ---------- USER LEAVE (Kick/Left) ----------
+        elif event.user_kicked or event.user_left:
+            for uid in target_ids:
+                if not uid or uid == bot_me.id:
+                    continue
+                try:
+                    user = await bot2.get_entity(uid)
+                except Exception:
+                    # User ကို မရှာနိုင်ရင် ID ကိုပဲ ပြမယ်
+                    await bot2.send_message(
+                        event.chat_id,
+                        f"👋 <b>User {uid}</b> has left the chat."
+                    )
+                    continue
+                
+                profile = await get_user_profile_data(user, event.chat_id)
+                msg = format_leave_message(profile)
+                await bot2.send_message(event.chat_id, msg, parse_mode='html')
+    
+    except Exception as e:
+        print(f"Welcome/Goodbye Error: {e}")
+
+@bot1.on(events.ChatAction)
 async def welcome_goodbye_enhanced(event):
     """
     Bot2 အတွက် Join/Leave Event Handler
