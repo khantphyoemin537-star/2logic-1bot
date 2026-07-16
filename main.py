@@ -1307,7 +1307,7 @@ def format_join_message(profile):
     """Join Message ကို UI လှအောင် ဖော်မတ်လုပ်မယ်"""
     premium_emoji = "⭐" if profile["is_premium"] else ""
     return f"""
-🪪 <b>NEW MEMBER JOINED</b>
+🪪 <b>မန်ဘာအသစ်ဝင်လာတယ်။</b>
 
 🪩 <b>Name:</b> {escape_html(profile['fullname'])}
 🦖 <b>User ID:</b> <code>{profile['user_id']}</code>
@@ -3587,7 +3587,7 @@ async def welcome_goodbye_enhanced(event):
     """
     try:
         chat = await event.get_chat()
-        bot_me = await bot2.get_me()
+        bot_me = await bot1.get_me()
         target_ids = event.user_ids or [event.user_id]
         
         # မိမိကိုယ်တိုင် Join/Leave ဖြစ်ရင် ဘာမှမလုပ်ဘူး
@@ -3600,7 +3600,7 @@ async def welcome_goodbye_enhanced(event):
                 if not uid or uid == bot_me.id:
                     continue
                 try:
-                    user = await bot2.get_entity(uid)
+                    user = await bot1.get_entity(uid)
                 except Exception:
                     continue
                 
@@ -3613,14 +3613,14 @@ async def welcome_goodbye_enhanced(event):
                 # Profile Photo ရှိရင် ပုံပါတွဲပို့မယ်
                 photo = await get_profile_photo(user)
                 if photo:
-                    await bot2.send_file(
+                    await bot1.send_file(
                         event.chat_id,
                         photo,
                         caption=msg,
                         parse_mode='html'
                     )
                 else:
-                    await bot2.send_message(event.chat_id, msg, parse_mode='html')
+                    await bot1.send_message(event.chat_id, msg, parse_mode='html')
         
         # ---------- USER LEAVE (Kick/Left) ----------
         elif event.user_kicked or event.user_left:
@@ -3628,10 +3628,10 @@ async def welcome_goodbye_enhanced(event):
                 if not uid or uid == bot_me.id:
                     continue
                 try:
-                    user = await bot2.get_entity(uid)
+                    user = await bot1.get_entity(uid)
                 except Exception:
                     # User ကို မရှာနိုင်ရင် ID ကိုပဲ ပြမယ်
-                    await bot2.send_message(
+                    await bot1.send_message(
                         event.chat_id,
                         f"👋 <b>User {uid}</b> has left the chat."
                     )
@@ -3639,7 +3639,7 @@ async def welcome_goodbye_enhanced(event):
                 
                 profile = await get_user_profile_data(user, event.chat_id)
                 msg = format_leave_message(profile)
-                await bot2.send_message(event.chat_id, msg, parse_mode='html')
+                await bot1.send_message(event.chat_id, msg, parse_mode='html')
     
     except Exception as e:
         print(f"Welcome/Goodbye Error: {e}")
