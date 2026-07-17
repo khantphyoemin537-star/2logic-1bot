@@ -1407,8 +1407,7 @@ def clean_display_name(name, max_len=25, fallback="Unknown"):
         name = name[:max_len].rstrip() + "…"
     return name
 
-GAME_FOOTER = "\n\n🪙 <code>/balance</code>"
-
+GAME_FOOTER = "\n\n🪙 <code>/balance</code>,🙎 တခြားဂိမ်းတွေ ဆော့မယ်ဆို /game လို့ရိုက်"
 async def _delete_after_delay(client, chat_id, msg_id, delay=10):
     try:
         await asyncio.sleep(delay)
@@ -7467,22 +7466,13 @@ async def slot_game_handler(event):
         balance = user_doc.get("wallet_balance", 0) if user_doc else 0
         return await event.reply(f"<b>မင်းမှာ {balance} MMK ပဲရှိတယ်နော်!</b>", parse_mode='html')
     mention = await get_html_mention(event, user_id)
-    # 🎨 UI FIX: previously ["🧊","🦠","🏈","👾","🛩","🛺","🧸"] — an ice cube, a microbe, a
-    # football, an alien, a plane, a rickshaw and a teddy bear had nothing to do with each
-    # other or with a slot machine. Swapped for a classic, cohesive fruit-machine set so the
-    # reels actually look like a slot game. 7️⃣ (lucky seven) takes over as the jackpot symbol
-    # in place of the old ice cube — same top payout, just a symbol that means "jackpot"
-    # everywhere real slot machines are.
-    symbols = ["🍒", "🍋", "🍇", "🔔", "⭐", "💎", "7️⃣"]
-    JACKPOT_SYMBOL = "7️⃣"
+    
+    # 🎯 မူလ slot symbols အတိုင်းထားပါ (အသီး/ဂန္တဝင် ပုံစံ)
+    symbols = ["🐢", "🐕", "🐊", "🐇", "🐉", "🦬", "🦉"]
+    JACKPOT_SYMBOL = "🦬"
+    
     try:
         loading_msg = await event.reply(f"🎰 <code>[ {' | '.join(['❔'] * 7)} ]</code>\n<i>Spinning...</i>", parse_mode='html')
-        # ⚡ PERFORMANCE / FLOOD-CONTROL FIX: this used to be 5 spin-frame edits + a partial-
-        # reveal edit + a final edit (up to 7 edit_message calls per single play, ALL to the
-        # same chat). Telegram rate-limits edits to one chat pretty aggressively — with just
-        # 2-3 people playing /slot around the same time that easily tips into a flood-wait,
-        # which is what made the bot look "frozen" for everyone in that chat. One quick
-        # spin-frame + one final reveal keeps the same suspense feel at a fraction of the calls.
         spin_result = random.choices(symbols, k=7)
         await bot1.edit_message(event.chat_id, loading_msg, f"🎰 <code>[ {' | '.join(spin_result)} ]</code>\n<i>Spinning...</i>", parse_mode='html')
         await asyncio.sleep(1.2)
@@ -7492,6 +7482,7 @@ async def slot_game_handler(event):
     except Exception:
         await users_catcher_col.update_one({"user_id": user_id}, {"$inc": {"wallet_balance": bet}})
         return await event.reply("⚠️ <b>Something went wrong — your bet was refunded.</b>", parse_mode='html')
+    
     res_syms = random.choices(symbols, k=7)
     res_str = " | ".join(res_syms)
     counts = Counter(res_syms)
@@ -7499,65 +7490,67 @@ async def slot_game_handler(event):
     win_amount = 0
     status_text = ""
     celebration = ""
+    
+    # 🏆 အနိုင်ရအဆင့်များ (Status Text နှင့် Celebration Emoji တွေကို ပြန်လည်ပြင်ဆင်ထားပါသည်)
     if max_count >= 7:
         win_amount = bet * 77 if most_common_sym == JACKPOT_SYMBOL else bet * 50
-        status_text = f"🎉🎊 <b>ဂျက်ပေါက် ထိသွားပြီ!!!</b> 🎊🎉\n{most_common_sym} × {max_count} = {win_amount:,} MMK! 😱"
-        celebration = "🎉✨🎊"
+        status_text = f"<b>ဂျက်ပေါက် ထိသွားပြီ။</b>\n{most_common_sym} × {max_count} = {win_amount:,} MMK"
+        celebration = "🦖🙆"
     elif max_count == 6:
         win_amount = bet * 25
-        status_text = f"🔥🔥 <b>တစ်မျိုးတည်း ၆ လုံး ဆက်မိ!!!</b> 🔥🔥\n{most_common_sym} × {max_count} = {win_amount:,} MMK! 😍"
-        celebration = "🔥✨🎉"
+        status_text = f"<b>တစ်မျိုးတည်း ၆ လုံး ဆက်မိ။</b>\n{most_common_sym} × {max_count} = {win_amount:,} MMK"
+        celebration = "🔥🙆🧏"
     elif max_count == 5:
         win_amount = bet * 12
-        status_text = f"⚡⚡ <b>တစ်မျိုးတည်း ၅ လုံး ဆက်မိ!!</b> ⚡⚡\n{most_common_sym} × {max_count} = {win_amount:,} MMK! 🔥"
-        celebration = "⚡✨🎉"
+        status_text = f"<b>တစ်မျိုးတည်း ၅ လုံး ဆက်မိ။</b>\n{most_common_sym} × {max_count} = {win_amount:,} MMK"
+        celebration = "⭐💁🎰"
     elif max_count == 4:
         win_amount = bet * 5
-        status_text = f"😲😲 <b>တစ်မျိုးတည်း ၄ လုံး ဆက်မိ!</b> 😲😲\n{most_common_sym} × {max_count} = {win_amount:,} MMK! 👍"
-        celebration = "😲✨🎉"
+        status_text = f"<b>တစ်မျိုးတည်း ၄ လုံး ဆက်မိ။</b>\n{most_common_sym} × {max_count} = {win_amount:,} MMK"
+        celebration = "🧏🎰"
     elif max_count == 3:
         win_amount = int(bet * 2.5)
-        status_text = f"🤩 <b>တစ်မျိုးတည်း ၃ လုံး ဆက်မိ!</b> 🤩\n{most_common_sym} × {max_count} = {win_amount:,} MMK! 💪"
-        celebration = "🤩✨"
+        status_text = f"<b>တစ်မျိုးတည်း ၃ လုံး ဆက်မိ။</b>\n{most_common_sym} × {max_count} = {win_amount:,} MMK"
+        celebration = "🙆🎰"
     elif max_count == 2:
         win_amount = int(bet * 0.5)
-        status_text = f"😊 <b>တစ်မျိုးတည်း ၂ လုံး ဆက်မိ!</b> 😊\n{most_common_sym} × {max_count} = {win_amount:,} MMK! 🎈"
-        celebration = "😊✨"
+        status_text = f"<b>တစ်မျိုးတည်း ၂ လုံး ဆက်မိ</b>\n{most_common_sym} × {max_count} = {win_amount:,} MMK"
+        celebration = "🎈🙇"
     else:
         win_amount = 0
-        status_text = f"😅 <b>ဒီတစ်ခါ မအောင်မြင်ဘူးနော်။</b>\nနောက်တစ်ခါ ကံကောင်းမယ်!"
+        status_text = f"<b>ဒီတစ်ခါ မအောင်မြင်ဘူး။</b>\nနောက်တစ်ခါ ကံကောင်းမယ်။"
         celebration = "💔"
+    
     if win_amount > 0:
         await users_catcher_col.update_one({"user_id": user_id}, {"$inc": {"wallet_balance": win_amount}})
+    
     net_gain = win_amount - bet
     profit_loss_symbol = "+" if net_gain > 0 else "" if net_gain == 0 else "-"
     display_net = f"{profit_loss_symbol}{abs(net_gain):,}" if net_gain != 0 else "0"
+    
+    # 🖼️ နောက်ဆုံးပြသမည့် Message (အောက်မျဉ်းများ၊ နေရာလွတ်များ ဖယ်ရှားပြီး သန့်ရှင်းလှပအောင် ပြုလုပ်ထားပါသည်)
     final_text = (
-        f"🎰 <b>ဒိုရေမွန် လောင်းကစား</b> 🎰\n"
-        f"━━━━━━━━━━━━━━━━━━\n"
-        f"👤 <b>ကစားသမား −</b> {mention}\n"
-        f"💵 <b>လောင်းငွေ −</b> <code>{bet:,} MMK</code>\n"
-        f"━━━━━━━━━━━━━━━━━━\n"
-        f"🎯 <code>[ {res_str} ]</code>\n"
-        f"━━━━━━━━━━━━━━━━━━\n"
+        f"🎰 <b>Morgan's slot</b>\n"
+        f"🦖 {mention}\n"
+        f"💵 <code>{bet:,} MMK</code>\n"
+        f"🍭 <code>[ {res_str} ]</code>\n"
         f"{celebration}\n"
         f"{status_text}\n"
         f"{celebration}\n"
-        f"━━━━━━━━━━━━━━━━━━\n"
-        f"🔄 <b>ပြန်ရငွေ −</b> <code>{win_amount:,} MMK</code>\n"
-        f"📊 <b>အမြတ်/အရှုံး −</b> <code>{display_net} MMK</code>\n"
-        f"<i>ဒိုရေမွန်က ကံပေးပါစေ။</i>"
+        f"🔄 <code>{win_amount:,} MMK</code>\n"
+        f"📊 <code>{display_net} MMK</code>\n"
+        f"<i>နောက်တခါပိုကံကောင်းပါစေ</i>"
         f"{GAME_FOOTER}"
     )
+    
     try:
         await bot1.edit_message(event.chat_id, loading_msg, final_text, parse_mode='html')
     except Exception:
-        # Balance was already settled by this point — worst case here is just a missing
-        # confirmation message, not a money-safety issue, so fail quietly with a plain reply.
         try:
             await event.reply(final_text, parse_mode='html')
         except Exception:
             pass
+    
     if not event.is_private:
         schedule_game_cleanup(bot1, event.chat_id, loading_msg)
 
