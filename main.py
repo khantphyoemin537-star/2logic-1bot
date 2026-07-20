@@ -180,7 +180,7 @@ async def ensure_user_registered(user_id, fullname):
 # zero feedback, looking completely dead, sometimes for minutes. Short waits still get
 # absorbed transparently (unnoticeable); anything longer is re-raised so the caller's own
 # except block can report it instead of the command silently going nowhere.
-FLOOD_WAIT_RETRY_CAP = 30  # seconds
+FLOOD_WAIT_RETRY_CAP = 15  # seconds
 
 async def send_safe_message(client, chat_id, text, **kwargs):
     while True:
@@ -307,6 +307,9 @@ def _extract_command_word(text):
         return None
     return '/' + text[1:].split('@')[0]
 
+def today_start():
+    return datetime.now(TZ).replace(hour=0, minute=0, second=0, microsecond=0).timestamp()
+
 # ==========================================
 # 🎯 OWN-USERNAME COMMAND GUARD
 # ==========================================
@@ -371,6 +374,88 @@ async def report_system_error(location, error_msg):
         )
         await bot1.send_message(OWNER_ID, bq(alert_text), parse_mode='html')
     except Exception: pass
+
+async def get_today_stats():
+    today_ts = today_start()
+    # Total daily catches (sum of daily_catches)
+    total_catches_agg = await users_catcher_col.aggregate([
+        {"$group": {"_id": None, "total": {"$sum": "$daily_catches"}}}
+    ]).to_list(length=1)
+    total_catches = total_catches_agg[0]["total"] if total_catches_agg else 0
+
+    # Groups with at least one catch today (using harem with chat_id)
+    groups_agg = await users_catcher_col.aggregate([
+        {"$unwind": "$harem"},
+        {"$match": {"harem.caught_date": {"$gte": today_ts}}},
+        {"$group": {"_id": "$harem.chat_id"}},
+        {"$count": "groups"}
+    ]).to_list(length=1)
+    groups_today = groups_agg[0]["groups"] if groups_agg else 0
+
+    # Rarity breakdown (using harem)
+    rarity_agg = await users_catcher_col.aggregate([
+        {"$unwind": "$harem"},
+        {"$match": {"harem.caught_date": {"$gte": today_ts}}},
+        {"$group": {"_id": "$harem.rarity", "count": {"$sum": 1}}}
+    ]).to_list(length=None)
+    rarity_breakdown = {doc["_id"]: doc["count"] for doc in rarity_agg}
+
+    # Unique catchers today (users with daily_catches > 0)
+    catchers_agg = await users_catcher_col.count_documents({"daily_catches": {"$gt": 0}})
+    return {
+        "total_catches": total_catches,
+        "groups": groups_today,
+        "rarity": rarity_breakdown,
+        "catchers": catchers_agg
+    }
+
+async def send_daily_report():
+    stats = await get_today_stats()
+    today_str = datetime.now(TZ).strftime("%Y-%m-%d")
+    text = f"📊 <b>Daily Report – {today_str}</b>\n"
+    text += f"━━━━━━━━━━━━━━━━━━━━\n"
+    text += f"🐇 <b>Total Catches Today:</b> <code>{stats['total_catches']}</code>\n"
+    text += f"👥 <b>Unique Catchers:</b> <code>{stats['catchers']}</code>\n"
+    text += f"🪐 <b>Groups Active:</b> <code>{stats['groups']}</code>\n\n"
+    text += f"🏷️ <b>Rarity Breakdown:</b>\n"
+    for rarity, count in sorted(stats['rarity'].items(), key=lambda x: x[1], reverse=True):
+        text += f"  • {rarity} — <code>{count}</code>\n"
+    if not stats['rarity']:
+        text += "  <i>No catches yet today.</i>\n"
+    text += f"\n<code>/today</code> to see the top catchers."
+
+    # Send to force-sub group
+    try:
+        await send_safe_message(bot1, FORCE_SUB_CHAT_ID, text, parse_mode='html')
+    except Exception as e:
+        print(f"Daily report to group failed: {e}")
+
+    # Send to owner's DM
+    try:
+        await send_safe_message(bot1, OWNER_ID, text, parse_mode='html')
+    except Exception as e:
+        print(f"Daily report to owner DM failed: {e}")
+async def daily_report_scheduler():
+    while True:
+        now = datetime.now(TZ)
+        target = now.replace(hour=6, minute=0, second=0, microsecond=0)
+        if now >= target:
+            target += timedelta(days=1)
+        wait_seconds = (target - now).total_seconds()
+        await asyncio.sleep(wait_seconds)
+
+        # Check if already sent today (to avoid duplicates after restart)
+        last_sent = await bot_settings_col.find_one({"_id": "daily_report_last_sent"})
+        today_str = datetime.now(TZ).strftime("%Y-%m-%d")
+        if last_sent and last_sent.get("date") == today_str:
+            continue
+        await send_daily_report()
+        await bot_settings_col.update_one(
+            {"_id": "daily_report_last_sent"},
+            {"$set": {"date": today_str}},
+            upsert=True
+        )
+
 
 # ==========================================
 # 🏅 ACHIEVEMENT SYSTEM (Updated)
@@ -1181,6 +1266,9 @@ async def create_indexes():
     await haido_history_col.create_index([("claimed_by", 1), ("timestamp", -1)])
     await haido_history_col.create_index("claimed")
     # 📈 Stock market indexes
+    await users_catcher_col.create_index([("daily_catches", -1)])
+    await users_catcher_col.create_index("harem.caught_date")
+    await users_catcher_col.create_index("harem.chat_id")
     await character_stocks_col.create_index("char_id", unique=True)
     await users_catcher_col.create_index([("stock_portfolio_value", -1)])
     await btc_market_col.create_index("key", unique=True)
@@ -1240,7 +1328,7 @@ IS_RANDOM_TALK_ACTIVE = True  # Default ကတော့ အသင့်သုံ
 # answer the tap immediately with a small non-blocking toast — so the button doesn't look
 # "stuck" or broken — and raise StopPropagation so none of the real handlers below ever see
 # that click. First tap and every tap after the cooldown passes through untouched.
-CALLBACK_CLICK_COOLDOWN = 4.0  # seconds between accepted clicks, per user
+CALLBACK_CLICK_COOLDOWN = 1.0  # seconds between accepted clicks, per user
 _last_callback_click = bot_state._last_callback_click  # user_id -> timestamp
 
 @bot1.on(events.CallbackQuery())
@@ -1252,7 +1340,7 @@ async def callback_spam_click_guard(event):
     last = _last_callback_click.get(user_id, 0)
     if now - last < CALLBACK_CLICK_COOLDOWN:
         try:
-            await event.answer("⏳ Slow down a bit!", alert=False)
+            await event.answer("ခနစောင့် အချစ်ကလေး!", alert=False)
         except Exception:
             pass
         raise events.StopPropagation
@@ -1588,8 +1676,8 @@ async def global_slash_cmd_acc_opener(event):
 FORCE_SUB_CHAT_ID = int(os.environ.get("FORCE_SUB_CHAT_ID", "-1004295367428"))
 FORCE_SUB_REWARD_MMK = 500000
 FORCE_SUB_MEMBERSHIP_TTL = 120  # seconds a "yes/no member" answer is cached per user
-FORCE_SUB_PROMPT_COOLDOWN = 300  # seconds — don't re-nag the same user more than once per 5 min
-FORCE_SUB_PROMPT_TTL = 20  # seconds — the join-nudge message deletes itself after this long
+FORCE_SUB_PROMPT_COOLDOWN = 3000  # seconds — don't re-nag the same user more than once per 5 min
+FORCE_SUB_PROMPT_TTL = 10  # seconds — the join-nudge message deletes itself after this long
 
 # Exactly the commands an ordinary player uses to play — everything listed in get_game_text()/
 # get_casino_text()/get_collection_text(), plus catch/who/w/waifu/haido/trade/sell/buy/dex/
@@ -2251,9 +2339,106 @@ async def _run_auto_calculator(event):
             except Exception:
                 pass
 
+async def send_today_page(event, page):
+    # Get top users by daily_catches (today only)
+    total_users = await users_catcher_col.count_documents({"daily_catches": {"$gt": 0}})
+    if total_users == 0:
+        return await event.reply("📭 <b>No catches today yet.</b>", parse_mode='html')
+
+    per_page = 10
+    total_pages = (total_users + per_page - 1) // per_page
+    if page < 0: page = 0
+    if page >= total_pages: page = total_pages - 1
+
+    cursor = users_catcher_col.find({"daily_catches": {"$gt": 0}})\
+        .sort("daily_catches", -1)\
+        .skip(page * per_page).limit(per_page)
+    top_users = await cursor.to_list(length=per_page)
+
+    # Build text
+    lines = []
+    rank_start = page * per_page + 1
+    for idx, u in enumerate(top_users, start=rank_start):
+        medal = "🥇" if idx == 1 else "🥈" if idx == 2 else "🥉" if idx == 3 else f"#{idx}"
+        name = clean_display_name(u.get("fullname"), fallback=f"User {u['user_id']}")
+        mention = f"<a href='tg://user?id={u['user_id']}'>{escape_html(name)}</a>"
+        lines.append(f"{medal}  {mention} — <code>{u['daily_catches']} catches</code>")
+
+    text = f"📅 <b>Today's Top Catchers</b>\n"
+    text += f"📑 Page {page+1}/{total_pages} · Total: {total_users}\n\n"
+    text += "\n".join(lines)
+
+    # Buttons
+    buttons = []
+    nav = []
+    if page > 0:
+        nav.append(Button.inline("◀ Prev", data=f"today_page_{page-1}"))
+    if page < total_pages - 1:
+        nav.append(Button.inline("Next ▶", data=f"today_page_{page+1}"))
+    if nav:
+        buttons.append(nav)
+
+    await event.reply(text, parse_mode='html', buttons=buttons or None)
+
+@bot1.on(events.CallbackQuery(pattern=r'^today_page_(\d+)$'))
+async def today_page_callback(event):
+    page = int(event.pattern_match.group(1))
+    # Re-use the same logic but edit the existing message
+    await send_today_page_edit(event, page, edit_msg_id=event.message_id)
+
+async def send_today_page_edit(event, page, edit_msg_id):
+    # Same as send_today_page but uses edit instead of reply
+    total_users = await users_catcher_col.count_documents({"daily_catches": {"$gt": 0}})
+    if total_users == 0:
+        try:
+            await event.edit("📭 <b>No catches today yet.</b>", parse_mode='html')
+        except:
+            pass
+        return
+
+    per_page = 10
+    total_pages = (total_users + per_page - 1) // per_page
+    if page < 0: page = 0
+    if page >= total_pages: page = total_pages - 1
+
+    cursor = users_catcher_col.find({"daily_catches": {"$gt": 0}})\
+        .sort("daily_catches", -1)\
+        .skip(page * per_page).limit(per_page)
+    top_users = await cursor.to_list(length=per_page)
+
+    lines = []
+    rank_start = page * per_page + 1
+    for idx, u in enumerate(top_users, start=rank_start):
+        medal = "🥇" if idx == 1 else "🥈" if idx == 2 else "🥉" if idx == 3 else f"#{idx}"
+        name = clean_display_name(u.get("fullname"), fallback=f"User {u['user_id']}")
+        mention = f"<a href='tg://user?id={u['user_id']}'>{escape_html(name)}</a>"
+        lines.append(f"{medal}  {mention} — <code>{u['daily_catches']} catches</code>")
+
+    text = f"📅 <b>Today's Top Catchers</b>\n"
+    text += f"📑 Page {page+1}/{total_pages} · Total: {total_users}\n\n"
+    text += "\n".join(lines)
+
+    buttons = []
+    nav = []
+    if page > 0:
+        nav.append(Button.inline("◀ Prev", data=f"today_page_{page-1}"))
+    if page < total_pages - 1:
+        nav.append(Button.inline("Next ▶", data=f"today_page_{page+1}"))
+    if nav:
+        buttons.append(nav)
+
+    try:
+        await event.edit(text, parse_mode='html', buttons=buttons or None)
+    except errors.MessageNotModifiedError:
+        pass
+        
 @bot1.on(events.NewMessage)
 async def bot1_auto_calculator_handler(event):
     await _run_auto_calculator(event)
+
+@bot1.on(events.NewMessage(pattern=own_pattern(r'^[/.]today(?:@\w+)?$', 'bot1')))
+async def today_command(event):
+    await send_today_page(event, 0)  # page 0 = first page (10 per page)
 
 @bot2.on(events.NewMessage)
 async def bot2_auto_calculator_handler(event):
@@ -5156,6 +5341,7 @@ async def perform_catch(chat_id, user_id, spawn_data, event, reply_to_msg=None, 
                         "caught_date": time.time(),
                         "rarity": spawn_data['rarity'],
                         "status": "vault"
+                        "chat_id": chat_id
                     }
                 },
                 "$inc": {
@@ -9736,6 +9922,7 @@ async def start_system():
     print("Bot System Starting...")
     asyncio.create_task(_create_indexes_background())
     asyncio.create_task(start_bot_state_cleanup_loop())
+    asyncio.create_task(daily_report_scheduler())
     await asyncio.gather(run_bot1_forever(), run_bot2_forever())
 
 if __name__ == "__main__":
