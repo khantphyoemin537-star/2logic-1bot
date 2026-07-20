@@ -5340,7 +5340,7 @@ async def perform_catch(chat_id, user_id, spawn_data, event, reply_to_msg=None, 
                         "char_id": spawn_data['char_id'],
                         "caught_date": time.time(),
                         "rarity": spawn_data['rarity'],
-                        "status": "vault"
+                        "status": "vault",
                         "chat_id": chat_id
                     }
                 },
