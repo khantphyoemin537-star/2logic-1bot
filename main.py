@@ -1608,7 +1608,7 @@ def format_join_message(profile):
     """Join Message ကို UI လှအောင် ဖော်မတ်လုပ်မယ်"""
     premium_emoji = "⭐" if profile["is_premium"] else ""
     return f"""
-🪪 <b>မန်ဘာအသစ်ဝင်လာတယ်။</b>
+🪪 <b>Hey,Thers is a New Member.</b>
 
 🪩 <b>Name:</b> {escape_html(profile['fullname'])}
 🦖 <b>User ID:</b> <code>{profile['user_id']}</code>
@@ -2761,7 +2761,7 @@ async def spam_detection_and_mute(event):
     # Already muted from catching IN THIS GROUP — block the relevant commands and stop; don't
     # let this message also start counting toward a fresh spam window.
     if key in user_mute_until and now < user_mute_until[key]:
-        if _extract_command_word(event.text) in ['/catch', '/collect', '/who', '/w', '/waifu']:
+        if _extract_command_word(event.text) in ['/collect', '/who', '/w', '/waifu']:
             try:
                 await event.delete()
             except:
@@ -4323,52 +4323,6 @@ async def broadcast(event):
             except: fail += 1
         except Exception: fail += 1
     await status_msg.edit(bq(f"<b>BROADCAST COMPLETE</b>\n✅ <b>Success:</b> <code>{success}</code>\n❌ <b>Failed:</b> None"), parse_mode='html')
-# ---- PROTECTION LOGIC (No Harem/Waifu deletion) ----
-@bot1.on(events.NewMessage())
-async def protection_logic(event):
-    if event.is_private: return
-    if not event.text or event.sender_id == OWNER_ID or event.sender_id in bot_ids: return
-    
-    text, chat_id, sender_id = event.text.strip(), event.chat_id, event.sender_id
-    sender = await event.get_sender()
-    
-    # ❌ REMOVED: The /harrrem and /waaaifu detection block is GONE.
-    # Those commands will now be processed normally (if they are valid commands) or ignored.
-    
-    # ---- BIO Keywords Filter (still active) ----
-    if text:
-        text_lower = text.lower()
-        BIO_KEYWORDS = ["bio", "b i o", "biolink", "bio-link", "b-i-o", "tg bio", 
-                        "ဘိုင်အို", "ဘိုင်-အို", "ဘိုင်-o", "ဘီအိုင်အို", "b.i.o", 
-                        "ဘိုင်အိုလင့်", "ဘိုင်အိုလင့်ခ်"]
-        if any(key in text_lower for key in BIO_KEYWORDS) and not await check_admin(chat_id, sender_id):
-            try:
-                await event.delete()
-                first_name = sender.first_name if sender else "User"
-                mention = f"<a href='tg://user?id={sender_id}'>{escape_html(first_name)}</a>"
-                await event.respond(bq(f"⚠️ <b>BIO ALERT</b>\n{mention}, bio links are not allowed.\n⚡ <b>Status:</b> <blockquote expandable>Message deleted 🗑️</blockquote>"), parse_mode='html')
-                return
-            except Exception as e:
-                print(f"Bio Filter Error: {e}")
-    
-    # ---- Links Filter ----
-    urls = re.findall(r'(https?://\S+|www\.\S+)', text)
-    if urls and not (event.audio or event.voice):
-        if await check_admin(chat_id, sender_id):
-            try:
-                f_msg = await bot1.forward_messages(event.chat_id, event.message)
-                mention = f"<a href='tg://user?id={sender_id}'>{escape_html(sender.first_name)}</a>"
-                await f_msg.reply(f"<b>Link posted by Admin {mention}</b>", parse_mode='html')
-                await event.delete()
-            except:
-                pass
-        else:
-            try:
-                await event.delete()
-                mention = f"<a href='tg://user?id={sender_id}'>{escape_html(sender.first_name)}</a>"
-                await event.respond(bq(f"🤺 {mention}, no links allowed! Deleted."), parse_mode='html')
-            except:
-                pass
 
 @bot2.on(events.NewMessage())
 async def protection_logic(event):
