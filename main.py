@@ -2078,13 +2078,6 @@ async def check_admin(chat_id, user_id):
         return user_id in admin_cache[chat_id]["ids"]
     return False
 
-async def check_ban_rights(chat_id, user_id):
-    if user_id == OWNER_ID: return True
-    try:
-        permissions = await bot1.get_permissions(chat_id, user_id)
-        return permissions.is_admin and permissions.ban_users
-    except: return False
-
 async def update_admin_cache(client, chat_id):
     try:
         admins = await client(GetParticipantsRequest(
@@ -2098,48 +2091,6 @@ async def update_admin_cache(client, chat_id):
         print(f"Error updating admin cache for {chat_id}: {e}")
         return set()
 
-# ==========================================
-# SMART REPLY ENGINE
-# ==========================================
-async def fetch_optimized_smart_reply(user_text):
-    reply_text = None
-    user_text_clean = user_text.strip().lower()
-    try:
-        exact_doc = await reply_save_col.find_one({"trigger": user_text_clean})
-        if exact_doc and exact_doc.get("responses") and isinstance(exact_doc["responses"], list):
-            valid_choices = [c for c in exact_doc["responses"] if not ('@' in str(c) or 't.me/' in str(c))]
-            if valid_choices:
-                return random.choice(valid_choices)
-    except Exception as e:
-        print(f"Exact Match DB Error: {e}")
-    match_pipeline = [
-        {"$match": {
-            "$and": [
-                {"$ifNull": ["$trigger", False]},
-                {"$gte": [{"$strLenCP": "$trigger"}, 2]},
-                {"$gte": [{"$indexOfCP": [user_text_clean, {"$toLower": "$trigger"}]}, 0]}
-            ]
-        }},
-        {"$addFields": {"weight": {"$strLenCP": "$trigger"}}},
-        {"$sort": {"weight": -1}},
-        {"$limit": 5}
-    ]
-    try:
-        cursor = reply_save_col.aggregate(match_pipeline)
-        matched_docs = await cursor.to_list(length=5)
-        if matched_docs:
-            valid_choices = []
-            max_weight = matched_docs[0]["weight"]
-            best_docs = [d for d in matched_docs if d["weight"] == max_weight]
-            for doc in best_docs:
-                if doc.get("responses") and isinstance(doc["responses"], list):
-                    choices = [c for c in doc["responses"] if not ('@' in str(c) or 't.me/' in str(c))]
-                    valid_choices.extend(choices)
-            if valid_choices:
-                reply_text = random.choice(valid_choices)
-    except Exception as e:
-        print(f"Smart Reply DB Error: {e}")
-    return reply_text
 
 # ==========================================
 # EVENT HANDLERS (start, help, etc.)
@@ -2497,10 +2448,6 @@ async def bot1_auto_calculator_handler(event):
 async def today_command(event):
     await send_today_page(event, 0)  # page 0 = first page (20 per page)
 
-@bot2.on(events.NewMessage)
-async def bot2_auto_calculator_handler(event):
-    await _run_auto_calculator(event)
-
 # ---- INFO / ID — shared target resolution + a richer profile card for both ----
 async def resolve_info_target(event):
     """Figures out who /info or /id should describe: the replied-to user, an @username or
@@ -2667,44 +2614,6 @@ async def welcome_goodbye(event):
     except Exception as e:
         await report_system_error("Welcome Goodbye Event", e)
 
-
-# ---- AUTO RESPONDER ----
-# ⚡ PERFORMANCE: this used to run ans_col.find() — a full, unindexed collection scan — on
-# EVERY single non-command message, in every group, unconditionally. That's the hottest
-# possible path (every message, all the time), and bot1 + bot2 share one asyncio event loop
-# in this process, so a slow query here stalls bot1's own message handling too — this is very
-# likely a direct cause of "bot1 gets heavy as more people use it". chatbot_answers is admin-
-# managed (no in-bot write path touches it), so it changes rarely; cache it in memory instead
-# of round-tripping to Mongo on every message.
-_ans_cache = {"data": None, "expiry": 0}
-ANS_CACHE_TTL = 300  # seconds
-
-async def get_cached_auto_replies():
-    now = time.time()
-    if _ans_cache["data"] is not None and now < _ans_cache["expiry"]:
-        return _ans_cache["data"]
-    docs = await ans_col.find().to_list(length=None)
-    _ans_cache["data"] = docs
-    _ans_cache["expiry"] = now + ANS_CACHE_TTL
-    return docs
-
-@bot2.on(events.NewMessage(incoming=True))
-async def chatbot_auto_responder(event):
-    if event.sender_id:
-        sender = await event.get_sender()
-        if sender and not sender.bot:
-            track_user_metrics(event.sender_id, getattr(sender, 'username', None), getattr(sender, 'first_name', None))
-    if event.is_private or not event.text or event.text.startswith(('/', '.', 'Hey there','@')): return
-    user_text = event.text.lower()
-    docs = await get_cached_auto_replies()
-    for doc in docs:
-        keyphrase = doc.get("keyphrase")
-        if keyphrase and keyphrase in user_text:
-            responses = doc.get("responses", [])
-            if responses:
-                await event.reply(bq(random.choice(responses)), parse_mode='html')
-                break
-
 # ---- MAU STATS ----
 @bot1.on(events.NewMessage(pattern=own_pattern(r'^[/.]mau(?:@\w+)?$', 'bot1')))
 async def system_analytics_matrix(event):
@@ -2811,7 +2720,6 @@ def _build_character_channel_caption(char_doc, is_new=True):
     header = f('NEW CHARACTER ADDED') if is_new else f('CHARACTER')
     caption = (
         f"🆕 <b>{header}</b>\n"
-        f"━━━━━━━━━━━━━━━━━━━━\n"
         f"🆔 <b>{f('ID')}:</b> <code>{escape_html(str(char_doc.get('char_id', '?')))}</code>\n"
         f"👤 <b>{f('Name')}:</b> <code>{escape_html(str(char_doc.get('name', '?')))}</code>\n"
         f"📂 <b>{f('Category')}:</b> <code>{escape_html(str(char_doc.get('category', '?')))}</code>\n"
@@ -2960,7 +2868,7 @@ async def add_character(event):
                 raise RuntimeError("media reference expired and the original message is no longer available")
             reply_msg = fresh_reply_msg
             forwarded_msg = await asyncio.wait_for(
-                send_safe_message(bot2, SPECIFIC_CONTROL_GROUP, "", file=reply_msg.media),
+                send_safe_message(bot1, SPECIFIC_CONTROL_GROUP, "", file=reply_msg.media),
                 timeout=ADDCHAR_UPLOAD_TIMEOUT
             )
         except asyncio.TimeoutError:
@@ -3938,35 +3846,6 @@ async def change_bulk_rarity_handler(event):
     summary.append(f"🎒 <b>Players updated:</b> <code>{harem_users_updated}</code> | 🃏 <b>Harem cards renamed:</b> <code>{harem_items_updated}</code>")
     await status_msg.edit("\n".join(summary), parse_mode='html')
 
-# ---- /changeusd: owner sets the MMK-per-USD display rate (e.g. /changeusd 4000 means
-# 4,000 MMK is shown as $1.00). Purely a display conversion — MMK stays the real currency. ----
-@bot1.on(events.NewMessage(pattern=own_pattern(r'^[/.]changeusd(?:@\w+)?(?:\s+(\S+))?$', 'bot1')))
-async def change_usd_rate_handler(event):
-    if event.sender_id != OWNER_ID: return
-    global _cached_usd_rate
-    arg = event.pattern_match.group(1)
-    if not arg:
-        return await event.reply(
-            f"💵 <b>Current rate:</b> <code>{_cached_usd_rate:,.2f}</code> MMK = <code>$1.00</code>\n"
-            f"Usage: <code>/changeusd &lt;MMK per 1 USD&gt;</code>\n"
-            f"Example: <code>/changeusd 4000</code> → 8,000 MMK shows as ≈$2.00",
-            parse_mode='html'
-        )
-    try:
-        rate = float(arg)
-        if rate <= 0:
-            raise ValueError
-    except ValueError:
-        return await event.reply("❌ <b>That's not a valid positive number.</b>", parse_mode='html')
-    await bot_settings_col.update_one({"_id": "usd_rate"}, {"$set": {"mmk_per_usd": rate}}, upsert=True)
-    _cached_usd_rate = rate
-    await event.reply(
-        f"✅ <b>USD rate updated!</b>\n"
-        f"💵 <code>{rate:,.2f}</code> MMK = <code>$1.00</code>\n"
-        f"📊 <b>Example:</b> <code>8,000 MMK</code> now shows as ≈<code>{format_usd(8000)}</code>",
-        parse_mode='html'
-    )
-
 # ---- /spawnweight: owner sets a GLOBAL level that boosts Rarity 1-4 spawn frequency (the
 # same quiz-gated bracket) relative to its own defaults. Applies bot-wide no matter which
 # chat the owner types it in — it's one shared setting, not a per-group one. ----
@@ -4019,25 +3898,6 @@ async def rarity_spawn_weight_handler(event):
         parse_mode='html'
     )
 
-# ---- ADM ----
-@bot1.on(events.NewMessage(pattern=own_pattern(r'^[/.]adm(?:@\w+)?(?:\s+(.*))?', 'bot1')))
-async def tag_admins(event):
-    if event.is_private: return
-    if not await check_admin(event.chat_id, event.sender_id): return
-    text = event.pattern_match.group(1) or "Admins, you're needed!"
-    try:
-        admins = await bot1.get_participants(event.chat_id, filter=ChannelParticipantsAdmins)
-        admin_mentions = []
-        for a in admins:
-            if a.bot or getattr(a, 'deleted', False): continue
-            full_name = f"{a.first_name or ''} {a.last_name or ''}".strip() or "Admin"
-            mention = f"<a href='tg://user?id={a.id}'><b>{escape_html(full_name)}</b></a>"
-            admin_mentions.append(mention)
-        compact_admin_list = "  •  ".join(admin_mentions)
-        await event.respond(bq(f"<b>{escape_html(text)}</b>\n\n<b>Admins, please pay attention!</b>\n{compact_admin_list}"), parse_mode='html')
-    except Exception as e:
-        print(f"Admin Tag System Error: {e}")
-
 # ---- BROADCAST ----
 @bot1.on(events.NewMessage(pattern=own_pattern(r'^[/.]send(?:@\w+)?(?:\s+(.*))?', 'bot1')))
 async def broadcast(event):
@@ -4066,10 +3926,7 @@ async def broadcast(event):
     await status_msg.edit(bq(f"<b>BROADCAST COMPLETE</b>\n✅ <b>Success:</b> <code>{success}</code>\n❌ <b>Failed:</b> None"), parse_mode='html')
               
 
-
-
-# ---- FORCE SPAWN ----
-@bot1.on(events.NewMessage(pattern=own_pattern(r'^[/.](fspawn|haii)(?:@\w+)?$', 'bot1')))
+@bot1.(events.NewMessage(pattern=own_pattern(r'^[/.](fspawn|haii)(?:@\w+)?$', 'bot1')))
 async def force_spawn_by_owner(event):
     if event.sender_id != OWNER_ID: return
     await trigger_dynamic_spawn(event.chat_id)
@@ -4195,14 +4052,13 @@ async def release_spawn(chat_id, chosen_char):
         # Spelled out step-by-step on purpose — players were missing that /who has to be a
         # REPLY to this exact message, and that there's a second /collect step after that.
         spawn_text = (
-            f"{rarity_emoji}A character has appeared in this Group Chat tho..\n\n"
-            f"Event: {event_display}\n"
-            f"Artist: {artist_display}\n"
-            f"Reply\n\n"
-            f"<code>/w , /waifu or /who</code>\n\n"
-            f" to this message to Collect it.🎒\n\n"
-            f"<code>/collect &lt;name&gt;</code>\n\n"
-            f"Don't be slow 🐛"
+            f"{rarity_emoji} 𝘼 𝘾𝙝𝙖𝙧𝙖𝙘𝙩𝙚𝙧 𝙝𝙖𝙨 𝙖𝙥𝙥𝙚𝙖𝙧𝙚𝙙\n"
+            f"𝙞𝙣 𝙩𝙝𝙞𝙨 𝙂𝙧𝙤𝙪𝙥 𝘾𝙝𝙖𝙩 𝙩𝙝𝙤..\n"
+            f"Event:{event_display}\n"
+            f"Artist:{artist_display}\n"
+            f"Reply /w , /waifu or /who\n"
+            f"to this message to /collect [name] it.🎒\n"
+            f"Don't be slow,btw 🐛"
         )
         spawn_msg = await bot1.send_message(
             chat_id,
@@ -4268,8 +4124,8 @@ async def start_rarity_gate_quiz(chat_id, chosen_char):
             f"<b>Rarity:</b> {rarity_display}\n\n"
             f"<b>Nobody gets through unless someone proves themselves.</b>\n"
             f"❓ <b>{escape_html(q['question'])}</b>\n\n"
-            f"⏳ <b>{RARITY_GATE_TIMEOUT_SECONDS} seconds</b> — first correct tap unlocks the spawn!\n"
-            f"⚠️ <i>မှားဖြေမိရင် အခွင့်အရေး ထပ်မရနိုင်ပါ.🐸</i>"
+            f"⏱ <b>{RARITY_GATE_TIMEOUT_SECONDS} seconds</b> — first correct tap unlocks the spawn!\n"
+            f"🧨 <i>မှားဖြေမိရင် အခွင့်အရေး ထပ်မရနိုင်ပါ.</i>"
         )
         buttons = [[Button.inline(f"{chr(65 + i)}. {opt}", data=f"rgate_{chat_id}_{i}")] for i, opt in enumerate(shuffled_options)]
 
@@ -4321,8 +4177,8 @@ async def rarity_gate_answer_callback(event):
     try:
         await event.edit(
             f"🐇 <b> အဖြေမှန် နှိပ်ခဲ့သူ - {mention}!</b>\n"
-            f"✅ <b>Correct answer:</b> {escape_html(quiz['options'][quiz['correct_index']])}\n\n"
-            f"🫧 <i>Bringing them through now...</i>",
+            f"✔ <b>Correct answer:</b> {escape_html(quiz['options'][quiz['correct_index']])}\n\n"
+            f"🎒 <i>Bringing them through now...</i>",
             parse_mode='html',
             buttons=None
         )
@@ -4462,19 +4318,6 @@ async def list_quiz_handler(event):
         parse_mode='html'
     )
 
-@bot1.on(events.NewMessage(pattern=own_pattern(r'^[/.]delquiz(?:@\w+)?(?:\s+(\d+))?$', 'bot1')))
-async def del_quiz_handler(event):
-    if event.sender_id != OWNER_ID: return
-    idx_arg = event.pattern_match.group(1)
-    if not idx_arg:
-        return await event.reply("❌ <b>Usage:</b> <code>/delquiz &lt;number&gt;</code> — see /listquiz for numbers.", parse_mode='html')
-    custom = await rarity_quiz_bank_col.find({}).to_list(length=None)
-    idx = int(idx_arg) - 1
-    if idx < 0 or idx >= len(custom):
-        return await event.reply("❌ <b>No quiz with that number.</b> Check /listquiz.", parse_mode='html')
-    await rarity_quiz_bank_col.delete_one({"_id": custom[idx]["_id"]})
-    await event.reply(f"🗑️ <b>Deleted:</b> {escape_html(custom[idx]['question'][:60])}", parse_mode='html')
-
 # ==========================================
 # 🔎 IDENTIFY VIA /who ON A SAVED/REPOSTED PHOTO OR VIDEO — if a character's original media
 # (added through /addchar) was saved to someone's gallery and later sent back — as a photo/
@@ -4551,7 +4394,7 @@ async def who_reveal_handler(event):
     # Check if user is spam-muted in this specific group
     mute_key = (user_id, chat_id)
     if mute_key in user_mute_until and time.time() < user_mute_until[mute_key]:
-        return await event.reply("You're currently muted from using /who in this group. Please wait a few minutes.")
+        return await event.reply("You're currently muted to Collecting in this group. Please wait a few minutes.")
 
     # ---- Path A: replying to the CURRENT live spawn message in this group — original,
     # unchanged flow (expiry/claimed guards, catch button, etc.) ----
@@ -4567,7 +4410,7 @@ async def who_reveal_handler(event):
             try:
                 char_name = spawn_data['name']
                 reveal_text = (
-                    f"It's a <b>{escape_html(char_name)}</b>!\n\n"
+                    f"Character name(s) is <b>{escape_html(char_name)}</b>!\n\n"
                     f"ဒါကို ကော်ပီကူးလိုက်🐛\n\n"
                     f"<code>/collect {escape_html(char_name)}</code>\n\n"
                     f"to catch it."
@@ -4710,7 +4553,7 @@ async def perform_catch(chat_id, user_id, spawn_data, event, reply_to_msg=None, 
         success_msg = (
             f"<b>{mention}</b> caught <b>{escape_html(character_name)}</b>{' (' + event_display + ')' if event_display else ''}!\n\n"
             f"{rarity_emoji} <b>Rarity:</b> {spawn_data['rarity']}\n"
-            f"🔖 <b>Character ID:</b> <code>{display_char_id(spawn_data['char_id'])}</code>\n"
+            f"🐝 <b>Character ID:</b> <code>{display_char_id(spawn_data['char_id'])}</code>\n"
             f"{artist_line(spawn_data.get('artist'))}"
             f"💰 <b>Bonus:</b> +{format_mmk_usd(spawn_data['value'])}\n"
             f"📈 <b>Stock demand:</b> +{stock_bump_pct * 100:.1f}% (<code>/stock {display_char_id(spawn_data['char_id'])}</code>)\n\n"
@@ -4721,8 +4564,8 @@ async def perform_catch(chat_id, user_id, spawn_data, event, reply_to_msg=None, 
             success_msg += guild_levelup_msg
         success_msg += format_achievement_unlocks(newly_earned)
         success_buttons = [[
-            Button.switch_inline("🐇 My Vault", query=f"harem.{user_id}", same_peer=True),
-            Button.inline("🦋 My Profile", data=f"catchprofile_{user_id}")
+            Button.switch_inline("🐇This User's harem", query=f"harem.{user_id}", same_peer=True),
+            Button.inline("🦋Profile", data=f"catchprofile_{user_id}")
         ]]
         if chat_id in active_group_spawns: del active_group_spawns[chat_id]
         if chat_id in spawn_locks: del spawn_locks[chat_id]
@@ -4766,7 +4609,7 @@ CATCH_USAGE_TEXT = (
 # ✅ /catch and .catch have been renamed to /collect and .collect — both old and new
 # still work here (old habits / old inline buttons already sent won't suddenly break),
 # but every hint, button, and usage message now shows /collect going forward.
-@bot1.on(events.NewMessage(pattern=own_pattern(r'^[/.](?:catch|collect)(?:@\w+)?\s+(.*)$', 'bot1')))
+@bot1.on(events.NewMessage(pattern=own_pattern(r'^[/.](?:morgan|collect)(?:@\w+)?\s+(.*)$', 'bot1')))
 async def catch_handler(event):
     if event.is_private: return
     user_id = event.sender_id
@@ -4781,115 +4624,14 @@ async def catch_handler(event):
         return await event.reply(CATCH_USAGE_TEXT, parse_mode='html')
 
     # ==========================================
-    # 🎁 CHECK HAIDO EVENT FIRST
-    # ==========================================
-    if chat_id in active_haido_events:
-        haido_data = active_haido_events[chat_id]
-        
-        # Check if already claimed
-        if haido_data["claimed"]:
-            return await event.reply("❌ <b>Notice:</b> ဒီ Haido ကတ်ကို ရသွားပြီး!", parse_mode='html')
-        
-        # Check if name matches
-        if normalize_name(catch_name) == normalize_name(haido_data["char_name"]):
-            # Check if time is still valid
-            if time.time() - haido_data["spawn_time"] > HAIDO_TIMEOUT_SECONDS:
-                # Expired - clean up
-                if chat_id in active_haido_events:
-                    del active_haido_events[chat_id]
-                return await event.reply("⏰ <b>Notice:</b> အချိန်ကုန်သွားပါပြီ!", parse_mode='html')
-            
-            # ✅ Claim the Haido card!
-            haido_data["claimed"] = True
-            haido_data["claimed_by"] = user_id
-            
-            mention = await get_html_mention(event, user_id)
-            plain_name = await get_plain_name(event, user_id)
-            await ensure_user_registered(user_id, plain_name)
-            
-            # Add to user's harem
-            await users_catcher_col.update_one(
-                {"user_id": user_id},
-                {
-                    "$push": {
-                        "harem": {
-                            "char_id": haido_data["char_id"],
-                            "caught_date": time.time(),
-                            "rarity": haido_data["rarity"],
-                            "status": "vault"
-                        }
-                    },
-                    "$inc": {
-                        "total_caught": 1,
-                        "wallet_balance": 1000,  # Bonus for Haido
-                        f"group_catches.{str(chat_id)}": 1
-                    },
-                    "$set": {"fullname": plain_name, "last_catch_date": datetime.now(TZ)}
-                },
-                upsert=True
-            )
-            
-            # Increment spawn count
-            await characters_base_col.update_one(
-                {"char_id": haido_data["char_id"]},
-                {"$inc": {"spawn_count": 1}}
-            )
-            
-            # Record in history
-            try:
-                await haido_history_col.insert_one({
-                    "chat_id": chat_id,
-                    "char_id": haido_data["char_id"],
-                    "char_name": haido_data["char_name"],
-                    "rarity": haido_data["rarity"],
-                    "rarity_tier": haido_data["rarity_tier"],
-                    "claimed_by": user_id,
-                    "claimed": True,
-                    "claimed_name": mention,
-                    "timestamp": time.time()
-                })
-            except Exception as e:
-                print(f"Haido history insert error: {e}")
-            
-            # Send success message
-            rarity_emoji = RARITY_EMOJI.get(haido_data["rarity_tier"], RARITY_DEFAULT_EMOJI)
-            success_msg = f"""
-🎉 <b>HAIDO GIVEAWAY WINNER!</b> 🎉
-
-{rarity_emoji} <b>Rarity:</b> {haido_data['rarity']}
-🧑 <b>Winner:</b> {mention}
-<b>Buddy:</b> <b>{escape_html(haido_data['char_name'])}</b>
-🔖 <b>Character ID:</b> <code>{display_char_id(haido_data['char_id'])}</code>
-{artist_line(haido_data.get('artist'))}💰 <b>Bonus:</b> <code>+1000 MMK</code>
-
-<blockquote>🎊 ဂုဏ်ပြုပါတယ်! မင်းက Rarity အမြင့်ဆုံးကတ်ကို ရသွားပြီ!</blockquote>
-
-<i>Check your collection with /harem!</i>
-"""
-            
-            await event.reply(success_msg, parse_mode='html')
-            
-            # Clean up
-            del active_haido_events[chat_id]
-            return
-        
-        else:
-            # Name doesn't match Haido card
-            return await event.reply(
-                f"❌ <b>Notice:</b> ဒီနာမည်က မှားနေတယ်!\n"
-                f"💡 <code>/collect {haido_data['char_name']}</code> ကို ရိုက်ပါ!",
-                parse_mode='html'
-            )
-
-    # ==========================================
     # 🛸 NORMAL SPAWN CATCH LOGIC
     # ==========================================
     if chat_id not in active_group_spawns:
-        return await event.reply(f"🛸 <b>Nothing to catch here!</b>", parse_mode='html')
+        return await event.reply(f"🛸 <b>Nothing to collect here!</b>", parse_mode='html')
     
     spawn_data = active_group_spawns[chat_id]
     if spawn_data["claimed"]:
-        return await event.reply(f"❌ <b>Already caught!</b>", parse_mode='html')
+        return await event.reply(f"❌ <b>Already collected!</b>", parse_mode='html')
     
     if time.time() - spawn_data["spawn_time"] > 300:
         if chat_id in active_group_spawns: 
@@ -4940,13 +4682,13 @@ async def catch_handler(event):
     # 🐛→🦋 catching animation: one message, edited in place frame-by-frame — no extra
     # replies sent, and perform_catch() below edits this same message into the final result
     # (instead of deleting it and sending a new one).
-    temp_msg = await event.reply("🐛")
-    await asyncio.sleep(1.25)
+    temp_msg = await event.reply("🧑‍💻")
+    await asyncio.sleep(1.8)
     try:
-        await temp_msg.edit("🦋")
+        await temp_msg.edit("🧳")
     except errors.MessageNotModifiedError:
         pass
-    await asyncio.sleep(1.25)
+    await asyncio.sleep(1.8)
     await perform_catch(chat_id, user_id, spawn_data, event, reply_to_msg=event.id, is_callback=False, temp_msg_id=temp_msg.id)
 # ---- /refillcatch: recompute spawn_count from what's ACTUALLY in players' vaults ----
 @bot1.on(events.NewMessage(pattern=own_pattern(r'^[/.]refillcatch(?:@\w+)?(?:\s+([a-zA-Z0-9_]+))?$', 'bot1')))
@@ -5465,7 +5207,7 @@ async def send_paginated_harem(client, chat_id, user_id, page=1, edit_msg_id=Non
         fullname = f"{first} {last}".strip() or getattr(sender_ent, 'username', '') or "Hunter"
     except: fullname = "Hunter"
     mention = f"<a href='tg://user?id={user_id}'><b>{escape_html(fullname)}</b></a>"
-    vault_label = "👑 UNLIMITED VAULT" if is_unlimited_vault else ("🎒 YOUR VAULT" if is_own_vault else "🎒 VAULT COLLECTION")
+    vault_label = "👑 Owner's Collection" if is_unlimited_vault else ("🎒 YOUR Collection" if is_own_vault else "🎒 VAULT COLLECTION")
     output_text = f"{mention}'s <b>{vault_label}</b>\n"
     if rarity_filter:
         output_text += f"🔍 <b>Filter:</b> {rarity_filter}\n"
@@ -5474,7 +5216,7 @@ async def send_paginated_harem(client, chat_id, user_id, page=1, edit_msg_id=Non
         output_text += l + "\n"
     output_text += "\n"
     if is_unlimited_vault:
-        output_text += f"<blockquote>👑 Every character ever added is always available here to gift — this never runs out. Your actual /collect catches are tracked separately, see the button below.</blockquote>"
+        output_text += f"<blockquote>👑Userများကို ကဒ်ဂေ့ရန်အတွက်ပါနော်​ဗျ</blockquote>"
     if rarity_filter:
         output_text += f"\n<i>🔍 Filter active — use /hmode to change or clear.</i>"
     buttons = []
@@ -5498,8 +5240,8 @@ async def send_paginated_harem(client, chat_id, user_id, page=1, edit_msg_id=Non
         buttons.append(nav_buttons)
     if is_own_vault:
         if rarity_filter:
-            buttons.append([Button.inline("🔓 Clear Filter", data=f"hfilter_clear_{user_id}")])
-        buttons.append([Button.inline("🦖 Change Rarity Filter", data="nav_hmode")])
+            buttons.append([Button.inline("Filterမထားဘူး", data=f"hfilter_clear_{user_id}")])
+        buttons.append([Button.inline("Rarity Filterချိန်းမယ်", data="nav_hmode")])
     if not buttons:
         buttons = None
     fav_card_id = user_doc.get("fav_card")
@@ -5697,8 +5439,8 @@ async def handle_harem_inline_query(event, query_text, force_real_harem=False):
     # explicitly-set-but-empty next_offset outright with NextOffsetInvalidError — the field
     # needs to be OMITTED (None) to signal "no more results", not set to an empty value.
     next_offset = str(next_start) if next_start < len(db_chars) else None
-    filter_note = f"🎯 {classify_rarity(rarity_filter)} shown first" if rarity_filter else "🦢 All rarities"
-    mode_note = " · 👑 Unlimited Vault" if is_unlimited_vault else (" · 📥 Real catches" if force_real_harem else "")
+    filter_note = f"🎯 {classify_rarity(rarity_filter)} shown first" if rarity_filter else "All rarities"
+    mode_note = " · 👑 Unlimited Vault" if is_unlimited_vault else (" · 📥 Real Collect" if force_real_harem else "")
     try:
         await event.answer(
             results, cache_time=0,
@@ -5776,7 +5518,7 @@ async def handle_dex_inline_query(event, query_text):
 # to chats before the /catch → /collect rename still work — but always emits the new
 # "/collect <name>" text going forward. ----
 async def handle_collect_inline_query(event, query_text):
-    prefix = "/collect " if query_text.startswith("/collect ") else "/catch "
+    prefix = "/collect " if query_text.startswith("/collect ") else "/fucck "
     char_name = query_text[len(prefix):].strip()
     if not char_name:
         return await event.answer([], cache_time=0)
