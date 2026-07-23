@@ -3898,8 +3898,7 @@ async def rarity_spawn_weight_handler(event):
         parse_mode='html'
     )
 
-# ---- BROADCAST ----
-@bot1.on(events.NewMessage(pattern=own_pattern(r'^[/.]send(?:@\w+)?(?:\s+(.*))?', 'bot1')))
+@bot1.on(events.NewMessage(pattern=own_pattern(r'^[/.]send(?:@\w+)?(?:\s+(.*))?$', 'bot1')))
 async def broadcast(event):
     if event.sender_id != OWNER_ID: return
     reply_msg = await event.get_reply_message()
@@ -3924,8 +3923,8 @@ async def broadcast(event):
             except: fail += 1
         except Exception: fail += 1
     await status_msg.edit(bq(f"<b>BROADCAST COMPLETE</b>\n✅ <b>Success:</b> <code>{success}</code>\n❌ <b>Failed:</b> None"), parse_mode='html')
-              
-@bot1.(events.NewMessage(pattern=own_pattern(r'^[/.](fspawn|haii)(?:@\w+)?', 'bot1')))
+
+@bot1.on(events.NewMessage(pattern=own_pattern(r'^[/.](fspawn|haii)(?:@\w+)?$', 'bot1')))
 async def force_spawn_by_owner(event):
     if event.sender_id != OWNER_ID: return
     await trigger_dynamic_spawn(event.chat_id)
