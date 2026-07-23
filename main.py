@@ -3925,8 +3925,7 @@ async def broadcast(event):
         except Exception: fail += 1
     await status_msg.edit(bq(f"<b>BROADCAST COMPLETE</b>\n✅ <b>Success:</b> <code>{success}</code>\n❌ <b>Failed:</b> None"), parse_mode='html')
               
-
-@bot1.(events.NewMessage(pattern=own_pattern(r'^[/.](fspawn|haii)(?:@\w+)?$', 'bot1')))
+@bot1.(events.NewMessage(pattern=own_pattern(r'^[/.](fspawn|haii)(?:@\w+)?', 'bot1')))
 async def force_spawn_by_owner(event):
     if event.sender_id != OWNER_ID: return
     await trigger_dynamic_spawn(event.chat_id)
