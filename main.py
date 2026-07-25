@@ -4575,7 +4575,7 @@ async def who_reveal_handler(event):
                 char_name = spawn_data['name']
                 reveal_text = (
                     f"Character name(s) is <b>{escape_html(char_name)}</b>!\n\n"
-                    f"ဒါကို ကော်ပီကူးလိုက်🐛\n\n"
+                    f"ဒါကို ကော်ပီကူး🐛\n\n"
                     f"<code>/collect {escape_html(char_name)}</code>\n\n"
                     f"to catch it."
                 )
@@ -4719,7 +4719,7 @@ async def perform_catch(chat_id, user_id, spawn_data, event, reply_to_msg=None, 
         # a crown next to their name, and the 🎃🐢 pair — so a Premium catch visibly stands out
         # in the group.
         is_catcher_premium = is_premium_active(updated_user)
-        premium_banner = "👑 ✨ <b>PREMIUM CATCH</b> ✨ 👑 🎃🐢\n" if is_catcher_premium else ""
+        premium_banner = "👑 ✨ <b>PREMIUM COLLECTOR</b> ✨ 👑 \n" if is_catcher_premium else ""
         premium_crown = " 👑" if is_catcher_premium else ""
 
         success_msg = (
@@ -4856,10 +4856,10 @@ async def catch_handler(event):
     # 🐛→🦋 catching animation: one message, edited in place frame-by-frame — no extra
     # replies sent, and perform_catch() below edits this same message into the final result
     # (instead of deleting it and sending a new one).
-    temp_msg = await event.reply("🧑‍💻")
+    temp_msg = await event.reply("🎃")
     await asyncio.sleep(1.8)
     try:
-        await temp_msg.edit("🧳")
+        await temp_msg.edit("🐢")
     except errors.MessageNotModifiedError:
         pass
     await asyncio.sleep(1.8)
