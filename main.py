@@ -501,7 +501,7 @@ RARITY_EMOJI = {
     "GOLD": "🌕", "RARE": "🫐", "COMMON": "📦", "UNCOMMON": "🌱"
 }
 RARITY_DEFAULT_EMOJI = "❓"  # fallback shown only when a tier truly can't be classified
-
+MMK_PER_USD = 4000  # 1 USD = 4000 MMK (fixed peg)
 def _build_fancy_font_reverse_map():
     mapping = {}
     for cp in range(0x1D400, 0x1D800):
@@ -1570,7 +1570,7 @@ MMK_PER_USD = 4000  # the fixed peg: 1 USD = 4000 MMK (old currency, no longer d
 _RARITY_VALUE_MAP = {
     # 🩹 FIX: GOLD was mistakenly set to 100 (way out of line with its neighbors) — now 10000.
     # 💵 values are old-MMK-worth / MMK_PER_USD — see USD ECONOMY note above.
-    "ULTRA": 100000 / MMK_PER_USD, "LEGEND": 75000 / MMK_PER_USD, "MYTHIC": 50000 / MMK_PER_USD,
+    "ULTRA": 10000 / MMK_PER_USD, "LEGEND": 75000 / MMK_PER_USD, "MYTHIC": 50000 / MMK_PER_USD,
     "EPIC": 30000 / MMK_PER_USD, "INCREDIBLE": 15000 / MMK_PER_USD,
     "GOLD": 10000 / MMK_PER_USD, "RARE": 7000 / MMK_PER_USD, "UNCOMMON": 4000 / MMK_PER_USD, "COMMON": 2000 / MMK_PER_USD
 }
@@ -1579,9 +1579,9 @@ _RARITY_VALUE_MAP = {
 # always a leading substring of its flavor name here (e.g. "MYTHICALPEACOCK" still contains
 # "MYTHIC"), so this is safe to change freely without touching classification/sorting/weights.
 RARITY_DISPLAY_NAME = {
-    "ULTRA": "ULTRASTAR", "LEGEND": "LEGENDSUN", "MYTHIC": "MYTHICALPEACOCK",
-    "EPIC": "EPICTHUNDER", "INCREDIBLE": "INCREDIBLEPHOENIX", "GOLD": "GOLDENMOON",
-    "RARE": "RAREBLUEBERRY", "UNCOMMON": "UNCOMMON", "COMMON": "COMMON"
+    "ULTRA": "ULTRA", "LEGEND": "LEGEND", "MYTHIC": "MYTHICAL",
+    "EPIC": "EPIC", "INCREDIBLE": "INCREDIBLE", "GOLD": "GOLDENMOON",
+    "RARE": "BLUEBERRY", "UNCOMMON": "UNCOMMON", "COMMON": "COMMON"
 }
 RARITY_NUM_MAP = {
     str(i + 1): {
@@ -1646,8 +1646,8 @@ BTC_HISTORY_MAX = 24
 STAR_STARTING_PRICE = 1_000_000.0 / MMK_PER_USD   # USD per 1 ⭐ Star — the fixed rate, until /setstarrate changes it
 STAR_MIN_PRICE = 100000.0 / MMK_PER_USD  # safety floor for /setstarrate — guards against a fat-fingered near-zero rate
 STAR_HISTORY_MAX = 24
-QUIZ_STAR_REWARD_MIN = 0.2  # ⭐ reward range for correctly answering a Rarity 1-4 gate quiz
-QUIZ_STAR_REWARD_MAX = 1.0
+QUIZ_STAR_REWARD_MIN = 3  # ⭐ reward range for correctly answering a Rarity 1-4 gate quiz
+QUIZ_STAR_REWARD_MAX = 7
 
 # ==========================================
 # HELPER FUNCTIONS
@@ -1826,10 +1826,10 @@ async def global_slash_cmd_acc_opener(event):
 # that message. bot1/bot_ids/schedule_game_cleanup/_OWN_MENTION_RE/BOT1_USERNAME are all
 # already defined above this point, so nothing here is a forward reference.
 FORCE_SUB_CHAT_ID = int(os.environ.get("FORCE_SUB_CHAT_ID", "-1004295367428"))
-FORCE_SUB_REWARD_USD = 500000 / MMK_PER_USD
+FORCE_SUB_REWARD_USD = 500 / MMK_PER_USD
 FORCE_SUB_MEMBERSHIP_TTL = 120  # seconds a "yes/no member" answer is cached per user
-FORCE_SUB_PROMPT_COOLDOWN = 3000  # seconds — don't re-nag the same user more than once per 5 min
-FORCE_SUB_PROMPT_TTL = 10  # seconds — the join-nudge message deletes itself after this long
+FORCE_SUB_PROMPT_COOLDOWN = 30  # seconds — don't re-nag the same user more than once per 5 min
+FORCE_SUB_PROMPT_TTL = 30  # seconds — the join-nudge message deletes itself after this long
 
 # Exactly the commands an ordinary player uses to play — everything listed in get_game_text()/
 # get_casino_text()/get_collection_text(), plus catch/who/w/waifu/haido/trade/sell/buy/dex/
@@ -1947,7 +1947,7 @@ async def guard_bot_game_throttle(event):
     try:
         warn = await notifier.send_message(
             event.chat_id,
-            f"🛡️ <b>ခဏစောင့်ပါ!</b> Game တွေ မကြာခဏ မဆော့ပါနဲ့ — <code>{remaining}s</code> လောက် စောင့်ပြီးမှ ထပ်ကစားပါ။",
+            f" <b>ခဏစောင့်ပါ!</b> Game တွေ မကြာခဏ မဆော့ပါနဲ့ — <code>{remaining}s</code> လောက် စောင့်ပြီးမှ ထပ်ကစားပါ။",
             parse_mode='html'
         )
         schedule_game_cleanup(notifier, event.chat_id, warn, delay=5)
@@ -2710,13 +2710,11 @@ async def render_profile_card(event, target_id, target_user):
 
     caption = (
         f"🪪 <b>USER PROFILE</b>\n"
-        f"━━━━━━━━━━━━━━━━━━━━\n"
         f"👤 <b>Name:</b> {mention}\n"
         f"🔗 <b>Username:</b> {username}\n"
         f"🆔 <b>User ID:</b> <code>{target_id}</code>\n"
         f"💬 <b>Chat ID:</b> <code>{event.chat_id}</code>"
         f"{badge_line}\n"
-        f"━━━━━━━━━━━━━━━━━━━━\n"
         f"<i>💡 Tap any ID above to copy it instantly.</i>"
     )
     # Best-effort profile photo — falls back to plain text if the user has none or it can't be fetched.
@@ -3792,7 +3790,7 @@ async def add_artist_handler(event):
 # actual account to pay — this command is that missing link: it maps an artist NAME to a real
 # Telegram user_id, once, and every card already/later credited to that name benefits from it.
 # ==========================================
-GUARD_ARTIST_REWARD_MIN = 3  # ⭐
+GUARD_ARTIST_REWARD_MIN = 1  # ⭐
 GUARD_ARTIST_REWARD_MAX = 5  # ⭐
 
 @bot1.on(events.NewMessage(pattern=own_pattern(r'^[/.]linkartist(?:@\w+)?(?:\s+([\s\S]+))?$', 'bot1')))
@@ -4917,8 +4915,8 @@ async def _identify_media_and_reply(event, media_msg):
             f"🔖 <b>Character ID:</b> <code>{display_char_id(best_match['char_id'])}</code>\n"
             f"{rarity_emoji} <b>Rarity:</b> {best_match.get('rarity', '?')}\n"
             f"🎡 <b>Event:</b> {event_display}\n"
-            f"{artist_line(best_match)}\n"
-            f"<code>/collect {escape_html(best_match['name'])}</code>\n"
+            f"{artist_line(best_match)}\n\n"
+            f"<code>/collect {escape_html(best_match['name'])}</code>\n\n"
             f"<i>Only catchable if this one is actually live right now — this is just a lookup.</i>"
         )
         await event.reply(reveal_text, parse_mode='html')
@@ -5232,10 +5230,10 @@ async def catch_handler(event):
     # 🐛→🦋 catching animation: one message, edited in place frame-by-frame — no extra
     # replies sent, and perform_catch() below edits this same message into the final result
     # (instead of deleting it and sending a new one).
-    temp_msg = await event.reply("🎃")
-    await asyncio.sleep(1.8)
+    temp_msg = await event.reply("🌸")
+    await asyncio.sleep(1.4)
     try:
-        await temp_msg.edit("🐢")
+        await temp_msg.edit("🐝")
     except errors.MessageNotModifiedError:
         pass
     await asyncio.sleep(1.8)
