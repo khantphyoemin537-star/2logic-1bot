@@ -501,7 +501,7 @@ RARITY_EMOJI = {
     "GOLD": "🌕", "RARE": "🫐", "COMMON": "📦", "UNCOMMON": "🌱"
 }
 RARITY_DEFAULT_EMOJI = "❓"  # fallback shown only when a tier truly can't be classified
-
+MMK_PER_USD = 4000  # 1 USD = 4000 MMK (fixed peg)
 def _build_fancy_font_reverse_map():
     mapping = {}
     for cp in range(0x1D400, 0x1D800):
