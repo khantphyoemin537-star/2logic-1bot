@@ -667,7 +667,7 @@ def format_star_plain(star_amount):
 # relative to its own defaults below. Rarity 5-9 (the common tiers) are never touched by this —
 # only the quiz-gated bracket scales. "Global" means exactly that: one setting, shared by every
 # chat, regardless of which chat the owner happens to type the command in.
-DEFAULT_RARITY_WEIGHTS = dict(zip(RARITY_TIERS, [1, 2, 4, 7, 12, 20, 32, 50, 75]))
+DEFAULT_RARITY_WEIGHTS = dict(zip(RARITY_TIERS, [3, 3, 4, 7, 12, 20, 32, 50, 70]))
 # No.1 ULTRA=1 ... No.9 COMMON=75 — a ~75x gap between rarest and most common by default.
 # ✏️ To add more levels yourself later, just add another "level: multiplier" pair here — e.g.
 # {1: 1, 2: 3, 3: 5} adds a level 3 that's 5x default. Nothing else needs to change.
@@ -1571,7 +1571,7 @@ MMK_PER_USD = 4000  # the fixed peg: 1 USD = 4000 MMK (old currency, no longer d
 _RARITY_VALUE_MAP = {
     # 🩹 FIX: GOLD was mistakenly set to 100 (way out of line with its neighbors) — now 10000.
     # 💵 values are old-MMK-worth / MMK_PER_USD — see USD ECONOMY note above.
-    "ULTRA": 10000 / MMK_PER_USD, "LEGEND": 75000 / MMK_PER_USD, "MYTHIC": 50000 / MMK_PER_USD,
+    "ULTRA": 300000 / MMK_PER_USD, "LEGEND": 75000 / MMK_PER_USD, "MYTHIC": 50000 / MMK_PER_USD,
     "EPIC": 30000 / MMK_PER_USD, "INCREDIBLE": 15000 / MMK_PER_USD,
     "GOLD": 10000 / MMK_PER_USD, "RARE": 7000 / MMK_PER_USD, "UNCOMMON": 4000 / MMK_PER_USD, "COMMON": 2000 / MMK_PER_USD
 }
@@ -1582,7 +1582,7 @@ _RARITY_VALUE_MAP = {
 RARITY_DISPLAY_NAME = {
     "ULTRA": "ULTRA", "LEGEND": "LEGEND", "MYTHIC": "MYTHICAL",
     "EPIC": "EPIC", "INCREDIBLE": "INCREDIBLE", "GOLD": "GOLDENMOON",
-    "RARE": "BLUEBERRY", "UNCOMMON": "UNCOMMON", "COMMON": "COMMON"
+    "RARE": "RARE", "UNCOMMON": "UNCOMMON", "COMMON": "COMMON"
 }
 RARITY_NUM_MAP = {
     str(i + 1): {
@@ -1663,9 +1663,9 @@ QUIZ_STAR_REWARD_MAX = 7
 # call sites) because a sweep is one place to maintain and can never be missed by a future
 # new reward path; the tradeoff is a balance can sit above the cap for up to
 # WEALTH_CAP_SWEEP_SECONDS before being pulled back down, which is fine for a game economy.
-MAX_WALLET_USD = 100000       # hard ceiling on wallet_balance (USD) — tune freely
-MAX_STAR_BALANCE = 5000       # hard ceiling on star_balance (⭐) — tune freely
-WEALTH_CAP_SWEEP_SECONDS = 120  # how often the background sweep runs
+MAX_WALLET_USD = 1000000       # hard ceiling on wallet_balance (USD) — tune freely
+MAX_STAR_BALANCE = 50000       # hard ceiling on star_balance (⭐) — tune freely
+WEALTH_CAP_SWEEP_SECONDS = 5000  # how often the background sweep runs
 
 # ==========================================
 # HELPER FUNCTIONS
