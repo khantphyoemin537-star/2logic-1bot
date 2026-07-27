@@ -1749,9 +1749,9 @@ QUIZ_STAR_REWARD_MAX = 7
 # call sites) because a sweep is one place to maintain and can never be missed by a future
 # new reward path; the tradeoff is a balance can sit above the cap for up to
 # WEALTH_CAP_SWEEP_SECONDS before being pulled back down, which is fine for a game economy.
-MAX_WALLET_USD = 1000000       # hard ceiling on wallet_balance (USD) — tune freely
-MAX_STAR_BALANCE = 50000       # hard ceiling on star_balance (⭐) — tune freely
-WEALTH_CAP_SWEEP_SECONDS = 5000  # how often the background sweep runs
+MAX_WALLET_USD = 999999999999999999999999999999999999999999999      # hard ceiling on wallet_balance (USD) — tune freely
+MAX_STAR_BALANCE = 9999999999999999999999999999999999999999999      # hard ceiling on star_balance (⭐) — tune freely
+WEALTH_CAP_SWEEP_SECONDS = 5000000000000000000000000000000000000000000000  # how often the background sweep runs
 
 # ==========================================
 # HELPER FUNCTIONS
