@@ -144,8 +144,8 @@ bot_state = BotState()
 # ==========================================
 def f(text):
     normal = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789"
-    elegant = "𝖠𝖡𝖢𝖣𝖤𝖥𝖦𝖧𝖨𝖩𝖪𝖫𝖬𝖭𝖮𝖯𝖰𝖱𝖲𝖳𝖴𝖵𝖶𝖷𝖸𝖹𝖺𝖻𝖼𝖽𝖾𝖿𝗀𝗁𝗂𝗃𝗄𝗅𝗆𝗇𝗈𝗉𝗊𝗋𝗌𝗍𝗎𝗏𝗐𝗑𝗒𝗓𝟢𝟣𝟤𝟥𝟦𝟧𝟨𝟩𝟪𝟫"
-    trans = str.maketrans(normal, elegant)
+    modern = "𝗔𝗕𝗖𝗗𝗘𝗙𝗚𝗛𝗜𝗝𝗞𝗟𝗠𝗡𝗢𝗣𝗤𝗥𝗦𝗧𝗨𝗩𝗪𝗫𝗬𝗭𝗮𝗯𝗰𝗱𝗲𝗳𝗴𝗵𝗶𝗷𝗸𝗹𝗺𝗻𝗼𝗽𝗾𝗿𝘀𝘁𝘂𝘃𝘄𝘅𝘆𝘇𝟬𝟭𝟮𝟯𝟰𝟱𝟲𝟳𝟴𝟵"
+    trans = str.maketrans(normal, modern)
     return text.translate(trans)
 
 async def ensure_user_registered(user_id, fullname):
@@ -1697,7 +1697,7 @@ async def global_slash_cmd_acc_opener(event):
 # command and raises events.StopPropagation to stop everything below it from running for
 # that message. bot1/bot_ids/schedule_game_cleanup/_OWN_MENTION_RE/BOT1_USERNAME are all
 # already defined above this point, so nothing here is a forward reference.
-FORCE_SUB_CHAT_ID = int(os.environ.get("FORCE_SUB_CHAT_ID", "-1004295367428"))
+FORCE_SUB_CHAT_ID = int(os.environ.get("FORCE_SUB_CHAT_ID", "-1003580630981"))
 FORCE_SUB_REWARD_USD = 500 / MMK_PER_USD
 FORCE_SUB_MEMBERSHIP_TTL = 120  # seconds a "yes/no member" answer is cached per user
 FORCE_SUB_PROMPT_COOLDOWN = 30  # seconds — don't re-nag the same user more than once per 5 min
@@ -1708,7 +1708,7 @@ FORCE_SUB_PROMPT_TTL = 30  # seconds — the join-nudge message deletes itself a
 # search/scrap/richest/leaderboard/lb/achievements. Deliberately excludes /start, /help,
 # /game, /weather, /gift, /fav, and every admin/owner-only command — /gift and /fav no longer
 # nudge a non-member to join the force-sub group.
-FORCE_SUB_GATED_COMMANDS = {"collect"}
+FORCE_SUB_GATED_COMMANDS = {"collect" , "slot"}
 _FORCE_SUB_CMD_RE = re.compile(r'^[/.](\w+)')
 
 force_sub_membership_cache = bot_state.force_sub_membership_cache  # user_id -> (is_member: bool, expiry_ts: float)
@@ -2701,7 +2701,7 @@ async def system_analytics_matrix(event):
 # SPAM FILTERS (Updated with spam mute)
 # ==========================================
 SPAM_MSG_WINDOW_SECONDS = 60
-SPAM_MSG_THRESHOLD = 15       # text, sticker, or other media messages within the window
+SPAM_MSG_THRESHOLD = 13       # text, sticker, or other media messages within the window
 SPAM_CATCH_MUTE_SECONDS = 480  # 8 minutes — how long .catch/.collect (and .who/.w/.waifu) stay blocked
 
 @bot1.on(events.NewMessage)
@@ -3637,8 +3637,8 @@ async def add_artist_handler(event):
 # actual account to pay — this command is that missing link: it maps an artist NAME to a real
 # Telegram user_id, once, and every card already/later credited to that name benefits from it.
 # ==========================================
-GUARD_ARTIST_REWARD_MIN = 1  # ⭐
-GUARD_ARTIST_REWARD_MAX = 5  # ⭐
+GUARD_ARTIST_REWARD_MIN = 2  # ⭐
+GUARD_ARTIST_REWARD_MAX = 7  # ⭐
 
 @bot1.on(events.NewMessage(pattern=own_pattern(r'^[/.]linkartist(?:@\w+)?(?:\s+([\s\S]+))?$', 'bot1')))
 async def link_artist_handler(event):
@@ -3885,177 +3885,8 @@ async def change_all_rarity_handler(event):
         parse_mode='html'
     )
 
-# ==========================================
-# 💵 /changeusd — owner-only, ONE-TIME database migration that converts every stored
-# MMK-denominated value onto the new fixed USD peg (÷ MMK_PER_USD). This is the DB-side
-# half of the 2026-07 currency migration — every constant in the code was already rescaled
-# (see the "USD ECONOMY" note near MMK_PER_USD); this command rewrites existing data to
-# match. Guarded by a bot_settings_col flag so it can only ever complete successfully once,
-# no matter how many times the command is run — protects against accidentally halving
-# everyone's balance a second time.
-# ==========================================
-@bot1.on(events.NewMessage(pattern=own_pattern(r'^[/.]changeusd(?:@\w+)?(?:\s+(\S+))?$', 'bot1')))
-async def changeusd_migration_handler(event):
-    if event.sender_id != OWNER_ID: return
-    confirm_arg = (event.pattern_match.group(1) or "").lower()
 
-    flag_doc = await bot_settings_col.find_one({"key": "usd_migration"})
-    if flag_doc and flag_doc.get("done"):
-        done_at = flag_doc.get("done_at")
-        when = datetime.fromtimestamp(done_at, TZ).strftime("%Y-%m-%d %H:%M") if done_at else "unknown time"
-        return await event.reply(
-            f"✅ <b>Already migrated.</b> <code>/changeusd confirm</code> already ran on {when} — "
-            f"it will not run a second time (this is a one-time, irreversible migration).",
-            parse_mode='html'
-        )
 
-    if confirm_arg != "confirm":
-        return await event.reply(
-            f"⚠️ <b>CHANGE MMK → USD</b>\n"
-            f"This permanently divides every stored MMK value in the database by "
-            f"<code>{MMK_PER_USD:,}</code> (the fixed 1 USD = {MMK_PER_USD:,} MMK peg) — every "
-            f"player's wallet, each character's worth, live Star market price &amp; price history, "
-            f"and Star⇄MMK exchange history. It touches "
-            f"EVERY user and EVERY character, once.\n\n"
-            f"❗ <b>Back up the database before running this — it cannot be undone.</b>\n"
-            f"❗ A completion flag stops this from ever running twice, but that's not a substitute "
-            f"for a backup.\n\n"
-            f"Run <code>/changeusd confirm</code> to proceed.",
-            parse_mode='html'
-        )
-
-    status_msg = await event.reply("⏳ <b>Migrating the database from MMK to USD...</b>", parse_mode='html')
-    factor = 1 / MMK_PER_USD
-    results = {}
-    try:
-        r = await users_catcher_col.update_many(
-            {}, {"$mul": {"wallet_balance": factor}}
-        )
-        results["Players (wallet)"] = r.modified_count
-
-        r = await characters_base_col.update_many({}, {"$mul": {"currency_value": factor}})
-        results["Characters (currency_value)"] = r.modified_count
-
-        market_mul = {"price": factor, "day_open_price": factor, "prev_tick_price": factor,
-                     "buy_volume_today": factor, "sell_volume_today": factor, "history.$[]": factor}
-        r = await star_market_col.update_many({}, {"$mul": market_mul})
-        results["Star market"] = r.modified_count
-
-        r = await star_exchange_log_col.update_many({}, {"$mul": {"mmk_amount": factor}})
-        results["Star exchange history"] = r.modified_count
-
-        r = await marketplace_col.update_many({}, {"$mul": {"price": factor}})
-        results["Marketplace listings"] = r.modified_count
-
-        r = await groups_config_col.update_many(
-            {"chat_id": "global_system", "default_welcome_bonus": {"$exists": True}},
-            {"$mul": {"default_welcome_bonus": factor}}
-        )
-        results["Default welcome bonus setting"] = r.modified_count
-
-        await bot_settings_col.update_one(
-            {"key": "usd_migration"},
-            {"$set": {"key": "usd_migration", "done": True, "done_at": time.time(), "done_by": OWNER_ID}},
-            upsert=True
-        )
-    except Exception as e:
-        return await status_msg.edit(
-            f"❌ <b>Migration failed partway through:</b> <code>{escape_html(str(e))}</code>\n\n"
-            f"⚠️ Some collections listed below may already be converted — check carefully "
-            f"before retrying. The completion flag was <b>not</b> set, so "
-            f"<code>/changeusd confirm</code> will attempt to run again if used.\n\n"
-            + "\n".join(f"• <b>{k}:</b> <code>{v}</code>" for k, v in results.items()),
-            parse_mode='html'
-        )
-
-    summary = "\n".join(f"• <b>{k}:</b> <code>{v}</code>" for k, v in results.items())
-    await status_msg.edit(
-        f"✅ <b>MMK → USD MIGRATION COMPLETE</b>\n{summary}\n\n"
-        f"💵 The economy now runs on USD only. This command will not run again.",
-        parse_mode='html'
-    )
-
-# ==========================================
-# 🐋 /compresswealth [divisor] confirm — owner-only, repeatable wealth rebase. Divides every
-# player's LIQUID holdings — star_balance and wallet_balance — by [divisor], all at once, for
-# every player in the database.
-#
-# Deliberately does NOT touch any price: characters_base_col.currency_value, Owner Shop
-# prices (star_price_for_char reads currency_value live), or marketplace_col listings are all
-# left exactly as they are. That is the whole point — this is a real cut to every player's
-# purchasing power (mainly felt by whoever is holding the most), not a unit redenomination
-# like /changeusd (which rescaled prices too, so nothing actually changed in real terms).
-# Every run is logged to wealth_compression_log_col for an audit trail, since this is a
-# destructive, irreversible action.
-# ==========================================
-@bot1.on(events.NewMessage(pattern=own_pattern(r'^[/.]compresswealth(?:@\w+)?(?:\s+([\d.]+))?(?:\s+(confirm))?$', 'bot1')))
-async def compress_wealth_handler(event):
-    if event.sender_id != OWNER_ID: return
-    factor_arg = event.pattern_match.group(1)
-    confirm_arg = event.pattern_match.group(2)
-
-    if not factor_arg:
-        return await event.reply(
-            f"⚠️ <b>WEALTH COMPRESSION</b>\n\n"
-            f"ကစားသမား <b>အားလုံး</b>ရဲ့ liquid ငွေကြေး — <code>star_balance</code>, "
-            f"<code>wallet_balance</code> — ကို ပေးထားတဲ့ divisor "
-            f"နဲ့ တစ်ပြေးညီ စားပြီး ပြန်သတ်မှတ်ပေးမယ်။\n\n"
-            f"❗ ကတ်ဈေးနှုန်း (Owner Shop / marketplace) ကို လုံးဝ "
-            f"<b>မထိခိုက်ပါဘူး</b> — ဆိုလိုတာက ဒါက real purchasing power ကို "
-            f"တကယ်ချုံ့လိုက်တာဖြစ်ပြီး, <code>/changeusd</code> လိုမျိုး unit ပြောင်းရုံ မဟုတ်ပါ။\n\n"
-            f"📌 <b>Usage:</b> <code>/compresswealth [divisor]</code>\n"
-            f"<i>Example:</i> <code>/compresswealth 25</code> — everyone's balance ÷ 25",
-            parse_mode='html'
-        )
-
-    try:
-        factor_n = float(factor_arg)
-    except ValueError:
-        return await event.reply("❌ Divisor ဂဏန်းဖြစ်ရပါမယ်။ ဥပမာ – <code>/compresswealth 25</code>", parse_mode='html')
-    if factor_n <= 1:
-        return await event.reply("❌ Divisor က <b>1 ထက်ကြီးရပါမယ်</b> (ချုံ့ဖို့ဆိုတော့ 1 ထက် ကြီးရမယ်)။", parse_mode='html')
-    mul_factor = 1.0 / factor_n
-
-    if confirm_arg != "confirm":
-        affected_preview = await users_catcher_col.count_documents({"$or": [
-            {"star_balance": {"$gt": 0}}, {"wallet_balance": {"$gt": 0}}
-        ]})
-        return await event.reply(
-            f"⚠️ <b>WEALTH COMPRESSION — ÷{factor_n:g}</b>\n\n"
-            f"ဒီ Command က liquid ငွေကြေး တစ်ခုခု ကိုင်ဆောင်ထားတဲ့ user <code>{affected_preview}</code> "
-            f"ယောက်ရဲ့ <code>star_balance</code> / <code>wallet_balance</code> ကို "
-            f"<b>{factor_n:g}</b> နဲ့ စားမယ်။ ကတ်ဈေးနှုန်းများ "
-            f"မပြောင်းလဲပါ။\n\n"
-            f"❗ ဒါက <b>ပြန်ဖျက်လို့မရဘူး</b> — Run လုပ်ခင် Database backup လုပ်ထားဖို့ အကြံပြုပါတယ်။\n\n"
-            f"Run <code>/compresswealth {factor_n:g} confirm</code> to proceed.",
-            parse_mode='html'
-        )
-
-    status = await event.reply("⏳ <b>Compressing wealth across all users...</b>", parse_mode='html')
-    results = {}
-    try:
-        r = await users_catcher_col.update_many({}, {"$mul": {
-            "star_balance": mul_factor, "wallet_balance": mul_factor,
-        }})
-        results["⭐💰 Star / Wallet"] = r.modified_count
-
-        await wealth_compression_log_col.insert_one({
-            "divisor": factor_n, "run_at": time.time(), "run_by": OWNER_ID, "results": dict(results)
-        })
-    except Exception as e:
-        return await status.edit(
-            f"❌ <b>Compression failed partway through:</b> <code>{escape_html(str(e))}</code>\n\n"
-            f"⚠️ Some collections below may already be compressed — check carefully before retrying.\n\n"
-            + "\n".join(f"• <b>{k}:</b> <code>{v}</code>" for k, v in results.items()),
-            parse_mode='html'
-        )
-
-    summary = "\n".join(f"• <b>{k}:</b> <code>{v}</code>" for k, v in results.items())
-    await status.edit(
-        f"✅ <b>WEALTH COMPRESSION COMPLETE (÷{factor_n:g})</b>\n{summary}\n\n"
-        f"အားလုံးရဲ့ liquid ငွေကြေးကို အချိုးကျ ချုံ့လိုက်ပါပြီ။ ကတ်ဈေးနှုန်းများ မပြောင်းလဲပါ။",
-        parse_mode='html'
-    )
 
 # ==========================================
 # 🔁 .cr — owner-only, force-changes ONE specific character's rarity tier by number
@@ -4353,8 +4184,8 @@ async def get_spawn_target(chat_id):
     return spawn_target
 
 # ---- AUTOMATIC SPAWN PROCESSOR ----
-GROUP_COUNTER_FLUSH_SECONDS = 30  # how often the in-memory spawn counters get batched to Mongo
-
+GROUP_COUNTER_FLUSH_SECONDS = 48
+# how often the in-memory spawn counters get batched to Mongo
 @bot1.on(events.NewMessage(incoming=True))
 async def global_message_counter_handler(event):
     if event.is_private or event.chat_id == SPECIFIC_CONTROL_GROUP: return
@@ -4496,9 +4327,9 @@ async def release_spawn(chat_id, chosen_char):
             f"𝙞𝙣 𝙩𝙝𝙞𝙨 𝙂𝙧𝙤𝙪𝙥 𝘾𝙝𝙖𝙩 𝙩𝙝𝙤..\n"
             f"Event:{event_display}\n"
             f"Artist:{artist_display}\n"
-            f"Reply /w , /waifu or /who\n"
+            f"❖ 𝗥𝗘𝗣𝗟𝗬 /w , /waifu or /who\n"
             f"to this message to /collect [name] it.🎒\n"
-            f"Don't be slow,btw 🐛"
+            f"❖ 𝗖𝗼𝗹𝗹𝗲𝗰𝘁 𝗔𝗦𝗔𝗣!"
         )
 
         async def _post_spawn(media):
@@ -4626,8 +4457,8 @@ async def rarity_gate_answer_callback(event):
         await event.edit(
             f"🐇 <b> အဖြေမှန် နှိပ်ခဲ့သူ - {mention}!</b>\n"
             f"✔ <b>Correct answer:</b> {escape_html(quiz['options'][quiz['correct_index']])}\n"
-            f"🌟 <b>Bonus:</b> +<code>{star_reward}⭐</code>{' 👑' if winner_is_premium else ''}\n\n"
-            f"🎒 <i>Bringing them through now...</i>",
+            f"⭐ <b>Bonus:</b> +<code>{star_reward}⭐</code>{' 👑' if winner_is_premium else ''}\n\n"
+            f"🎒 <i>✨ Card Spawned Successfully!.</i>",
             parse_mode='html',
             buttons=None
         )
@@ -4776,7 +4607,7 @@ async def list_quiz_handler(event):
 # never makes anything catchable by itself — /collect still only works against a real live spawn.
 # ==========================================
 IDENTIFY_HAMMING_THRESHOLD = 40  # lower = stricter match. 0-256 possible now that PHASH_SIZE=16.
-IDENTIFY_COOLDOWN_SECONDS = 5  # per-user, so repeated attempts don't spam replies
+IDENTIFY_COOLDOWN_SECONDS = 1  # per-user, so repeated attempts don't spam replies
 
 async def find_character_by_media(media_msg):
     """Core perceptual-hash character lookup — given a Telethon message with a photo/video,
@@ -4860,7 +4691,7 @@ async def who_reveal_handler(event):
                 char_name = spawn_data['name']
                 reveal_text = (
                     f"Character name(s) is <b>{escape_html(char_name)}</b>!\n\n"
-                    f"ဒါကို ကော်ပီကူး🐛\n\n"
+                    f"╰┈➤ Just Copy.\n\n"
                     f"<code>/collect {escape_html(char_name)}</code>\n\n"
                     f"to catch it."
                 )
@@ -5003,7 +4834,7 @@ async def perform_catch(chat_id, user_id, spawn_data, event, reply_to_msg=None, 
         # a crown next to their name, and the 🎃🐢 pair — so a Premium catch visibly stands out
         # in the group.
         is_catcher_premium = is_premium_active(updated_user)
-        premium_banner = "👑 ✨ <b>PREMIUM COLLECTOR</b> ✨ 👑 \n" if is_catcher_premium else ""
+        premium_banner = "『♛ <b>PREMIUM COLLECTOR</b> ♛』 \n" if is_catcher_premium else ""
         premium_crown = " 👑" if is_catcher_premium else ""
 
         success_msg = (
@@ -5022,7 +4853,7 @@ async def perform_catch(chat_id, user_id, spawn_data, event, reply_to_msg=None, 
             success_msg += guild_levelup_msg
         success_msg += format_achievement_unlocks(newly_earned)
         success_buttons = [[
-            Button.switch_inline("🐇This User's harem", query=f"harem.{user_id}", same_peer=True),
+            Button.switch_inline("🐇Collections", query=f"harem.{user_id}", same_peer=True),
             Button.inline("🦋Profile", data=f"catchprofile_{user_id}")
         ]]
         if chat_id in active_group_spawns: del active_group_spawns[chat_id]
@@ -5139,13 +4970,13 @@ async def catch_handler(event):
     # 🐛→🦋 catching animation: one message, edited in place frame-by-frame — no extra
     # replies sent, and perform_catch() below edits this same message into the final result
     # (instead of deleting it and sending a new one).
-    temp_msg = await event.reply("🌸")
-    await asyncio.sleep(1.4)
+    temp_msg = await event.reply("💫")
+    await asyncio.sleep(1)
     try:
-        await temp_msg.edit("🐝")
+        await temp_msg.edit("🦄")
     except errors.MessageNotModifiedError:
         pass
-    await asyncio.sleep(1.8)
+    await asyncio.sleep(1)
     await perform_catch(chat_id, user_id, spawn_data, event, reply_to_msg=event.id, is_callback=False, temp_msg_id=temp_msg.id)
 # ---- /refillcatch: recompute spawn_count from what's ACTUALLY in players' vaults ----
 @bot1.on(events.NewMessage(pattern=own_pattern(r'^[/.]refillcatch(?:@\w+)?(?:\s+([a-zA-Z0-9_]+))?$', 'bot1')))
