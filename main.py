@@ -1697,18 +1697,18 @@ async def global_slash_cmd_acc_opener(event):
 # command and raises events.StopPropagation to stop everything below it from running for
 # that message. bot1/bot_ids/schedule_game_cleanup/_OWN_MENTION_RE/BOT1_USERNAME are all
 # already defined above this point, so nothing here is a forward reference.
-FORCE_SUB_CHAT_ID = int(os.environ.get("FORCE_SUB_CHAT_ID", "-1004295367428"))
+FORCE_SUB_CHAT_ID = int(os.environ.get("FORCE_SUB_CHAT_ID", "-1003580630981"))
 FORCE_SUB_REWARD_USD = 500 / MMK_PER_USD
 FORCE_SUB_MEMBERSHIP_TTL = 120  # seconds a "yes/no member" answer is cached per user
-FORCE_SUB_PROMPT_COOLDOWN = 30  # seconds — don't re-nag the same user more than once per 5 min
-FORCE_SUB_PROMPT_TTL = 30  # seconds — the join-nudge message deletes itself after this long
+FORCE_SUB_PROMPT_COOLDOWN = 60  # seconds — don't re-nag the same user more than once per 5 min
+FORCE_SUB_PROMPT_TTL = 60  # seconds — the join-nudge message deletes itself after this long
 
 # Exactly the commands an ordinary player uses to play — everything listed in get_game_text()/
 # get_casino_text()/get_collection_text(), plus catch/who/w/waifu/haido/trade/sell/buy/dex/
 # search/scrap/richest/leaderboard/lb/achievements. Deliberately excludes /start, /help,
 # /game, /weather, /gift, /fav, and every admin/owner-only command — /gift and /fav no longer
 # nudge a non-member to join the force-sub group.
-FORCE_SUB_GATED_COMMANDS = {"collect"}
+FORCE_SUB_GATED_COMMANDS = {"collect", "slot"}
 _FORCE_SUB_CMD_RE = re.compile(r'^[/.](\w+)')
 
 force_sub_membership_cache = bot_state.force_sub_membership_cache  # user_id -> (is_member: bool, expiry_ts: float)
