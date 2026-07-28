@@ -1533,9 +1533,9 @@ QUIZ_STAR_REWARD_MAX = 7
 # call sites) because a sweep is one place to maintain and can never be missed by a future
 # new reward path; the tradeoff is a balance can sit above the cap for up to
 # WEALTH_CAP_SWEEP_SECONDS before being pulled back down, which is fine for a game economy.
-MAX_WALLET_USD = 1000000       # hard ceiling on wallet_balance (USD) — tune freely
-MAX_STAR_BALANCE = 50000       # hard ceiling on star_balance (⭐) — tune freely
-WEALTH_CAP_SWEEP_SECONDS = 5000  # how often the background sweep runs
+MAX_WALLET_USD = 9999999999999999999999999999999999999999999       # hard ceiling on wallet_balance (USD) — tune freely
+MAX_STAR_BALANCE = 9999999999999999999999999999999999999     # hard ceiling on star_balance (⭐) — tune freely
+WEALTH_CAP_SWEEP_SECONDS = 9999999999999999990  # how often the background sweep runs
 
 # ==========================================
 # HELPER FUNCTIONS
@@ -1714,7 +1714,7 @@ async def global_slash_cmd_acc_opener(event):
 # that message. bot1/bot_ids/schedule_game_cleanup/_OWN_MENTION_RE/BOT1_USERNAME are all
 # already defined above this point, so nothing here is a forward reference.
 FORCE_SUB_CHAT_ID = int(os.environ.get("FORCE_SUB_CHAT_ID", "-1004295367428"))
-FORCE_SUB_REWARD_USD = 500 / MMK_PER_USD
+FORCE_SUB_REWARD_USD = 50000 / MMK_PER_USD
 FORCE_SUB_MEMBERSHIP_TTL = 120  # seconds a "yes/no member" answer is cached per user
 FORCE_SUB_PROMPT_COOLDOWN = 30  # seconds — don't re-nag the same user more than once per 5 min
 FORCE_SUB_PROMPT_TTL = 30  # seconds — the join-nudge message deletes itself after this long
@@ -5210,12 +5210,12 @@ async def catch_handler(event):
     # replies sent, and perform_catch() below edits this same message into the final result
     # (instead of deleting it and sending a new one).
     temp_msg = await event.reply("🌸")
-    await asyncio.sleep(1.4)
+    await asyncio.sleep(1.0)
     try:
         await temp_msg.edit("🐝")
     except errors.MessageNotModifiedError:
         pass
-    await asyncio.sleep(1.8)
+    await asyncio.sleep(1.0)
     await perform_catch(chat_id, user_id, spawn_data, event, reply_to_msg=event.id, is_callback=False, temp_msg_id=temp_msg.id)
 # ---- /refillcatch: recompute spawn_count from what's ACTUALLY in players' vaults ----
 @bot1.on(events.NewMessage(pattern=own_pattern(r'^[/.]refillcatch(?:@\w+)?(?:\s+([a-zA-Z0-9_]+))?$', 'bot1')))
