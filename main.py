@@ -9132,7 +9132,7 @@ async def coin_flip_handler(event):
     if not event.is_private:
         schedule_game_cleanup(spin_msg.client, event.chat_id, spin_msg)
 
-@bot3.(events.NewMessage(pattern=own_pattern(r'^[/.]dice(?:@\w+)?(?:\s+(\d+(?:\.\d+)?))?$', 'bot3')))
+@bot3.on(events.NewMessage(pattern=own_pattern(r'^[/.]dice(?:@\w+)?(?:\s+(\d+(?:\.\d+)?))?$', 'bot3')))
 async def dice_game_handler(event):
     user_id = event.sender_id
     bet_str = event.pattern_match.group(1)
