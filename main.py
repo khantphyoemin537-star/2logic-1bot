@@ -1712,7 +1712,7 @@ FORCE_SUB_PROMPT_TTL = 30  # seconds — the join-nudge message deletes itself a
 # search/scrap/richest/leaderboard/lb/achievements. Deliberately excludes /start, /help,
 # /game, /weather, /gift, /fav, and every admin/owner-only command — /gift and /fav no longer
 # nudge a non-member to join the force-sub group.
-FORCE_SUB_GATED_COMMANDS = {"collect" , "slot"}
+FORCE_SUB_GATED_COMMANDS = {"slot" , "game"}
 _FORCE_SUB_CMD_RE = re.compile(r'^[/.](\w+)')
 
 force_sub_membership_cache = bot_state.force_sub_membership_cache  # user_id -> (is_member: bool, expiry_ts: float)
@@ -6367,166 +6367,6 @@ async def get_cached_leaderboard(mode, today_str=None):
         print(f"⚠️ Redis leaderboard cache write error: {e}")
     
     return data
-# ==========================================
-# 🎁 HAIDO - Rarity 1-4 Spawn Event (Owner Only)
-# ==========================================
-@bot1.on(events.NewMessage(pattern=own_pattern(r'^[/.]haido(?:@\w+)?$', 'bot1')))
-async def haido_spawn_handler(event):
-    if event.sender_id != OWNER_ID:
-        return await event.reply("❌ ဒီ Command ကို Owner ပဲသုံးလို့ရပါတယ်။")
-    
-    chat_id = event.chat_id
-    
-    # Check if there's already an active haido event in this chat
-    if chat_id in active_haido_events:
-        remaining = int(active_haido_events[chat_id]["spawn_time"] + HAIDO_TIMEOUT_SECONDS - time.time())
-        if remaining > 0:
-            minutes = remaining // 60
-            seconds = remaining % 60
-            return await event.reply(
-                f"⚠️ <b>Notice:</b> ဒီ Chat မှာ Haido Event ရှိပြီးသားပါ!\n"
-                f"⏳ ကျန်ချိန်: <code>{minutes} မိနစ် {seconds} စက္ကန့်</code>\n"
-                f"💡 <code>/collect [Name]</code> နဲ့ ကောက်လို့ရပါသေးတယ်!",
-                parse_mode='html'
-            )
-    
-    # Get all characters with Rarity 1-4 (top four tiers)
-    all_chars = await get_all_characters_cached()
-    if not all_chars:
-        return await event.reply("❌ <b>Notice:</b> ကတ်တွေ မရှိသေးပါဘူး! ကြိုထည့်ပါဦး", parse_mode='html')
-    
-    # Filter: Rarity 1-4 (top 4 tiers, by position)
-    eligible_rarities = RARITY_TIERS[:4]
-    eligible_chars = []
-    for char in all_chars:
-        tier = char.get("rarity_tier") or classify_rarity(char.get("rarity", ""))
-        if tier not in eligible_rarities:
-            continue
-        # Check spawn limit
-        limit = char.get("spawn_limit", 0)
-        if limit and limit > 0 and char.get("spawn_count", 0) >= limit:
-            continue
-        eligible_chars.append(char)
-    
-    if not eligible_chars:
-        return await event.reply(
-            f"😅 <b>Notice:</b> ကံဆိုးချင်တယ်! Rarity 1-4 ကတ်တွေ အကုန်ကုန်သွားပြီ!\n"
-            f"💡 နောက်တစ်ခါ ကြိုးစားပါဦး",
-            parse_mode='html'
-        )
-    
-    # Randomly select one character
-    chosen_char = random.choice(eligible_chars)
-    char_id = chosen_char["char_id"]
-    char_name = chosen_char["name"]
-    char_rarity = chosen_char.get("rarity", "Unknown")
-    tier = classify_rarity(char_rarity)
-    
-    # Store the event
-    active_haido_events[chat_id] = {
-        "char_id": char_id,
-        "char_name": char_name,
-        "rarity": char_rarity,
-        "rarity_tier": tier,
-        "artist": chosen_char.get("artist"),
-        "spawn_time": time.time(),
-        "claimed_by": None,
-        "claimed": False,
-        "msg_id": None
-    }
-    
-    # Send spawn message
-    rarity_emoji = RARITY_EMOJI.get(tier, RARITY_DEFAULT_EMOJI)
-    spawn_msg = f"""
-🎁 <b>HAIDO GIVEAWAY!</b> 🎁
-
-{rarity_emoji} <b>Rarity:</b> {char_rarity}
-📦 <b>Buddy:</b> <code>{char_name}</code>
-🆔 <b>ID:</b> <code>{display_char_id(char_id)}</code>
-{artist_line(chosen_char.get("artist"))}
-⏳ <b>Time Limit:</b> 15 မိနစ်
-
-<blockquote>➠ Reply with <code>/collect {char_name}</code> to claim!</blockquote>
-
-<i>ဘယ်သူအရင်ရမလဲ? ပြိုင်ကြည့်ကြရအောင်!</i>
-"""
-
-    async def _post_haido(media):
-        return await bot1.send_message(chat_id, spawn_msg, file=media, parse_mode='html')
-
-    try:
-        sent = await send_with_char_media(chosen_char["char_id"], chosen_char["storage_msg_id"], _post_haido)
-        if sent is None:
-            sent = await bot1.send_message(chat_id, spawn_msg, parse_mode='html')
-        active_haido_events[chat_id]["msg_id"] = sent.id
-    except Exception as e:
-        await event.reply(f"❌ <b>Notice:</b> Spawn မအောင်မြင်ဘူး! {e}", parse_mode='html')
-        del active_haido_events[chat_id]
-        return
-    
-    # Start timeout watcher
-    asyncio.create_task(haido_timeout_watcher(chat_id))
-    
-    # Log to owner
-    await event.reply(
-        f"✅ <b>Haido Event Started!</b>\n"
-        f"📦 <b>Card:</b> <code>{char_name}</code> ({display_char_id(char_id)})\n"
-        f"🏷️ <b>Rarity:</b> {char_rarity}\n"
-        f"⏳ <b>Time Limit:</b> 15 မိနစ်\n"
-        f"📍 <b>Chat:</b> <code>{chat_id}</code>",
-        parse_mode='html'
-    )
-
-
-# ---- Haido Timeout Watcher ----
-async def haido_timeout_watcher(chat_id):
-    """Check if haido event expires after 15 minutes."""
-    await asyncio.sleep(HAIDO_TIMEOUT_SECONDS)
-    
-    if chat_id not in active_haido_events:
-        return
-    
-    event_data = active_haido_events[chat_id]
-    if event_data["claimed"]:
-        return  # Already claimed
-    
-    # Expired - send timeout message
-    char_name = event_data["char_name"]
-    char_rarity = event_data["rarity"]
-    rarity_emoji = RARITY_EMOJI.get(event_data["rarity_tier"], RARITY_DEFAULT_EMOJI)
-    
-    timeout_msg = f"""
-⏰ <b>TIME'S UP!</b> ⏰
-
-{rarity_emoji} <b>{char_rarity}</b> — <code>{char_name}</code>
-
-<blockquote>😅 မင်းတို့တော့ Rarity အမြင့်ဆုံးကတ်ကို မရလိုက်ဘူး!</blockquote>
-
-<i>နောက်တစ်ခါ ပိုမြန်မြန်လုပ်ကြပါဦး! 😄</i>
-"""
-    
-    try:
-        await bot1.send_message(chat_id, timeout_msg, parse_mode='html')
-    except Exception:
-        pass
-    
-    # Record as unclaimed
-    try:
-        await haido_history_col.insert_one({
-            "chat_id": chat_id,
-            "char_id": event_data["char_id"],
-            "char_name": event_data["char_name"],
-            "rarity": event_data["rarity"],
-            "rarity_tier": event_data["rarity_tier"],
-            "claimed_by": None,
-            "claimed": False,
-            "timestamp": time.time()
-        })
-    except Exception as e:
-        print(f"Haido history insert error: {e}")
-    
-    # Clean up
-    del active_haido_events[chat_id]
 
 # ==========================================
 # 📊 PROFILE
@@ -6573,7 +6413,7 @@ async def render_profile_main_page(event, user_id, mention):
     giver_rank_str = f" ({giver_title[0]} {giver_title[1]})" if giver_title else ""
     receiver_rank_str = f" ({receiver_title[0]} {receiver_title[1]})" if receiver_title else ""
     text = (
-        f"<b>CATCHER ID</b>\n"
+        f"<b>This is your account</b>\n"
         f"<blockquote>"
         f"➤ 🫅 <b>Collector:</b> {mention}\n"
         f"{premium_line}"
@@ -6594,7 +6434,7 @@ async def render_profile_main_page(event, user_id, mention):
         f"🏪 <i>/market ဖြင့် ⭐ Star &amp; ကဒ်များ ဝယ်နိုင်ပါတယ်</i>\n"
         f"<i>Tap below to open your Rarity Vault breakdown!</i>"
     )
-    buttons = [[Button.inline("📊 Rarity Stats", data=f"pf_stats_{user_id}")]]
+    buttons = [[Button.inline("ရထားတဲ့ကဒ်များ", data=f"pf_stats_{user_id}")]]
     if total_gifted:
         buttons.append([Button.inline("🎁 Gift History", data=f"gh_{user_id}_0")])
     return text, buttons
@@ -7055,7 +6895,7 @@ NEW_CARD_PROTECTION_SECONDS = 86400  # 24 hours
 # ==========================================
 # 👑 BOT PREMIUM USER — tuning constants
 # ==========================================
-PREMIUM_AUTO_STAR_THRESHOLD = 10  # ⭐ spent (via /buy) OR bought (via /buystar) in one day auto-grants Premium
+PREMIUM_AUTO_STAR_THRESHOLD = 100  # ⭐ spent (via /buy) OR bought (via /buystar) in one day auto-grants Premium
 PREMIUM_AUTO_GRANT_DAYS = 1  # length of the auto-grant, from the moment the threshold is crossed
 PREMIUM_TIERS = [  # (months, price in ⭐, days credited) — the 5 /buypremium tiers
     (1, 90, 30),
@@ -8717,7 +8557,7 @@ async def _slot_spin_logic_bot3(event, user_id):
 
     if is_whale and raw_win > 0:
         raw_win = round(raw_win * WEALTH_MULTIPLIER_PENALTY, 2)
-        penalty_text = "\n🐋 မီလျံနာများ မြှောက်ကိန်း -50%"
+        penalty_text = "\n🐋 မီလျံနာများ,ဘီလျံနာများ စတီဗင်ချောင်နဲ့ ပြိုင်ချင်တာလား"
     else: penalty_text = ""
 
     win = raw_win
@@ -8755,13 +8595,23 @@ async def sl3_spin_cb(event):
 async def sl3_addbet_cb(event):
     user_id, add = int(event.pattern_match.group(1)), float(event.pattern_match.group(2))
     if event.sender_id != user_id:
-        return await event.answer("⚠️ မင်းslotဟုတ်လို့လား?", alert=True)
+        return await event.answer("⚠️ မင်းslotစက်ဟုတ်လို့လား?", alert=True)
     session = active_slot_sessions.get(user_id)
     if not session:
         return await event.answer("❌ Session မရှိ", alert=True)
+    
+    # ✅ ဒီမှာ Balance စစ်ဆေးတယ်
+    user_doc = await users_catcher_col.find_one({"user_id": user_id})
+    balance = user_doc.get("wallet_balance", 0) if user_doc else 0
+    new_bet = session["bet"] + add
+    
+    if new_bet > balance:
+        return await event.answer(f"❌ မင်းမှာ {balance:.2f} USD ပဲရှိတယ်။ {new_bet:.2f} USD မလုံလောက်ဘူး။", alert=True)
+    
     if not claim_single_tap(event):
-        return await event.answer("⏳ ခဏစောင့်", alert=False)
-    session["bet"] = max(0.01, session["bet"] + add)
+        return await event.answer("ခဏစောင့်", alert=False)
+    
+    session["bet"] = new_bet
     text, buttons = _render_slot_bot3(session)
     try:
         await event.edit(text, parse_mode='html', buttons=buttons)
@@ -8773,7 +8623,7 @@ async def sl3_addbet_cb(event):
 async def sl3_cashout_cb(event):
     user_id = int(event.pattern_match.group(1))
     if event.sender_id != user_id:
-        return await event.answer("⚠️ မင်းဟုတ်လား?", alert=True)
+        return await event.answer("⚠️ မင်းslotဟုတ်လို့လား?", alert=True)
     session = active_slot_sessions.get(user_id)
     if not session:
         return await event.answer("❌ Session မရှိ", alert=True)
