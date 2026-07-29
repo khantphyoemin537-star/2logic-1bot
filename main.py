@@ -8556,7 +8556,8 @@ def _render_slot_bot3(session, result=None, final=False, animating=False):
     bet = session["bet"]
     net = session["net"]
     spins = session.get("spins", 0)
-
+        # ✅ Session ထဲက Mention ကိုယူပါ (မရှိရင် Fallback)
+    mention = session.get("mention", f"<a href='tg://user?id={user_id}'><b>သင့်အကောင်</b></a>")
     # Symbols တန်း (Animation ဖြစ်နေရင် သင်္ကေတတွေ လှည့်နေသလိုပြမယ်)
     symbol_line = ""
     if animating:
@@ -8584,7 +8585,7 @@ def _render_slot_bot3(session, result=None, final=False, animating=False):
 
     text = (
         f"🎰 <b>SLOT ကစားပွဲ</b>\n"
-        f"👤 <a href='tg://user?id={user_id}'><b>သင့်အကောင်</b></a>\n"
+        f"👤 {mention}\n"
         f"💵 <b>လက်ရှိလောင်းငွေ:</b> <code>{bet:.2f} USD</code>\n"
         f"🔄 <b>အရေအတွက်:</b> <code>{spins}</code> ပွဲ\n"
         f"📊 <b>စုစုပေါင်းအမြတ်/အရှုံး:</b> <code>{net_display}</code>\n\n"
@@ -8656,7 +8657,18 @@ async def slot_cmd_bot3(event):
     if balance < bet:
         return await bot3.send_message(event.chat_id, f"❌ မင်းမှာ {balance:.2f} USD ပဲရှိတယ်။", parse_mode='html')
 
-    session = {"user_id": user_id, "bet": bet, "net": 0.0, "chat_id": event.chat_id, "msg_id": None, "spins": 0}
+    # ✅ ဒီနေရာမှာ Mention ကိုထုတ်ယူပြီး Session ထဲထည့်ပါ
+    mention = await get_html_mention(event, user_id)
+
+    session = {
+        "user_id": user_id,
+        "mention": mention,   # ✅ ဒီစာကြောင်း ထည့်ပါ
+        "bet": bet,
+        "net": 0.0,
+        "chat_id": event.chat_id,
+        "msg_id": None,
+        "spins": 0
+    }
     text, buttons = _render_slot_bot3(session)
     msg = await bot3.send_message(event.chat_id, text, parse_mode='html', buttons=buttons)
     session["msg_id"] = msg.id
@@ -8682,22 +8694,22 @@ async def _slot_spin_logic_bot3(event, user_id):
     is_whale = (user_doc.get("wallet_balance", 0) if user_doc else 0) > WEALTH_THRESHOLD
 
     # 🎬 Animation (၄ ခါ လှည့်ပြီး ရလဒ်ပြမယ်)
-    for _ in range(4):
+    for _ in range(1):
         anim_text, _ = _render_slot_bot3(session, animating=True)
         try:
             await event.edit(anim_text, parse_mode='html', buttons=None)
         except:
             pass
-        await asyncio.sleep(0.4)
+        await asyncio.sleep(0.2)
 
     # 🎰 တကယ့်ရလဒ်
     res = random.choices(SLOT_SYMBOLS, k=7)
     counts = Counter(res)
     most, max_count = counts.most_common(1)[0]
     raw_win = 0
-    if max_count >= 7: raw_win = bet * 77 if most == JACKPOT_SYMBOL else bet * 50
-    elif max_count == 6: raw_win = bet * 25
-    elif max_count == 5: raw_win = bet * 12
+    if max_count >= 7: raw_win = bet * 70 if most == JACKPOT_SYMBOL else bet * 50
+    elif max_count == 6: raw_win = bet * 20
+    elif max_count == 5: raw_win = bet * 10
     elif max_count == 4: raw_win = bet * 5
     elif max_count == 3: raw_win = round(bet * 2.5, 2)
     elif max_count == 2: raw_win = round(bet * 0.5, 2)
@@ -8705,7 +8717,7 @@ async def _slot_spin_logic_bot3(event, user_id):
 
     if is_whale and raw_win > 0:
         raw_win = round(raw_win * WEALTH_MULTIPLIER_PENALTY, 2)
-        penalty_text = "\n🐋 မီလျံနာများ (မြှောက်ကိန်း ၅၀% လျှော့)"
+        penalty_text = "\n🐋 မီလျံနာများ မြှောက်ကိန်း -50%"
     else: penalty_text = ""
 
     win = raw_win
@@ -8734,7 +8746,7 @@ async def _slot_spin_logic_bot3(event, user_id):
 @bot3.on(events.CallbackQuery(pattern=r'^sl3_spin_(\d+)$'))
 async def sl3_spin_cb(event):
     if event.sender_id != int(event.pattern_match.group(1)):
-        return await event.answer("⚠️ မင်းဟုတ်လား?", alert=True)
+        return await event.answer("⚠️ မင်းslotဟုတ်လို့လား?", alert=True)
     if not claim_single_tap(event):
         return await event.answer("⏳ ခဏစောင့်", alert=False)
     await _slot_spin_logic_bot3(event, int(event.pattern_match.group(1)))
@@ -8743,7 +8755,7 @@ async def sl3_spin_cb(event):
 async def sl3_addbet_cb(event):
     user_id, add = int(event.pattern_match.group(1)), float(event.pattern_match.group(2))
     if event.sender_id != user_id:
-        return await event.answer("⚠️ မင်းဟုတ်လား?", alert=True)
+        return await event.answer("⚠️ မင်းslotဟုတ်လို့လား?", alert=True)
     session = active_slot_sessions.get(user_id)
     if not session:
         return await event.answer("❌ Session မရှိ", alert=True)
