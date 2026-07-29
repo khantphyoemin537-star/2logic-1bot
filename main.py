@@ -9132,7 +9132,7 @@ async def coin_flip_handler(event):
     if not event.is_private:
         schedule_game_cleanup(spin_msg.client, event.chat_id, spin_msg)
 
-@bot3.(events.NewMessage(pattern=own_pattern(r'^[/.]dice(?:@\w+)?(?:\s+(\d+(?:\.\d+)?))?$', 'bot1')))
+@bot3.(events.NewMessage(pattern=own_pattern(r'^[/.]dice(?:@\w+)?(?:\s+(\d+(?:\.\d+)?))?$', 'bot3')))
 async def dice_game_handler(event):
     user_id = event.sender_id
     bet_str = event.pattern_match.group(1)
@@ -9161,7 +9161,7 @@ async def dice_game_handler(event):
     if not event.is_private:
         schedule_game_cleanup(result_msg.client, event.chat_id, result_msg)
 
-@bot3.on(events.NewMessage(pattern=own_pattern(r'^[/.]hilo(?:@\w+)?(?:\s+(\d+(?:\.\d+)?))?$', 'bot1')))
+@bot3.on(events.NewMessage(pattern=own_pattern(r'^[/.]hilo(?:@\w+)?(?:\s+(\d+(?:\.\d+)?))?$', 'bot3')))
 async def hilo_game_handler(event):
     user_id = event.sender_id
     bet_str = event.pattern_match.group(1)
@@ -9178,7 +9178,7 @@ async def hilo_game_handler(event):
     buttons = [[Button.inline("🔼 Higher", data=f"hilo_HIGH_{base_card}_{bet_amount}_{user_id}"), Button.inline("🔽 Lower", data=f"hilo_LOW_{base_card}_{bet_amount}_{user_id}")]]
     await _out(event, f"🃏 <b>HI-LO GAME</b>\nCASINO\n💵 Bet: <code>{bet_amount:,} USD</code>\n🎴 Current card: ✨ <b>[ {base_display} ]</b> ✨\n\n<blockquote>Higher or lower? Choose!</blockquote>", buttons=buttons, parse_mode='html')
 
-@bot3.on(events.NewMessage(pattern=own_pattern(r'^[/.]daily(?:@\w+)?$', 'bot1')))
+@bot1.on(events.NewMessage(pattern=own_pattern(r'^[/.]daily(?:@\w+)?$', 'bot1')))
 async def daily_bounty_handler(event):
     user_id = event.sender_id
     mention = await get_html_mention(event, user_id)
@@ -9202,7 +9202,7 @@ async def daily_bounty_handler(event):
     reply_text += format_achievement_unlocks(newly_earned)
     await event.reply(reply_text, parse_mode='html')
 
-@bot3.on(events.NewMessage(pattern=own_pattern(r'^[/.]richest(?:@\w+)?$', 'bot1')))
+@bot1.on(events.NewMessage(pattern=own_pattern(r'^[/.]richest(?:@\w+)?$', 'bot1')))
 async def system_richest_leaderboard(event):
     cursor = users_catcher_col.find({"wallet_balance": {"$gt": 0}}).sort("wallet_balance", -1).limit(10)
     richest_users = await cursor.to_list(length=10)
@@ -9214,7 +9214,7 @@ async def system_richest_leaderboard(event):
         msg += f"<b>{i+1}.</b> {user_display} — <code>{bal:,} USD</code> 🪙\n"
     await event.reply(msg, parse_mode='html')
 
-@bot3.on(events.NewMessage(pattern=own_pattern(r'^[/.]gamble(?:@\w+)?(?:\s+(\d+(?:\.\d+)?))?$', 'bot1')))
+@bot3.on(events.NewMessage(pattern=own_pattern(r'^[/.]gamble(?:@\w+)?(?:\s+(\d+(?:\.\d+)?))?$', 'bot3')))
 async def high_risk_gamble_handler(event):
     user_id = event.sender_id
     bet_str = event.pattern_match.group(1)
@@ -9319,7 +9319,7 @@ def _render_mines_board(game, game_id, final=False, hit_idx=None):
     )
     return text, rows
 
-@bot3.on(events.NewMessage(pattern=own_pattern(r'^[/.]mines(?:@\w+)?(?:\s+(\d+(?:\.\d+)?))?$', 'bot1')))
+@bot3.on(events.NewMessage(pattern=own_pattern(r'^[/.]mines(?:@\w+)?(?:\s+(\d+(?:\.\d+)?))?$', 'bot3')))
 async def mines_game_handler(event):
     global _mines_game_counter
     user_id = event.sender_id
@@ -9539,7 +9539,7 @@ def _render_box_offer(game, game_id, revealed_value, offer):
     ]]
     return text, rows
 
-@bot3.on(events.NewMessage(pattern=own_pattern(r'^[/.]box(?:@\w+)?(?:\s+(\d+(?:\.\d+)?))?$', 'bot1')))
+@bot3.on(events.NewMessage(pattern=own_pattern(r'^[/.]box(?:@\w+)?(?:\s+(\d+(?:\.\d+)?))?$', 'bot3')))
 async def box_game_handler(event):
     global _box_game_counter
     user_id = event.sender_id
