@@ -2308,13 +2308,171 @@ def get_collection_text():
 async def help_command_handler(event):
     await event.reply(bq(get_help_text()), parse_mode='html', buttons=[[Button.inline("🔙 Back", data="nav_back_home")]])
 
+# ==========================================
+# 🎮 GAME MENU (bot1) - ဂိမ်းအကုန်လုံး Inline Buttons
+# ==========================================
 @bot1.on(events.NewMessage(pattern=own_pattern(r'(?i)^[/.]game(?:@\w+)?$', 'bot1')))
-async def game_command_handler(event):
-    # 🩹 FIX: this used to call get_game_text(), which — despite the name — is actually the
-    # ECONOMY menu (balance/daily/hunt/gifts...). The real games list (slot, cardgame,
-    # flip, dice, hilo, gamble) lives in get_casino_text(). /game was showing the wrong menu.
-    await event.reply(bq(get_casino_text()), parse_mode='html', buttons=[[Button.inline("🔙 Back", data="nav_back_home")]])
+async def game_menu_handler(event):
+    text = (
+        f"🎮 <b>CASINO ဂိမ်းအကုန်လုံး</b>\n\n"
+        f"👇 ကစားချင်တဲ့ ဂိမ်းကို ရွေးပါ။\n"
+        f"<i>ဂိမ်းတစ်ခုချင်းစီမှာ ငွေပမာဏ ထည့်ပေးရပါမယ်။</i>"
+    )
 
+    buttons = [
+        [
+            Button.inline("🎰 Slot", data="nav_slot"),
+            Button.inline("🎡 Roulette", data="nav_roulette")
+        ],
+        [
+            Button.inline("💥 Crash", data="nav_crash"),
+            Button.inline("🃏 Card Game", data="nav_cardgame")
+        ],
+        [
+            Button.inline("🪙 Coin Flip", data="nav_flip"),
+            Button.inline("🎲 Dice", data="nav_dice")
+        ],
+        [
+            Button.inline("🃏 Hi-Lo", data="nav_hilo"),
+            Button.inline("🎯 Gamble", data="nav_gamble")
+        ],
+        [
+            Button.inline("💣 Mines", data="nav_mines"),
+            Button.inline("📦 Deal or No Deal", data="nav_box")
+        ],
+        [
+            Button.inline("🔙 Back", data="nav_back_home")
+        ]
+    ]
+
+    await event.reply(text, parse_mode='html', buttons=buttons)
+
+
+# ---- ဂိမ်းအလိုက် အသုံးပြုပုံ ပြသခြင်း (bot1) ----
+@bot1.on(events.CallbackQuery(pattern=r'^nav_(slot|roulette|crash|cardgame|flip|dice|hilo|gamble|mines|box)$'))
+async def game_nav_callback(event):
+    game_map = {
+        "slot": {
+            "name": "🎰 SLOT",
+            "usage": "```\n/slot [ငွေပမာဏ]\n```",
+            "example": "```\n/slot 5\n```",
+            "note": "bot3 မှာ ရှိတယ်။ Inline Button နဲ့ ဆက်ဆော့လို့ရတယ်။"
+        },
+        "roulette": {
+            "name": "🎡 ROULETTE (ရူလက်)",
+            "usage": "```\n/r [ငွေပမာဏ]\n```",
+            "example": "```\n/r 5\n```",
+            "note": "bot3 မှာ ရှိတယ်။ Inline Button နဲ့ ဆက်ဆော့လို့ရတယ်။"
+        },
+        "crash": {
+            "name": "💥 CRASH",
+            "usage": "```\n/crash [ငွေပမာဏ]\n```",
+            "example": "```\n/crash 5\n```",
+            "note": "bot3 မှာ ရှိတယ်။ Inline Button နဲ့ ဆက်ဆော့လို့ရတယ်။"
+        },
+        "cardgame": {
+            "name": "🃏 CARD GAME",
+            "usage": "```\n/cardgame [ငွေပမာဏ]\n```",
+            "example": "```\n/cardgame 5\n```",
+            "note": "Multipayer Lobby - အနည်းဆုံး ၂ ယောက်လိုတယ်။"
+        },
+        "flip": {
+            "name": "🪙 COIN FLIP",
+            "usage": "```\n/flip [ခေါင်း/ပန်း] [ငွေပမာဏ]\n```",
+            "example": "```\n/flip ခေါင်း 5\n```",
+            "note": "၅၀/၅၀ အခွင့်အရေး။"
+        },
+        "dice": {
+            "name": "🎲 DICE",
+            "usage": "```\n/dice [ငွေပမာဏ]\n```",
+            "example": "```\n/dice 5\n```",
+            "note": "၄-၆ အနိုင်။"
+        },
+        "hilo": {
+            "name": "🃏 HI-LO",
+            "usage": "```\n/hilo [ငွေပမာဏ]\n```",
+            "example": "```\n/hilo 5\n```",
+            "note": "ကြီး/ငယ် ရွေးပြီး ဆော့ရမယ်။"
+        },
+        "gamble": {
+            "name": "🎯 GAMBLE",
+            "usage": "```\n/gamble [ငွေပမာဏ]\n```",
+            "example": "```\n/gamble 5\n```",
+            "note": "Double or Nothing - ၅၀% အခွင့်အရေး။"
+        },
+        "mines": {
+            "name": "💣 MINES",
+            "usage": "```\n/mines [ငွေပမာဏ]\n```",
+            "example": "```\n/mines 5\n```",
+            "note": "၅x၅ Box ဖွင့်ပြီး ဗုံးရှောင်ရမယ်။"
+        },
+        "box": {
+            "name": "📦 DEAL OR NO DEAL",
+            "usage": "```\n/box [ငွေပမာဏ]\n```",
+            "example": "```\n/box 5\n```",
+            "note": "၃၀ Box ထဲက တစ်ခုရွေး၊ Morgan ရဲ့ Offer ကိုလက်ခံ/ငြင်း။"
+        }
+    }
+
+    game = event.pattern_match.group(1)
+    info = game_map.get(game, game_map["slot"])
+
+    text = (
+        f"🎮 <b>{info['name']}</b>\n\n"
+        f"📖 <b>အသုံးပြုပုံ:</b>\n{info['usage']}\n"
+        f"💡 <b>ဥပမာ:</b>\n{info['example']}\n\n"
+        f"ℹ️ {info['note']}\n\n"
+        f"<i>Command ကို တိုက်ရိုက်ရိုက်ပြီး ကစားနိုင်ပါတယ်။</i>"
+    )
+
+    buttons = [[Button.inline("🔙 ဂိမ်းစာရင်း", data="nav_game_back")]]
+
+    try:
+        await event.edit(text, parse_mode='html', buttons=buttons)
+        await event.answer()
+    except Exception:
+        await event.answer("✅ ပြီးပါပြီ!", alert=True)
+
+
+# ---- "ဂိမ်းစာရင်း" ပြန်သွားမယ့် Callback (bot1) ----
+@bot1.on(events.CallbackQuery(pattern=r'^nav_game_back$'))
+async def game_back_callback(event):
+    text = (
+        f"🎮 <b>CASINO ဂိမ်းအကုန်လုံး</b>\n\n"
+        f"👇 ကစားချင်တဲ့ ဂိမ်းကို ရွေးပါ။"
+    )
+
+    buttons = [
+        [
+            Button.inline("🎰 Slot", data="nav_slot"),
+            Button.inline("🎡 Roulette", data="nav_roulette")
+        ],
+        [
+            Button.inline("💥 Crash", data="nav_crash"),
+            Button.inline("🃏 Card Game", data="nav_cardgame")
+        ],
+        [
+            Button.inline("🪙 Coin Flip", data="nav_flip"),
+            Button.inline("🎲 Dice", data="nav_dice")
+        ],
+        [
+            Button.inline("🃏 Hi-Lo", data="nav_hilo"),
+            Button.inline("🎯 Gamble", data="nav_gamble")
+        ],
+        [
+            Button.inline("💣 Mines", data="nav_mines"),
+            Button.inline("📦 Deal or No Deal", data="nav_box")
+        ],
+        [
+            Button.inline("🔙 Back", data="nav_back_home")
+        ]
+    ]
+
+    try:
+        await event.edit(text, parse_mode='html', buttons=buttons)
+        await event.answer()
+    except Exception:
+        await event.answer("✅ ပြီးပါပြီ!", alert=True)
 @bot1.on(events.CallbackQuery())
 async def system_callback_router(event):
     data = event.data.decode('utf-8')
@@ -8516,14 +8674,21 @@ async def trade_proposal_handler(event):
 # going quiet with no error and no fallback is worse than bot1 carrying a bit more load, so
 # correctness (always respond, somehow) comes before the load-shedding optimization.
 async def _out(event, text, **kwargs):
-    """Drop-in replacement for event.reply(text, **kwargs)."""
-    if event.chat_id == FORCE_SUB_CHAT_ID and bot3 is not None:
-        try:
-            kwargs.setdefault('reply_to', event.message_id)
-            return await bot3.send_message(event.chat_id, text, **kwargs)
-        except Exception as e:
-            print(f"⚠️ Guard Bot send failed in force-join room, falling back to bot1: {e}")
-    return await event.reply(text, **kwargs)
+    """bot3 ကို ဦးစားပေးပြီး ပို့မယ် (ဘယ် Group မှာမဆို)"""
+    try:
+        kwargs.setdefault('reply_to', event.message_id)
+        return await bot3.send_message(event.chat_id, text, **kwargs)
+    except Exception as e:
+        print(f"⚠️ bot3 send failed, falling back to event.reply: {e}")
+        return await event.reply(text, **kwargs)
+
+async def _out_dice(event):
+    """bot3 ကို ဦးစားပေးပြီး ဒိုက်စ်လှိမ့်မယ်"""
+    try:
+        return await bot3.send_message(event.chat_id, file=types.InputMediaDice(emoticon="🎲"))
+    except Exception as e:
+        print(f"⚠️ bot3 dice failed, falling back to event.client: {e}")
+        return await event.client.send_message(event.chat_id, file=types.InputMediaDice(emoticon="🎲"))
 
 # =========================================================
 # 🎰 SLOT (bot3) - ANIMATION EMOJI + လှုပ်ရှားမှု
@@ -9002,7 +9167,7 @@ async def r3_cashout_cb(event):
 @bot3.on(events.CallbackQuery(pattern=r'^r3_new_(\d+)$'))
 async def r3_new_cb(event):
     await event.answer("🔄 /r [ငွေ] ရိုက်ပြီး အသစ်စပါ။", alert=True)
-@bot3.on(events.NewMessage(pattern=own_pattern(r'^[/.]cardgame(?:@\w+)?(?:\s+(\d+(?:\.\d+)?))?$', 'bot1')))
+@bot3.on(events.NewMessage(pattern=own_pattern(r'^[/.]cardgame(?:@\w+)?(?:\s+(\d+(?:\.\d+)?))?$', 'bot3')))
 async def create_cardgame_lobby(event):
     if event.is_private: return
     chat_id = event.chat_id
@@ -9032,7 +9197,7 @@ async def create_cardgame_lobby(event):
     msg = await _out(event, lobby_text, parse_mode='html', buttons=buttons)
     active_card_games[chat_id]["msg_id"] = msg.id
 
-@bot3.on(events.NewMessage(pattern=own_pattern(r'^[/.]startgame(?:@\w+)?$', 'bot1')))
+@bot3.on(events.NewMessage(pattern=own_pattern(r'^[/.]startgame(?:@\w+)?$', 'bot3')))
 async def start_cardgame_handler(event):
     if event.is_private: return
     chat_id = event.chat_id
@@ -9077,7 +9242,7 @@ async def start_cardgame_handler(event):
     if not event.is_private:
         schedule_game_cleanup(reveal_msg.client, event.chat_id, reveal_msg)
 
-@bot3.on(events.NewMessage(pattern=own_pattern(r'^[/.]cancelgame(?:@\w+)?$', 'bot1')))
+@bot3.on(events.NewMessage(pattern=own_pattern(r'^[/.]cancelgame(?:@\w+)?$', 'bot3')))
 async def cancel_cardgame_handler(event):
     if event.is_private: return
     chat_id = event.chat_id
@@ -9089,7 +9254,7 @@ async def cancel_cardgame_handler(event):
     del active_card_games[chat_id]
     await _out(event, f"🎯 <b>GAME CANCELLED</b>\n<blockquote>Refunded <code>{bet_amount} USD</code> to all players.</blockquote>", parse_mode='html')
 
-@bot3.on(events.NewMessage(pattern=own_pattern(r'^[/.]flip(?:@\w+)?(?:\s+(ခေါင်း|ပန်း)\s+(\d+(?:\.\d+)?))?$', 'bot1')))
+@bot3.on(events.NewMessage(pattern=own_pattern(r'^[/.]flip(?:@\w+)?(?:\s+(ခေါင်း|ပန်း)\s+(\d+(?:\.\d+)?))?$', 'bot3')))
 async def coin_flip_handler(event):
     user_id = event.sender_id
     choice = event.pattern_match.group(1)
@@ -9610,7 +9775,7 @@ async def box_open_handler(event):
         pass
     await event.answer(f"📦 {revealed_value:,} USD ပါတယ်")
 
-@bot3.(events.CallbackQuery(pattern=r'^boxnodeal_(\d+)$'))
+@bot3.on(events.CallbackQuery(pattern=r'^boxnodeal_(\d+)$'))
 async def box_nodeal_handler(event):
     game_id = int(event.pattern_match.group(1))
     game = active_box_games.get(game_id)
