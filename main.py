@@ -8510,28 +8510,35 @@ async def _out(event, text, **kwargs):
             print(f"⚠️ Guard Bot send failed in force-join room, falling back to bot1: {e}")
     return await event.reply(text, **kwargs)
 
-async def _out_dice(event):
-    """Same fallback shape as _out(), for dice_game_handler's one native Telegram dice roll
-    (file=InputMediaDice) instead of text."""
-    if event.chat_id == FORCE_SUB_CHAT_ID and bot3 is not None:
-        try:
-            return await bot3.send_message(event.chat_id, file=types.InputMediaDice(emoticon="🎲"))
-        except Exception as e:
-            print(f"⚠️ Guard Bot dice send failed in force-join room, falling back to bot1: {e}")
-    return await event.client.send_message(event.chat_id, file=types.InputMediaDice(emoticon="🎲"))
+# =========================================================
+# 🎰 SLOT + 🎡 ROULETTE (bot3 ONLY) - မြန်မာလို + Anti-Whale
+# =========================================================
 
-# ==========================================
-# 🎰 SLOT MACHINE - INLINE BUTTON SESSION (မြန်မာလို)
-# ==========================================
+# ---- 🔥 Casino ငွေကျုံ့စနစ် (Anti-Whale Mechanics) ----
+SPIN_BURN_RATE = 0.02            # 2% လောင်းတိုင်း မီးရှို့
+WEALTH_THRESHOLD = 1_000_000    # ၁၀ သန်း USD ကျော်ရင် ငွေကြေးရှိသူ
+WEALTH_MULTIPLIER_PENALTY = 0.5  # ၅၀% မြှောက်ကိန်းလျှော့
+CASHOUT_PROFIT_TAX = 0.20        # ၂၀% အမြတ်အခွန်
 
-def _render_slot_session(session, result=None, final=False):
-    """Slot Message ကို ပြန်ဆွဲပေးမယ့် Helper (မြန်မာလို)"""
+
+# ---- 🎡 ROULETTE SESSIONS ----
+active_roulette_sessions = {}
+ROULETTE_BET_PRESETS = [1, 10, 100, 1000, 10000, 100000]
+ROULETTE_COLORS = {0: "🟢", 1: "🔴", 2: "⚫", 3: "🔴", 4: "⚫", 5: "🔴",
+                   6: "⚫", 7: "🔴", 8: "⚫", 9: "🔴", 10: "⚫"}
+ROULETTE_COLOR_NAMES = {"🔴": "အနီ", "⚫": "အမည်း", "🟢": "အစိမ်း"}
+ROULETTE_MULTIPLIERS = {"🔴": 2, "⚫": 2, "🟢": 14}
+
+# =========================================================
+# 1️⃣ SLOT (bot3) - မြန်မာလို + Animation ၃ခါ + Anti-Whale
+# =========================================================
+
+def _render_slot_bot3(session, result=None, final=False, animating=False):
     user_id = session["user_id"]
     bet = session["bet"]
     net = session["net"]
     spins = session.get("spins", 0)
 
-    # Symbols တန်း
     symbol_line = ""
     if result:
         symbols = result["symbols"]
@@ -8539,22 +8546,22 @@ def _render_slot_session(session, result=None, final=False):
     else:
         symbol_line = f"<code>[ {' | '.join(['❔'] * 7)} ]</code>\n"
 
-    # ပွဲစဉ်ရလဒ်
     status_line = ""
-    if result:
+    if animating:
+        status_line = "👾<b>လှည့်နေပါပြီ...</b>"
+    elif result:
         if result["win"] > 0:
             status_line = f"🎉 <b>+{result['win']:.2f} USD</b> (ပွဲစဉ်အမြတ်)"
         else:
             status_line = "💔 <b>ဒီတစ်ခါ မအောင်မြင်ဘူး</b>"
     else:
-        status_line = "'ထပ်လှည့်မယ်' ကိုနှိပ်ပြီး စလိုက်ပါ။"
+        status_line = " 'လှည့်မယ်' ကိုနှိပ်ပြီး စလိုက်ပါ။"
 
-    # စုစုပေါင်းအမြတ်/အရှုံး
     net_display = f"{'+' if net >= 0 else ''}{net:.2f} USD"
 
     text = (
         f"🎰 <b>SLOT ကစားပွဲ</b>\n"
-        f"👤 <a href='tg://user?id={user_id}'><b>သင့်အကောင်</b></a>\n"
+        f"👤 <a href='tg://user?id={user_id}'><b></b></a>\n"
         f"💵 <b>လက်ရှိလောင်းငွေ:</b> <code>{bet:.2f} USD</code>\n"
         f"🔄 <b>အရေအတွက်:</b> <code>{spins}</code> ပွဲ\n"
         f"📊 <b>စုစုပေါင်းအမြတ်/အရှုံး:</b> <code>{net_display}</code>\n\n"
@@ -8565,220 +8572,337 @@ def _render_slot_session(session, result=None, final=False):
 
     buttons = []
     if not final:
-        # ပင်မခလုတ် ၂ ခု
-        buttons.append([Button.inline("🔄 ထပ်လှည့်မယ်", data=f"slot_spin_{user_id}"),
-                        Button.inline("💰 ငွေထုတ်မယ်", data=f"slot_cashout_{user_id}")])
-        
-        # လောင်းငွေ ပေါင်းထည့်ခလုတ်တွေ (၆ ခု) ကို ၃ တန်း ၂ ခုစီ ခွဲမယ်
+        buttons.append([Button.inline("🔄 စ/ထပ်လှည့်မယ်", data=f"sl3_spin_{user_id}"),
+                        Button.inline("💰 ငွေထုတ်မယ်", data=f"sl3_cashout_{user_id}")])
         row1, row2, row3 = [], [], []
-        for i, amt in enumerate(BET_PRESETS):
+        for i, amt in enumerate(SLOT_BET_PRESETS):
             label = f"+{amt}"
-            data = f"slot_addbet_{user_id}_{amt}"
-            if i < 2:
-                row1.append(Button.inline(label, data=data))
-            elif i < 4:
-                row2.append(Button.inline(label, data=data))
-            else:
-                row3.append(Button.inline(label, data=data))
-        if row1:
-            buttons.append(row1)
-        if row2:
-            buttons.append(row2)
-        if row3:
-            buttons.append(row3)
+            data = f"sl3_addbet_{user_id}_{amt}"
+            if i < 2: row1.append(Button.inline(label, data=data))
+            elif i < 4: row2.append(Button.inline(label, data=data))
+            else: row3.append(Button.inline(label, data=data))
+        if row1: buttons.append(row1)
+        if row2: buttons.append(row2)
+        if row3: buttons.append(row3)
     else:
-        buttons.append([Button.inline("🔄 အသစ်စပါ", data=f"slot_new_{user_id}")])
-
+        buttons.append([Button.inline("🔄 အသစ်စပါ", data=f"sl3_new_{user_id}")])
     return text, buttons
 
-
-async def _slot_end_session(user_id, chat_id, msg_id, cashout=True):
-    """Session ကိုပိတ်ပြီး နောက်ဆုံးအခြေအနေပြမယ်"""
+async def _slot_end_bot3(user_id, chat_id, msg_id, cashout=True):
     session = active_slot_sessions.pop(user_id, None)
-    if not session:
-        return
-
-    final_text, _ = _render_slot_session(session, final=True)
+    if not session: return
+    net = session.get("net", 0)
+    tax_text = ""
+    if cashout and net > 0:
+        tax = round(net * CASHOUT_PROFIT_TAX, 2)
+        if tax > 0:
+            await users_catcher_col.update_one({"user_id": user_id}, {"$inc": {"wallet_balance": -tax}})
+            session["net"] = round(net - tax, 2)
+            tax_text = f"\n🏦 <b>အမြတ်အခွန် ({int(CASHOUT_PROFIT_TAX*100)}%):</b> <code>-{tax:.2f} USD</code>"
+        else:
+            tax_text = "\n✅ <b>အခွန်ကင်းလွတ်</b>"
+    elif cashout and net <= 0:
+        tax_text = "\n💔 <b>အရှုံးပေါ် — အခွန်မကောက်ပါ</b>"
+    final_text, _ = _render_slot_bot3(session, final=True)
+    final_text += tax_text
     try:
-        await bot1.edit_message(chat_id, msg_id, final_text, parse_mode='html', buttons=None)
-    except Exception:
-        pass  # Message ပျက်နေရင် ဘာမှမလုပ်ဘူး
+        await bot3.edit_message(chat_id, msg_id, final_text, parse_mode='html', buttons=None)
+    except Exception: pass
 
-
-@bot1.on(events.NewMessage(pattern=own_pattern(r'^[/.]slot(?:@\w+)?(?:\s+(\d+(?:\.\d+)?))?$', 'bot1')))
-async def slot_command_handler(event):
+@bot3.on(events.NewMessage(pattern=r'^[/.]slot(?:@\w+)?(?:\s+(\d+(?:\.\d+)?))?'))
+async def slot_cmd_bot3(event):
     user_id = event.sender_id
-    bet_str = event.pattern_match.group(1)
-
-    # လက်ရှိ session ရှိနေရင် ခလုတ်တွေသုံးခိုင်းမယ်
+    bet_str = event.pattern_match.group(1) if event.pattern_match.group(1) else None
     if user_id in active_slot_sessions:
         session = active_slot_sessions[user_id]
         if bet_str:
-            # ငွေပမာဏအသစ်နဲ့ စချင်ရင် အဟောင်းကိုပိတ်ပြီး အသစ်စမယ်
-            await _slot_end_session(user_id, event.chat_id, session["msg_id"], cashout=False)
+            await _slot_end_bot3(user_id, event.chat_id, session["msg_id"], cashout=False)
         else:
-            return await _out(event, "⚠️ မင်းမှာ Slot ကစားပွဲ ရှိနေပြီးသားပါ။ အောက်ကခလုတ်တွေကို သုံးပါ။",
-                              parse_mode='html', reply_to=session["msg_id"])
-
+            return await bot3.send_message(event.chat_id, "⚠️ Slot ကစားပွဲရှိနေပြီ။ အောက်ကခလုတ်သုံးပါ။", parse_mode='html', reply_to=session["msg_id"])
     if not bet_str:
-        return await _out(event,
-            "🎰 ငွေပမာဏထည့်ပါ။\nဥပမာ: <code>/slot 5</code> (ဒီပမာဏနဲ့ ဆက်ကစားမယ်)",
-            parse_mode='html'
-        )
-
+        return await bot3.send_message(event.chat_id, "🎰 ငွေပမာဏထည့်ပါ။ ဥပမာ: <code>/slot 5</code>", parse_mode='html')
     bet = round(float(bet_str), 2)
-    if bet <= 0:
-        return await _out(event, "❌ အနည်းဆုံး <code>0.01 USD</code> လောင်းပါ။", parse_mode='html')
-
-    # ငွေလုံလောက်မလား စစ်မယ်
+    if bet <= 0: return await bot3.send_message(event.chat_id, "❌ အနည်းဆုံး 0.01 USD လောင်းပါ။", parse_mode='html')
     user_doc = await users_catcher_col.find_one({"user_id": user_id})
     balance = user_doc.get("wallet_balance", 0) if user_doc else 0
-    if balance < bet:
-        return await _out(event, f"❌ မင်းမှာ <code>{balance:.2f} USD</code> ပဲရှိတယ်နော် — ဒီထက် ပိုလောင်းလို့မရဘူး။", parse_mode='html')
-
-    # Session အသစ်စမယ်
-    session = {
-        "user_id": user_id,
-        "bet": bet,
-        "net": 0.0,
-        "chat_id": event.chat_id,
-        "msg_id": None,
-        "spins": 0
-    }
-
-    text, buttons = _render_slot_session(session)
-    msg = await _out(event, text, parse_mode='html', buttons=buttons)
+    if balance < bet: return await bot3.send_message(event.chat_id, f"❌ မင်းမှာ {balance:.2f} USD ပဲရှိတယ်။", parse_mode='html')
+    session = {"user_id": user_id, "bet": bet, "net": 0.0, "chat_id": event.chat_id, "msg_id": None, "spins": 0}
+    text, buttons = _render_slot_bot3(session)
+    msg = await bot3.send_message(event.chat_id, text, parse_mode='html', buttons=buttons)
     session["msg_id"] = msg.id
     active_slot_sessions[user_id] = session
 
-
-@bot1.on(events.CallbackQuery(pattern=r'^slot_spin_(\d+)$'))
-async def slot_spin_callback(event):
-    user_id = int(event.pattern_match.group(1))
-    if event.sender_id != user_id:
-        return await event.answer("⚠️ ဒါ မင်းရဲ့ ကစားပွဲ မဟုတ်ဘူး။", alert=True)
-
+async def _slot_spin_logic_bot3(event, user_id):
     session = active_slot_sessions.get(user_id)
-    if not session:
-        return await event.answer("❌ ဒီ Session ပြီးသွားပါပြီ။", alert=True)
+    if not session: return await event.answer("❌ Session မရှိတော့ဘူး။", alert=True)
+    chat_id, bet = session["chat_id"], session["bet"]
 
-    if not claim_single_tap(event):
-        return await event.answer("⏳ ခဏစောင့်ပါ...", alert=False)
-
-    bet = session["bet"]
-    chat_id = session["chat_id"]
-
-    # ငွေလုံလောက်မလား ထပ်စစ်မယ်
-    user_doc = await users_catcher_col.find_one({"user_id": user_id})
-    balance = user_doc.get("wallet_balance", 0) if user_doc else 0
-    if balance < bet:
-        await event.answer("❌ ငွေမလုံလောက်တော့ဘူး — ကစားပွဲကို ပိတ်လိုက်ပြီ။", alert=True)
-        await _slot_end_session(user_id, chat_id, session["msg_id"], cashout=False)
-        return
-
-    # လောင်းငွေကို နှုတ်မယ်
+    # 🔥 Spin Burn (၂%)
+    burn = round(bet * SPIN_BURN_RATE, 2)
+    if burn > 0 and not await try_deduct_balance(user_id, burn):
+        await event.answer("❌ မီးရှို့ခ မပေးနိုင် — ပိတ်မယ်။", alert=True)
+        return await _slot_end_bot3(user_id, chat_id, session["msg_id"], cashout=False)
+    # ပုံမှန်လောင်းငွေ နှုတ်
     if not await try_deduct_balance(user_id, bet):
-        await event.answer("❌ ငွေနှုတ်လို့မရဘူး — ကစားပွဲပိတ်မယ်။", alert=True)
-        await _slot_end_session(user_id, chat_id, session["msg_id"], cashout=False)
-        return
+        await event.answer("❌ ငွေနှုတ်လို့မရ — ပိတ်မယ်။", alert=True)
+        return await _slot_end_bot3(user_id, chat_id, session["msg_id"], cashout=False)
 
-    # Slot လှည့်မယ်
-    symbols = ["🐢", "🐕", "🐊", "🐇", "🐉", "🦬", "🦉"]
-    JACKPOT_SYMBOL = "🦬"
-    res_syms = random.choices(symbols, k=7)
-    counts = Counter(res_syms)
-    most_common_sym, max_count = counts.most_common(1)[0]
+    # 🐋 Whale Check
+    user_doc = await users_catcher_col.find_one({"user_id": user_id})
+    is_whale = (user_doc.get("wallet_balance", 0) if user_doc else 0) > WEALTH_THRESHOLD
 
-    win = 0
-    if max_count >= 7:
-        win = bet * 77 if most_common_sym == JACKPOT_SYMBOL else bet * 50
-    elif max_count == 6:
-        win = bet * 25
-    elif max_count == 5:
-        win = bet * 12
-    elif max_count == 4:
-        win = bet * 5
-    elif max_count == 3:
-        win = round(bet * 2.5, 2)
-    elif max_count == 2:
-        win = round(bet * 0.5, 2)
-    else:
-        win = 0
+    # 🎬 Animation ၃ ခါ
+    for _ in range(4):
+        anim_syms = random.choices(["🐢","🐕","🐊","🐇","🐉","🦬","🦉"], k=7)
+        anim_text, _ = _render_slot_bot3(session, result={"symbols": anim_syms, "win": 0}, animating=True)
+        try: await event.edit(anim_text, parse_mode='html', buttons=None)
+        except: pass
+        await asyncio.sleep(0.5)
 
+    # 🎰 တကယ့်ရလဒ်
+    symbols = ["🐢","🐕","🐊","🐇","🐉","🦬","🦉"]
+    res = random.choices(symbols, k=7)
+    counts = Counter(res)
+    most, max_count = counts.most_common(1)[0]
+    raw_win = 0
+    if max_count >= 7: raw_win = bet * 60 if most == "🦬" else bet * 50
+    elif max_count == 6: raw_win = bet * 20
+    elif max_count == 5: raw_win = bet * 8
+    elif max_count == 4: raw_win = bet * 5
+    elif max_count == 3: raw_win = round(bet * 2.0, 1.5)
+    elif max_count == 2: raw_win = round(bet * 0.5, 2)
+    else: raw_win = 0
+
+    # 🐋 Whale Penalty
+    if is_whale and raw_win > 0:
+        raw_win = round(raw_win * WEALTH_MULTIPLIER_PENALTY, 2)
+        penalty_text = "\n🐋 မီလျံနာများ(မြှောက်ကိန်း ၅၀% လျှော့)"
+    else: penalty_text = ""
+
+    win = raw_win
     if win > 0:
         await users_catcher_col.update_one({"user_id": user_id}, {"$inc": {"wallet_balance": win}})
         net_change = win - bet
-    else:
-        net_change = -bet
+    else: net_change = -bet
 
-    # Session ကို update လုပ်မယ်
     session["net"] += net_change
     session["spins"] = session.get("spins", 0) + 1
-
-    result = {"symbols": res_syms, "win": win}
-    text, buttons = _render_slot_session(session, result=result)
-
-    try:
-        await event.edit(text, parse_mode='html', buttons=buttons)
-    except errors.MessageNotModifiedError:
-        pass
-    await event.answer("🎰 လှည့်ပြီးပါပြီ!")
-
-    # Jackpot ကြီးရင် သီးသန့်ကြေငြာမယ်
+    result = {"symbols": res, "win": win}
+    text_final, buttons_final = _render_slot_bot3(session, result=result)
+    if burn > 0: text_final += f"\n🔥 <b>စလော့စက်လှည့်ခ:</b> <code>-{burn:.2f} USD</code>"
+    text_final += penalty_text
+    try: await event.edit(text_final, parse_mode='html', buttons=buttons_final)
+    except: pass
+    await event.answer("🎰 လှည့်ပြီး!")
     if win >= bet * 50:
         mention = await get_html_mention(event, user_id)
-        await bot1.send_message(chat_id, f"🔥 {mention} က <b>{win:.2f} USD</b> Jackpot ပေါက်သွားပြီ!", parse_mode='html')
+        await bot3.send_message(chat_id, f"🔥 {mention} Slot Jackpot <b>{win:.2f} USD</b> ပေါက်သွားပြီ!", parse_mode='html')
 
+@bot3.on(events.CallbackQuery(pattern=r'^sl3_spin_(\d+)$'))
+async def sl3_spin_cb(event):
+    if event.sender_id != int(event.pattern_match.group(1)): return await event.answer("⚠️ မင်းဟုတ်လား?", alert=True)
+    if not claim_single_tap(event): return await event.answer("⏳ ခဏစောင့်", alert=False)
+    await _slot_spin_logic_bot3(event, int(event.pattern_match.group(1)))
 
-@bot1.on(events.CallbackQuery(pattern=r'^slot_addbet_(\d+)_(\d+)$'))
-async def slot_add_bet_callback(event):
-    user_id = int(event.pattern_match.group(1))
-    add_amount = float(event.pattern_match.group(2))
-    
-    if event.sender_id != user_id:
-        return await event.answer("⚠️ ဒါ မင်းရဲ့ ကစားပွဲ မဟုတ်ဘူး။", alert=True)
-
+@bot3.on(events.CallbackQuery(pattern=r'^sl3_addbet_(\d+)_(\d+)$'))
+async def sl3_addbet_cb(event):
+    user_id, add = int(event.pattern_match.group(1)), float(event.pattern_match.group(2))
+    if event.sender_id != user_id: return await event.answer("⚠️ မင်းဟုတ်လား?", alert=True)
     session = active_slot_sessions.get(user_id)
-    if not session:
-        return await event.answer("❌ Session မရှိတော့ဘူး။", alert=True)
-
-    if not claim_single_tap(event):
-        return await event.answer("⏳ ခဏစောင့်ပါ...", alert=False)
-
-    # လက်ရှိလောင်းငွေကို ပေါင်းထည့်မယ်
-    new_bet = session["bet"] + add_amount
-    if new_bet < 0.01:
-        new_bet = 0.01
-    session["bet"] = new_bet
-
-    text, buttons = _render_slot_session(session)
+    if not session: return await event.answer("❌ Session မရှိ", alert=True)
+    if not claim_single_tap(event): return await event.answer("⏳ ခဏစောင့်", alert=False)
+    session["bet"] = max(0.01, session["bet"] + add)
+    text, buttons = _render_slot_bot3(session)
     try:
         await event.edit(text, parse_mode='html', buttons=buttons)
-        await event.answer(f"✅ လောင်းငွေကို {new_bet:.2f} USD သို့ ပေါင်းထည့်လိုက်ပြီ။", alert=False)
-    except errors.MessageNotModifiedError:
-        await event.answer("ℹ️ လောင်းငွေက ဒီအတိုင်းပဲရှိနေတယ်။", alert=False)
+        await event.answer(f"✅ လောင်းငွေ {session['bet']:.2f} USD ဖြစ်သွားပြီ", alert=False)
+    except: pass
 
-
-@bot1.on(events.CallbackQuery(pattern=r'^slot_cashout_(\d+)$'))
-async def slot_cashout_callback(event):
+@bot3.on(events.CallbackQuery(pattern=r'^sl3_cashout_(\d+)$'))
+async def sl3_cashout_cb(event):
     user_id = int(event.pattern_match.group(1))
-    if event.sender_id != user_id:
-        return await event.answer("⚠️ ဒါ မင်းရဲ့ ကစားပွဲ မဟုတ်ဘူး။", alert=True)
-
+    if event.sender_id != user_id: return await event.answer("⚠️ မင်းဟုတ်လား?", alert=True)
     session = active_slot_sessions.get(user_id)
-    if not session:
-        return await event.answer("❌ Session မရှိတော့ဘူး။", alert=True)
+    if not session: return await event.answer("❌ Session မရှိ", alert=True)
+    if not claim_single_tap(event): return await event.answer("⏳ ခဏစောင့်", alert=False)
+    await _slot_end_bot3(user_id, session["chat_id"], session["msg_id"], cashout=True)
+    await event.answer("💰 ငွေထုတ်ပြီး!", alert=True)
 
-    if not claim_single_tap(event):
-        return await event.answer("⏳ ခဏစောင့်ပါ...", alert=False)
-
-    await _slot_end_session(user_id, session["chat_id"], session["msg_id"], cashout=True)
-    await event.answer("💰 ငွေထုတ်လိုက်ပြီ!", alert=True)
+@bot3.on(events.CallbackQuery(pattern=r'^sl3_new_(\d+)$'))
+async def sl3_new_cb(event): await event.answer("🔄 /slot [ငွေ] ရိုက်ပြီး အသစ်စပါ။", alert=True)
 
 
-@bot1.on(events.CallbackQuery(pattern=r'^slot_new_(\d+)$'))
-async def slot_new_session_callback(event):
-    await event.answer("🔄 /slot [ငွေ] ရိုက်ပြီး အသစ်စပါ။", alert=True)
+# =========================================================
+# 2️⃣ ROULETTE (bot3) - မြန်မာလို + Animation ၃ခါ + Anti-Whale
+# =========================================================
+
+def _render_roulette_bot3(session, result=None, final=False, animating=False):
+    user_id, bet, net, spins = session["user_id"], session["bet"], session["net"], session.get("spins", 0)
+    status_line = ""
+    if animating:
+        status_line = " <b>ဘီးလှည့်နေပါပြီ...</b>"
+    elif result:
+        win, number, color = result.get("win", 0), result.get("number", "?"), result.get("color", "❔")
+        if win > 0: status_line = f"🎉 <b>+{win:.2f} USD</b> ({ROULETTE_COLOR_NAMES.get(color, '')} ပေါက်)"
+        else: status_line = f"💔 <b>ရှုံးသွားပြီ</b> ({ROULETTE_COLOR_NAMES.get(color, '')} ပေါက်)"
+        status_line += f"\n🎯 <b>ပေါက်ဂဏန်း:</b> <code>{number}</code> {color}"
+    else: status_line = "👆 အောက်ကခလုတ်နှိပ်ပြီး စပါ။"
+
+    net_display = f"{'+' if net >= 0 else ''}{net:.2f} USD"
+    text = (f"🎡 <b>ROULETTE (ရူလက်)</b>\n👤 <a href='tg://user?id={user_id}'><b>လောင်းကစားသမား</b></a>\n"
+            f"💵 <b>လက်ရှိလောင်းငွေ:</b> <code>{bet:.2f} USD</code>\n🔄 <b>အရေအတွက်:</b> <code>{spins}</code> ပွဲ\n"
+            f"📊 <b>စုစုပေါင်းအမြတ်/အရှုံး:</b> <code>{net_display}</code>\n\n{status_line}\n\n<i>အောက်ကခလုတ်နှိပ်ပြီး ရွေးပါ။</i>")
+    buttons = []
+    if not final:
+        buttons.append([Button.inline("🔴 အနီ (x2)", data=f"r3_color_{user_id}_🔴"),
+                        Button.inline("⚫ အမည်း (x2)", data=f"r3_color_{user_id}_⚫"),
+                        Button.inline("🟢 အစိမ်း (x14)", data=f"r3_color_{user_id}_🟢")])
+        row1, row2 = [], []
+        for i in range(1, 11):
+            (row1 if i <= 5 else row2).append(Button.inline(str(i), data=f"r3_num_{user_id}_{i}"))
+        buttons.append(row1); buttons.append(row2)
+        r1, r2, r3 = [], [], []
+        for i, amt in enumerate(ROULETTE_BET_PRESETS):
+            data = f"r3_addbet_{user_id}_{amt}"
+            if i < 2: r1.append(Button.inline(f"+{amt}", data=data))
+            elif i < 4: r2.append(Button.inline(f"+{amt}", data=data))
+            else: r3.append(Button.inline(f"+{amt}", data=data))
+        if r1: buttons.append(r1)
+        if r2: buttons.append(r2)
+        if r3: buttons.append(r3)
+        buttons.append([Button.inline("💰 ငွေထုတ်မယ်", data=f"r3_cashout_{user_id}")])
+    else: buttons.append([Button.inline("🔄 အသစ်စပါ", data=f"r3_new_{user_id}")])
+    return text, buttons
+
+async def _roulette_end_bot3(user_id, chat_id, msg_id, cashout=True):
+    session = active_roulette_sessions.pop(user_id, None)
+    if not session: return
+    net = session.get("net", 0)
+    tax_text = ""
+    if cashout and net > 0:
+        tax = round(net * CASHOUT_PROFIT_TAX, 2)
+        if tax > 0:
+            await users_catcher_col.update_one({"user_id": user_id}, {"$inc": {"wallet_balance": -tax}})
+            session["net"] = round(net - tax, 2)
+            tax_text = f"\n🏦 <b>အမြတ်အခွန် ({int(CASHOUT_PROFIT_TAX*100)}%):</b> <code>-{tax:.2f} USD</code>"
+        else: tax_text = "\n✅ အခွန်ကင်း"
+    elif cashout and net <= 0: tax_text = "\n💔 အရှုံးပေါ် — အခွန်မကောက်ပါ"
+    final_text, _ = _render_roulette_bot3(session, final=True)
+    final_text += tax_text
+    try: await bot3.edit_message(chat_id, msg_id, final_text, parse_mode='html', buttons=None)
+    except: pass
+
+@bot3.on(events.NewMessage(pattern=r'^[/.](roulette|r)(?:@\w+)?(?:\s+(\d+(?:\.\d+)?))?'))
+async def roulette_cmd_bot3(event):
+    user_id = event.sender_id
+    bet_str = event.pattern_match.group(2) if event.pattern_match.group(2) else None
+    if user_id in active_roulette_sessions:
+        session = active_roulette_sessions[user_id]
+        if bet_str: await _roulette_end_bot3(user_id, event.chat_id, session["msg_id"], cashout=False)
+        else: return await bot3.send_message(event.chat_id, "⚠️ Roulette ရှိနေပြီ။ အောက်ကခလုတ်သုံးပါ။", parse_mode='html', reply_to=session["msg_id"])
+    if not bet_str: return await bot3.send_message(event.chat_id, "🎡 ငွေပမာဏထည့်ပါ။ ဥပမာ: <code>/r 5</code>", parse_mode='html')
+    bet = round(float(bet_str), 2)
+    if bet <= 0: return await bot3.send_message(event.chat_id, "❌ အနည်းဆုံး 0.01 USD", parse_mode='html')
+    user_doc = await users_catcher_col.find_one({"user_id": user_id})
+    if (user_doc.get("wallet_balance", 0) if user_doc else 0) < bet: return await bot3.send_message(event.chat_id, f"❌ ငွေမလုံလောက်", parse_mode='html')
+    session = {"user_id": user_id, "bet": bet, "net": 0.0, "chat_id": event.chat_id, "msg_id": None, "spins": 0}
+    text, buttons = _render_roulette_bot3(session)
+    msg = await bot3.send_message(event.chat_id, text, parse_mode='html', buttons=buttons)
+    session["msg_id"] = msg.id
+    active_roulette_sessions[user_id] = session
+
+async def _roulette_spin_bot3(event, user_id, bet_type, bet_value=None):
+    session = active_roulette_sessions.get(user_id)
+    if not session: return await event.answer("❌ Session မရှိ", alert=True)
+    chat_id, bet = session["chat_id"], session["bet"]
+
+    burn = round(bet * SPIN_BURN_RATE, 2)
+    if burn > 0 and not await try_deduct_balance(user_id, burn):
+        await event.answer("❌ မီးရှို့ခ မပေးနိုင်", alert=True)
+        return await _roulette_end_bot3(user_id, chat_id, session["msg_id"], cashout=False)
+    if not await try_deduct_balance(user_id, bet):
+        await event.answer("❌ ငွေနှုတ်လို့မရ", alert=True)
+        return await _roulette_end_bot3(user_id, chat_id, session["msg_id"], cashout=False)
+
+    user_doc = await users_catcher_col.find_one({"user_id": user_id})
+    is_whale = (user_doc.get("wallet_balance", 0) if user_doc else 0) > WEALTH_THRESHOLD
+
+    for _ in range(3):
+        anim_text, _ = _render_roulette_bot3(session, animating=True)
+        try: await event.edit(anim_text, parse_mode='html', buttons=None)
+        except: pass
+        await asyncio.sleep(0.3)
+
+    number = random.randint(0, 10)
+    color = ROULETTE_COLORS[number]
+    multiplier = 0
+    if bet_type == "number" and bet_value == number: multiplier = 10
+    elif bet_type == "color" and color == bet_value: multiplier = ROULETTE_MULTIPLIERS.get(color, 0)
+    raw_win = round(bet * multiplier, 2) if multiplier > 0 else 0
+
+    if is_whale and raw_win > 0:
+        raw_win = round(raw_win * WEALTH_MULTIPLIER_PENALTY, 2)
+        penalty_text = "\n🐋 ငွေကြေးရှိသူအခွန် (မြှောက်ကိန်း ၅၀% လျှော့)"
+    else: penalty_text = ""
+
+    win = raw_win
+    if win > 0:
+        await users_catcher_col.update_one({"user_id": user_id}, {"$inc": {"wallet_balance": win}})
+        net_change = win - bet
+    else: net_change = -bet
+
+    session["net"] += net_change
+    session["spins"] = session.get("spins", 0) + 1
+    result = {"number": number, "color": color, "win": win}
+    text_final, buttons_final = _render_roulette_bot3(session, result=result)
+    if burn > 0: text_final += f"\n🔥 <b>ကာစီနိုဆော့ခ:</b> <code>-{burn:.2f} USD</code>"
+    text_final += penalty_text
+    try: await event.edit(text_final, parse_mode='html', buttons=buttons_final)
+    except: pass
+    await event.answer("🎡 လှည့်ပြီး!")
+    if win >= bet * 10:
+        mention = await get_html_mention(event, user_id)
+        await bot3.send_message(chat_id, f"🔥 {mention} Roulette မှာ <b>{win:.2f} USD</b> ပေါက်သွားပြီ!", parse_mode='html')
+
+@bot3.on(events.CallbackQuery(pattern=r'^r3_color_(\d+)_(🔴|⚫|🟢)$'))
+async def r3_color_cb(event):
+    user_id, color = int(event.pattern_match.group(1)), event.pattern_match.group(2)
+    if isinstance(color, bytes): color = color.decode('utf-8')
+    if event.sender_id != user_id: return await event.answer("⚠️ မင်းဟုတ်လား?", alert=True)
+    if not claim_single_tap(event): return await event.answer("⏳ ခဏစောင့်", alert=False)
+    await _roulette_spin_bot3(event, user_id, "color", color)
+
+@bot3.on(events.CallbackQuery(pattern=r'^r3_num_(\d+)_(\d+)$'))
+async def r3_num_cb(event):
+    user_id, number = int(event.pattern_match.group(1)), int(event.pattern_match.group(2))
+    if event.sender_id != user_id: return await event.answer("⚠️ မင်းဟုတ်လား?", alert=True)
+    if not claim_single_tap(event): return await event.answer("⏳ ခဏစောင့်", alert=False)
+    await _roulette_spin_bot3(event, user_id, "number", number)
+
+@bot3.on(events.CallbackQuery(pattern=r'^r3_addbet_(\d+)_(\d+)$'))
+async def r3_addbet_cb(event):
+    user_id, add = int(event.pattern_match.group(1)), float(event.pattern_match.group(2))
+    if event.sender_id != user_id: return await event.answer("⚠️ မင်းဟုတ်လား?", alert=True)
+    session = active_roulette_sessions.get(user_id)
+    if not session: return await event.answer("❌ Session မရှိ", alert=True)
+    if not claim_single_tap(event): return await event.answer("⏳ ခဏစောင့်", alert=False)
+    session["bet"] = max(0.01, session["bet"] + add)
+    text, buttons = _render_roulette_bot3(session)
+    try: await event.edit(text, parse_mode='html', buttons=buttons); await event.answer(f"✅ လောင်းငွေ {session['bet']:.2f} USD", alert=False)
+    except: pass
+
+@bot3.on(events.CallbackQuery(pattern=r'^r3_cashout_(\d+)$'))
+async def r3_cashout_cb(event):
+    user_id = int(event.pattern_match.group(1))
+    if event.sender_id != user_id: return await event.answer("⚠️ မင်းဟုတ်လား?", alert=True)
+    session = active_roulette_sessions.get(user_id)
+    if not session: return await event.answer("❌ Session မရှိ", alert=True)
+    if not claim_single_tap(event): return await event.answer("⏳ ခဏစောင့်", alert=False)
+    await _roulette_end_bot3(user_id, session["chat_id"], session["msg_id"], cashout=True)
+    await event.answer("💰 ငွေထုတ်ပြီး!", alert=True)
+
+@bot3.on(events.CallbackQuery(pattern=r'^r3_new_(\d+)$'))
+async def r3_new_cb(event): await event.answer("🔄 /r [ငွေ] ရိုက်ပြီး အသစ်စပါ။", alert=True)
 
 @bot1.on(events.NewMessage(pattern=own_pattern(r'^[/.]cardgame(?:@\w+)?(?:\s+(\d+(?:\.\d+)?))?$', 'bot1')))
 async def create_cardgame_lobby(event):
