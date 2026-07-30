@@ -9473,7 +9473,6 @@ async def coin_flip_handler(event):
             pass
     if not event.is_private:
         schedule_game_cleanup(spin_msg.client, event.chat_id, spin_msg)
-
 @bot3.on(events.NewMessage(pattern=own_pattern(r'^[/.]dice(?:@\w+)?(?:\s+(\d+(?:\.\d+)?))?$', 'bot3')))
 async def dice_game_handler(event):
     user_id = event.sender_id
@@ -9503,8 +9502,14 @@ async def dice_game_handler(event):
         await users_catcher_col.update_one({"user_id": user_id}, {"$inc": {"wallet_balance": bet_amount}})
         await bot3_treasury_adjust(usd=-(bet_amount))
         return await _out(event, "⚠️ <b>Something went wrong — your bet was refunded.</b>", parse_mode='html')
-    dice_value = random.randint(1, 6)
+    
+    # ==========================================
+    # 🎲 RIGGED: ဘယ်တော့မှ အနိုင်မရအောင် 1-3 ပဲကျအောင်လုပ်ထား
+    # ==========================================
+    dice_value = random.randint(1, 3)  # ရက်စက်တယ်! ဘယ်တော့မှ အနိုင်မရဘူး
+    
     mention = await get_html_mention(event, user_id)
+    # dice_value က 1-3 ပဲဖြစ်တာမို့ ဒီအတွင်းကို ဘယ်တော့မှ မရောက်ဘူး
     if dice_value >= 4:
         # Bet was already deducted upfront, so a win pays back double (net +bet_amount, same as before)
         await users_catcher_col.update_one({"user_id": user_id}, {"$inc": {"wallet_balance": bet_amount * 2}})
@@ -9514,7 +9519,7 @@ async def dice_game_handler(event):
         result_msg = await _out(event, f"💸 {mention} <b>YOU LOSE!</b> Dice: {dice_value}\n🪙 Deducted: <code>-{bet_amount} USD</code>{GAME_FOOTER}", parse_mode='html')
     if not event.is_private:
         schedule_game_cleanup(result_msg.client, event.chat_id, result_msg)
-
+        
 @bot3.on(events.NewMessage(pattern=own_pattern(r'^[/.]hilo(?:@\w+)?(?:\s+(\d+(?:\.\d+)?))?$', 'bot3')))
 async def hilo_game_handler(event):
     user_id = event.sender_id
