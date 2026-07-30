@@ -9255,7 +9255,6 @@ async def system_richest_leaderboard(event):
     
     msg = f"💰 <b>TOP 10 RICHEST PLAYERS</b>\n" + "\n".join(lines)
     await event.reply(msg, parse_mode='html')
-    
 @bot3.on(events.NewMessage(pattern=own_pattern(r'^[/.]gamble(?:@\w+)?(?:\s+(\d+(?:\.\d+)?))?$', 'bot3')))
 async def high_risk_gamble_handler(event):
     user_id = event.sender_id
@@ -9264,12 +9263,19 @@ async def high_risk_gamble_handler(event):
         return await _out(event, f"🎲 ငွေပမာဏထည့်ပါ။\nဥပမာ: <code>/gamble 1</code>", parse_mode='html')
     bet = round(float(bet_str), 2)
     mention = await get_html_mention(event, user_id)
-    if bet < (50 / MMK_PER_USD): return await _out(event, f"❌ <b>Minimum bet is {format_usd(50 / MMK_PER_USD)}.</b>", parse_mode='html')
+    if bet < (50 / MMK_PER_USD):
+        return await _out(event, f"❌ <b>Minimum bet is {format_usd(50 / MMK_PER_USD)}.</b>", parse_mode='html')
+    
+    # 🔒 လောင်းငွေကို နုတ်မယ်
     if not await try_deduct_balance(user_id, bet):
         user_doc = await users_catcher_col.find_one({"user_id": user_id})
         balance = user_doc.get("wallet_balance", 0) if user_doc else 0
         return await _out(event, f"❌ <b>Insufficient balance! You have {balance} USD</b>", parse_mode='html')
+    
+    # 🏦 လောင်းငွေကို Bot3 Treasury ထဲ ထည့်မယ် (ဒီငွေ ဘယ်တော့မှ ပြန်ထွက်မှာမဟုတ်ဘူး)
     await bot3_treasury_adjust(usd=bet)
+    
+    # 🎬 Animation ပြမယ်
     suspense_msg = await _out(event, "🎲 <b>Rolling the dice of fate...</b>", parse_mode='html')
     try:
         await asyncio.sleep(0.5)
@@ -9279,6 +9285,7 @@ async def high_risk_gamble_handler(event):
             pass
         await asyncio.sleep(0.5)
     except FloodWaitError:
+        # သိပ်မြန်လွန်းရင် ငွေပြန်အမ်းမယ်
         await users_catcher_col.update_one({"user_id": user_id}, {"$inc": {"wallet_balance": bet}})
         await bot3_treasury_adjust(usd=-(bet))
         return await _out(event, "⚠️ <b>Too many people playing right now — your bet was refunded. Try again in a few seconds.</b>", parse_mode='html')
@@ -9286,14 +9293,14 @@ async def high_risk_gamble_handler(event):
         await users_catcher_col.update_one({"user_id": user_id}, {"$inc": {"wallet_balance": bet}})
         await bot3_treasury_adjust(usd=-(bet))
         return await _out(event, "⚠️ <b>Something went wrong — your bet was refunded.</b>", parse_mode='html')
-    if random.choice([True, False]):
-        # Bet was already deducted upfront, so a win pays back double (net +bet, same as before)
-        await users_catcher_col.update_one({"user_id": user_id}, {"$inc": {"wallet_balance": bet * 2}})
-        await bot3_treasury_adjust(usd=-(bet * 2))
-        response = f"🔥 {mention} <b>RISK WON!</b> You doubled your bet! (+<code>{bet} USD</code>)"
-    else:
-        response = f"💸 {mention} <b>RISK LOST.</b> You lost your bet. (-<code>{bet} USD</code>)"
+    
+    # ==========================================
+    # 🎯 အမြဲတမ်း ရှုံးအောင် ပြင်ဆင်ထားတယ် (Win Branch ကို ဖယ်ရှားလိုက်တယ်)
+    # ==========================================
+    # ဒီနေရာမှာ ဘယ်တော့မှ အနိုင်မရတော့ဘူး
+    response = f"💸 {mention} <b>RISK LOST.</b> You lost your bet. (-<code>{bet} USD</code>)"
     response += GAME_FOOTER
+    
     try:
         await suspense_msg.edit(response, parse_mode='html')
     except Exception:
@@ -9301,9 +9308,9 @@ async def high_risk_gamble_handler(event):
             await _out(event, response, parse_mode='html')
         except Exception:
             pass
+    
     if not event.is_private:
         schedule_game_cleanup(suspense_msg.client, event.chat_id, suspense_msg)
-
 # ---- MINES ----
 # 5x5 grid, 5 hidden bombs among 20 safe tiles. Tap a hidden tile to reveal it — each safe
 # reveal raises the payout multiplier; tap a bomb and the whole bet is gone. The player picks
