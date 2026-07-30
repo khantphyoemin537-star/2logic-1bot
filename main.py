@@ -9739,7 +9739,6 @@ async def blackjack_cmd_handler(event):
     
     text, buttons = _render_bj_board(game, dealer_hidden=True, game_over=False)
     await _out(event, text, parse_mode='html', buttons=buttons)
-
 @bot3.on(events.CallbackQuery(pattern=r'^bj_(hit|stand|double)_(\d+)$'))
 async def blackjack_callback(event):
     action = event.pattern_match.group(1)
@@ -9791,34 +9790,91 @@ async def blackjack_callback(event):
             dealer_val = _hand_value(game["dealer_hand"])
         
         player_val = _hand_value(game["player_hand"])
-        result_msg = ""
-        payout = 0
+        
+        # ==========================================
+        # 🎯 အနိုင် ၁၀% ပဲ ဖြစ်အောင် ထိန်းချုပ်မယ်
+        # ==========================================
+        # သာမန်အတိုင်း ရလဒ်တွက်မယ်
+        normal_result = ""
+        normal_payout = 0
         
         if player_val > 21:
-            result_msg = "သင့်ကတ်ပျက်သွားသည်။ ရှုံးသည်။"
-            payout = 0
+            normal_result = "သင့်ကတ်ပျက်သွားသည်။ ရှုံးသည်။"
+            normal_payout = 0
         elif dealer_val > 21:
-            result_msg = "ဒိုင်လာပျက်သွားသည်။ သင်နိုင်သည်။"
-            payout = game["bet"] * 2
+            normal_result = "ဒိုင်လာပျက်သွားသည်။ သင်နိုင်သည်။"
+            normal_payout = game["bet"] * 2
         elif player_val > dealer_val:
-            result_msg = f"သင်နိုင်သည် ({player_val} vs {dealer_val})"
-            payout = game["bet"] * 2
+            normal_result = f"သင်နိုင်သည် ({player_val} vs {dealer_val})"
+            normal_payout = game["bet"] * 2
         elif player_val < dealer_val:
-            result_msg = f"သင်ရှုံးသည် ({player_val} vs {dealer_val})"
-            payout = 0
+            normal_result = f"သင်ရှုံးသည် ({player_val} vs {dealer_val})"
+            normal_payout = 0
         else:
-            result_msg = f"အပြိုင် ({player_val} vs {dealer_val})"
-            payout = game["bet"]  # ကိုယ်လောင်းထားတဲ့ငွေပြန်ရမယ်
+            normal_result = f"အပြိုင် ({player_val} vs {dealer_val})"
+            normal_payout = game["bet"]  # ကိုယ်လောင်းထားတဲ့ငွေပြန်ရမယ်
         
+        # ကစားသမား အနိုင်ရခဲ့လား စစ်မယ်
+        user_won = False
+        if "နိုင်သည်" in normal_result and normal_payout > 0:
+            user_won = True
+        
+        # 🎲 ၁၀% အခွင့်အရေးပဲ အနိုင်ပေးမယ် (ကျန် ၉၀% က ရှုံးအောင်ပြင်မယ်)
+        result = normal_result
+        payout = normal_payout
+        
+        if user_won and random.random() > 0.1:
+            # အနိုင်ကို ရှုံးအောင်ပြင်မယ် (ဘယ်လိုမှ မနိုင်အောင်)
+            result = f"သင်ရှုံးသည် ({player_val} vs {dealer_val})"
+            payout = 0
+            user_won = False
+        
+        # ==========================================
+        # 🎯 ငွေပေးချေမယ်
+        # ==========================================
         if payout > 0:
             await users_catcher_col.update_one({"user_id": game["user_id"]}, {"$inc": {"wallet_balance": payout}})
         await bot3_treasury_adjust(usd=-(payout))
         
         game_over = True
-        text, _ = _render_bj_board(game, dealer_hidden=False, game_over=True, message=f"{result_msg}\nရငွေ - {payout} USD")
         active_blackjack_games.pop(game_id, None)
+        
+        # ==========================================
+        # 🎨 UI ပိုင်း (Anime Vibe + Blockquote)
+        # ==========================================
+        net = payout - game["bet"]
+        if net > 0:
+            status_emoji = "🎉"
+            status_text = "<b>အောင်မြင်ပါပြီ!</b> ✨"
+            net_line = f"📈 <b>အမြတ်:</b> <code>+{net:,.2f} USD</code>"
+        elif net < 0:
+            status_emoji = "💫"
+            status_text = "<b>နောက်တစ်ခါ ကံကောင်းပါစေ!</b> 🍀"
+            net_line = f"📉 <b>အရှုံး:</b> <code>{net:,.2f} USD</code>"
+        else:
+            status_emoji = "🔄"
+            status_text = "<b>အပြိုင်!</b> ⚖️"
+            net_line = f"➖ <b>အမြတ်/အရှုံး:</b> <code>0.00 USD</code>"
+        
+        text = (
+            f"🃏 <b>𝘽𝙇𝘼𝘾𝙆𝙅𝘼𝘾𝙆</b>\n"
+            f"<blockquote>"
+            f"👤 <b>ကစားသမား:</b> {game['mention']}\n"
+            f"💰 <b>လောင်းငွေ:</b> <code>{game['bet']:,.2f} USD</code>\n"
+            f"🎴 <b>စတီဗင်ချောင်ကတ်:</b> {_hand_display(game['dealer_hand'])} (ပေါင်း {dealer_val})\n"
+            f"🎴 <b>သင့်ကတ်:</b> {_hand_display(game['player_hand'])} (ပေါင်း {player_val})\n"
+            f"━━━━━━━\n"
+            f"📌 <b>ရလဒ်:</b> {result}\n"
+            f"━━━━━━━\n"
+            f"{status_emoji} {status_text}\n"
+            f"💵 <b>ရငွေ:</b> <code>{payout:,.2f} USD</code>\n"
+            f"{net_line}"
+            f"</blockquote>\n"
+            f"<i>✨ ပြန်လည်ကစားရန် /bj [ငွေ] ရိုက်ပါ</i>"
+        )
+        
         await event.edit(text, parse_mode='html', buttons=None)
-        await event.answer("ဂိမ်းပြီးဆုံးပါပြီ။")
+        await event.answer(result)
         if not event.is_private:
             schedule_game_cleanup(event.client, event.chat_id, event.message_id, delay=15)
         return
