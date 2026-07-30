@@ -10346,21 +10346,56 @@ async def baccarat_play_callback(event):
                 banker_hand.append(b_third)
                 b_total = _bac_hand_total(banker_hand)
     
-    # အနိုင်ရှာ ဆုံးဖြတ်မယ်
-    result = ""
-    payout_multiplier = 0
+    # ==========================================
+    # 🎯 အနိုင် ၁၀% ပဲ ဖြစ်အောင် ထိန်းချုပ်မယ်
+    # ==========================================
+    # သာမန်အတိုင်း ရလဒ်တွက်မယ်
+    normal_result = ""
+    normal_payout_multiplier = 0
     if p_total > b_total:
-        result = "ပလေယာ နိုင်"
-        payout_multiplier = 2.0 if bet_side == "player" else 0
+        normal_result = "ပလေယာ နိုင်"
+        normal_payout_multiplier = 2.0 if bet_side == "player" else 0
     elif b_total > p_total:
-        result = "ဘဏ်သမား နိုင်"
+        normal_result = "ဘဏ်သမား နိုင်"
         if bet_side == "banker":
-            payout_multiplier = 1.9
+            normal_payout_multiplier = 1.9
         else:
-            payout_multiplier = 0
+            normal_payout_multiplier = 0
     else:
-        result = "အပြိုင်"
-        payout_multiplier = 8.0 if bet_side == "tie" else 0
+        normal_result = "အပြိုင်"
+        normal_payout_multiplier = 8.0 if bet_side == "tie" else 0
+    
+    # သုံးစွဲသူ အနိုင်ရခဲ့လား စစ်မယ်
+    user_won = False
+    if normal_result == "ပလေယာ နိုင်" and bet_side == "player":
+        user_won = True
+    elif normal_result == "ဘဏ်သမား နိုင်" and bet_side == "banker":
+        user_won = True
+    elif normal_result == "အပြိုင်" and bet_side == "tie":
+        user_won = True
+    
+    # 🎲 ၁၀% အခွင့်အရေးပဲ အနိုင်ပေးမယ် (ကျန် ၉၀% က ရှုံးအောင်ပြင်မယ်)
+    if user_won and random.random() > 0.1:
+        # အနိုင်ကို ရှုံးအောင်ပြင်မယ်
+        if bet_side == "player":
+            normal_result = "ဘဏ်သမား နိုင်"
+            normal_payout_multiplier = 0
+        elif bet_side == "banker":
+            normal_result = "ပလေယာ နိုင်"
+            normal_payout_multiplier = 0
+        else:  # tie
+            if random.random() < 0.5:
+                normal_result = "ပလေယာ နိုင်"
+            else:
+                normal_result = "ဘဏ်သမား နိုင်"
+            normal_payout_multiplier = 0
+        user_won = False
+    
+    # ==========================================
+    # 🎯 ရလဒ်အရ ငွေပေးချေမယ်
+    # ==========================================
+    result = normal_result
+    payout_multiplier = normal_payout_multiplier
     
     # အပြိုင်ဆိုရင် လောင်းငွေ ပြန်ပေးတယ် (သေချာအောင်)
     if result == "အပြိုင်":
@@ -10379,13 +10414,41 @@ async def baccarat_play_callback(event):
     game["done"] = True
     active_bac_games.pop(game_id, None)
     
-    text = f"ဘက်ကရက် ရလဒ်\nကစားသမား - {game['mention']}\nလောင်းငွေ - {game['bet']} USD\n\nပလေယာကတ် - {_bac_hand_str(player_hand)} (ပေါင်း {p_total})\nဘဏ်သမားကတ် - {_bac_hand_str(banker_hand)} (ပေါင်း {b_total})\nရလဒ် - {result}\nသင်လောင်း - {bet_side}\nရငွေ - {payout} USD\n"
+    # ==========================================
+    # 🎨 UI ပိုင်း (Anime Vibe + Blockquote)
+    # ==========================================
     if net > 0:
-        text += f"အမြတ် - +{net} USD"
+        status_emoji = "🎉"
+        status_text = "<b>အောင်မြင်ပါပြီ!</b> ✨"
+        net_line = f"📈 <b>အမြတ်:</b> <code>+{net:,.2f} USD</code>"
     elif net < 0:
-        text += f"အရှုံး - {net} USD"
+        status_emoji = "💫"
+        status_text = "<b>နောက်တစ်ခါ ကံကောင်းပါစေ!</b> 🍀"
+        net_line = f"📉 <b>အရှုံး:</b> <code>{net:,.2f} USD</code>"
     else:
-        text += f"အပြိုင်"
+        status_emoji = "🔄"
+        status_text = "<b>အပြိုင်!</b> ⚖️"
+        net_line = f"➖ <b>အမြတ်/အရှုံး:</b> <code>0.00 USD</code>"
+    
+    text = (
+        f"🃏 <b>𝘽𝘼𝘾𝘾𝘼𝙍𝘼𝙏</b>\n"
+        f"━━━━━━━━━━━━━━━━━━━━\n"
+        f"<blockquote>"
+        f"👤 <b>ကစားသမား:</b> {game['mention']}\n"
+        f"💰 <b>လောင်းငွေ:</b> <code>{game['bet']:,.2f} USD</code>\n"
+        f"━━━━━━━━━━━━━━━━━━━━\n"
+        f"🎴 <b>ပလေယာကတ်:</b> {_bac_hand_str(player_hand)} (ပေါင်း {p_total})\n"
+        f"🎴 <b>ဘဏ်သမားကတ်:</b> {_bac_hand_str(banker_hand)} (ပေါင်း {b_total})\n"
+        f"━━━━━━━━━━━━━━━━━━━━\n"
+        f"🏷️ <b>သင်လောင်း:</b> <code>{bet_side}</code>\n"
+        f"📌 <b>ရလဒ်:</b> {result}\n"
+        f"━━━━━━━━━━━━━━━━━━━━\n"
+        f"{status_emoji} {status_text}\n"
+        f"💵 <b>ရငွေ:</b> <code>{payout:,.2f} USD</code>\n"
+        f"{net_line}"
+        f"</blockquote>\n"
+        f"<i>✨ ပြန်လည်ကစားရန် /bac [ငွေ] ရိုက်ပါ</i>"
+    )
     
     await event.edit(text, parse_mode='html', buttons=None)
     await event.answer(result)
