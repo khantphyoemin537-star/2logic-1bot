@@ -9236,16 +9236,26 @@ async def daily_bounty_handler(event):
 
 @bot1.on(events.NewMessage(pattern=own_pattern(r'^[/.]richest(?:@\w+)?$', 'bot1')))
 async def system_richest_leaderboard(event):
-    cursor = users_catcher_col.find({"wallet_balance": {"$gt": 0}}).sort("wallet_balance", -1).limit(10)
+    cursor = users_catcher_col.find(
+        {"wallet_balance": {"$gt": 0}},
+        {"user_id": 1, "fullname": 1, "wallet_balance": 1, "star_balance": 1, "total_caught": 1}
+    ).sort("wallet_balance", -1).limit(10)
     richest_users = await cursor.to_list(length=10)
-    if not richest_users: return await event.reply(f"🏆 <b>No wealthy players yet!</b>", parse_mode='html')
-    msg = f"💰 <b>TOP 10 RICHEST PLAYERS</b>\nECONOMY\n"
-    for i, u in enumerate(richest_users):
+    if not richest_users:
+        return await event.reply(f"🏆 <b>No wealthy players yet!</b>", parse_mode='html')
+    
+    lines = []
+    for i, u in enumerate(richest_users, 1):
         bal = u.get("wallet_balance", 0)
-        user_display = escape_html(clean_display_name(u.get('fullname'), fallback=f"User {u['user_id']}"))
-        msg += f"<b>{i+1}.</b> {user_display} — <code>{bal:,} USD</code> 🪙\n"
+        star = u.get("star_balance", 0)
+        cards = u.get("total_caught", 0)
+        name = clean_display_name(u.get('fullname'), fallback=f"User {u['user_id']}")
+        # တစ်ယောက်ချင်းစီကို သီးခြား bq ထဲထည့်မယ်
+        lines.append(f"<blockquote><b>{i}.</b> {name} — {format_usd_compact(bal)} 💵, {format_star_plain(star)}, {cards:,} Cards</blockquote>")
+    
+    msg = f"💰 <b>TOP 10 RICHEST PLAYERS</b>\n" + "\n".join(lines)
     await event.reply(msg, parse_mode='html')
-
+    
 @bot3.on(events.NewMessage(pattern=own_pattern(r'^[/.]gamble(?:@\w+)?(?:\s+(\d+(?:\.\d+)?))?$', 'bot3')))
 async def high_risk_gamble_handler(event):
     user_id = event.sender_id
@@ -9653,15 +9663,15 @@ def _render_bj_board(game, dealer_hidden=True, game_over=False, message=""):
     player_val = _hand_value(player_hand)
     dealer_val = _hand_value(dealer_hand) if not dealer_hidden else _hand_value([dealer_hand[0]])
     
-    text = f"ဘလက်ဂျက် (၂၁ ကောင်း)\n"
+    text = f"ဘလက်ဂျက်\n"
     text += f"ကစားသမား - {game['mention']}\n"
     text += f"လောင်းငွေ - {bet} USD\n\n"
     
-    text += f"ဒိုင်လာ - {_hand_display(dealer_hand, dealer_hidden)}\n"
+    text += f"စတီဗင်ချောင် - {_hand_display(dealer_hand, dealer_hidden)}\n"
     if not dealer_hidden:
-        text += f"ဒိုင်လာ ပေါင်း - {dealer_val}\n"
+        text += f" စတီဗင်ချောင်ဖဲချပ်ပေါင်းခြင်း- {dealer_val}\n"
     text += f"\nသင့်ကတ် - {_hand_display(player_hand)}\n"
-    text += f"သင့်ပေါင်း - {player_val}\n"
+    text += f"မင်းဖဲချပ်ပေါင်းခြင်း - {player_val}\n"
     
     if message:
         text += f"\n{message}"
@@ -9823,8 +9833,8 @@ async def blackjack_callback(event):
 # ---- CRASH GAME (ပြိုကျဂိမ်း) ----
 CRASH_MIN_BET = 0.5
 CRASH_MAX_MULTIPLIER = 100.0
-CRASH_MULTIPLIER_STEP = 0.05  # တစ်ခါတိုးတိုင်း တိုးနှုန်း
-CRASH_UPDATE_INTERVAL = 0.3   # စက္ကန့်
+CRASH_MULTIPLIER_STEP = 0.03  # တစ်ခါတိုးတိုင်း တိုးနှုန်း
+CRASH_UPDATE_INTERVAL = 1   # စက္ကန့်
 active_crash_games = {}
 _crash_game_counter = 0
 
@@ -10070,14 +10080,14 @@ async def rps_play_callback(event):
 WHEEL_MIN_BET = 0.5
 # ကဏ္ဍများ (မြှောက်ကိန်း၊ အလေးချိန်)
 WHEEL_SEGMENTS = [
-    {"multiplier": 0.0, "weight": 20, "label": "၀x"},
-    {"multiplier": 0.5, "weight": 15, "label": "၀.၅x"},
-    {"multiplier": 1.0, "weight": 15, "label": "၁x"},
-    {"multiplier": 2.0, "weight": 12, "label": "၂x"},
-    {"multiplier": 3.0, "weight": 10, "label": "၃x"},
-    {"multiplier": 5.0, "weight": 8, "label": "၅x"},
-    {"multiplier": 10.0, "weight": 5, "label": "၁၀x"},
-    {"multiplier": 20.0, "weight": 2, "label": "၂၀x"},
+    {"multiplier": 0.0, "weight": 20, "label": "0ဆ"},
+    {"multiplier": 0.0, "weight": 15, "label": "0ဆ"},
+    {"multiplier": 0.0, "weight": 15, "label": "0ဆ"},
+    {"multiplier": 1.0, "weight": 12, "label": "1ဆ"},
+    {"multiplier": 2.0, "weight": 10, "label": "2ဆ"},
+    {"multiplier": 2.0, "weight": 8, "label": "2.5ဆ"},
+    {"multiplier": 2.5, "weight": 5, "label": "2.5ဆ"},
+    {"multiplier": 2.5, "weight": 2, "label": "2.5ဆ"},
 ]
 active_wheel_games = {}
 _wheel_game_counter = 0
@@ -10158,13 +10168,34 @@ async def wheel_spin_callback(event):
     net = round(payout - game["bet"], 2)
     active_wheel_games.pop(game_id, None)
     
-    text = f"ကံဘီး ရလဒ်\nကစားသမား - {game['mention']}\nလောင်းငွေ - {game['bet']} USD\n\nဘီးရပ်သွားသည့်နေရာ - {chosen['label']} (မြှောက်ကိန်း x{multiplier})\nရငွေ - {payout} USD\n"
+    # ==========================================
+    # 🎨 UI ပိုင်း (Anime Vibe + Blockquote)
+    # ==========================================
     if net > 0:
-        text += f"အမြတ် - +{net} USD"
+        status_emoji = "💸"
+        status_text = "<b>အောင်မြင်ပါပြီ!</b> ✨"
+        net_line = f"📈 <b>အမြတ်:</b> <code>+{net:,.2f} USD</code>"
     elif net < 0:
-        text += f"အရှုံး - {net} USD"
+        status_emoji = "💫"
+        status_text = "<b>နောက်တစ်ခါ ကံကောင်းပါစေ!</b> 🍀"
+        net_line = f"📉 <b>အရှုံး:</b> <code>{net:,.2f} USD</code>"
     else:
-        text += f"အပြိုင်"
+        status_emoji = "🔄"
+        status_text = "<b>အပြိုင်!</b> ⚖️"
+        net_line = f"➖ <b>အမြတ်/အရှုံး:</b> <code>0.00 USD</code>"
+    
+    text = (
+        f"🎡 <b>𝙒𝙃𝙀𝙀𝙇 𝙊𝙁 𝙁𝙊𝙍𝙏𝙐𝙉𝙀</b>\n"
+        f"<blockquote>"
+        f"👤 <b>ကစားသမား:</b> {game['mention']}\n"
+        f"💰 <b>လောင်းငွေ:</b> <code>{game['bet']:,.2f} USD</code>\n"
+        f"🎯 <b>ဘီးရပ်သွားသည့်နေရာ:</b> <code>{chosen['label']}</code> (မြှောက်ကိန်း x{multiplier})\n"
+        f"{status_emoji} {status_text}\n"
+        f"💵 <b>ရငွေ:</b> <code>{payout:,.2f} USD</code>\n"
+        f"{net_line}"
+        f"</blockquote>\n"
+        f"<i>✨ ပြန်လည်ကစားရန် /wheel [ငွေ] ရိုက်ပါ</i>"
+    )
     
     await event.edit(text, parse_mode='html', buttons=None)
     await event.answer(f"{chosen['label']} ကျသွားပါပြီ။")
