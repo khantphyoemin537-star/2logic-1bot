@@ -9481,8 +9481,8 @@ async def high_risk_gamble_handler(event):
 # 5x5 grid, 5 hidden bombs among 20 safe tiles. Tap a hidden tile to reveal it — each safe
 # reveal raises the payout multiplier; tap a bomb and the whole bet is gone. The player picks
 # when to Cash Out, same idea as the popular "Mines" games on other casino-style bots.
-MINES_GRID_SIZE = 25  # 5x5
-MINES_BOMB_COUNT = 7  # 20 safe tiles
+MINES_GRID_SIZE = 20  # 5x5
+MINES_BOMB_COUNT = 10 # 20 safe tiles
 MINES_HOUSE_EDGE = 0.97  # ~3% house edge, in line with a typical odds-based casino game
 active_mines_games = bot_state.active_mines_games
 _mines_game_counter = 0
@@ -9505,7 +9505,7 @@ def _mines_fair_multiplier(safe_revealed, total=MINES_GRID_SIZE, bombs=MINES_BOM
 
     # ပိုပြီး ဖောင်းပွမှုကို ထိန်းချုပ်ဖို့ multiplier ကို အများဆုံး ၈x လောက်ထိ ကန့်သတ်ထားတယ်
     raw_multiplier = fair * edge_factor
-    return round(min(raw_multiplier, 8.0), 2)
+    return round(min(raw_multiplier, 4.0), 2)
 
 def _render_mines_board(game, game_id, final=False, hit_idx=None):
     safe_total = MINES_GRID_SIZE - MINES_BOMB_COUNT
@@ -10350,11 +10350,11 @@ WHEEL_SEGMENTS = [
     {"multiplier": 0.0, "weight": 20, "label": "0ဆ"},
     {"multiplier": 0.0, "weight": 15, "label": "0ဆ"},
     {"multiplier": 0.0, "weight": 15, "label": "0ဆ"},
-    {"multiplier": 1.0, "weight": 12, "label": "1ဆ"},
-    {"multiplier": 2.0, "weight": 10, "label": "2ဆ"},
-    {"multiplier": 2.0, "weight": 8, "label": "2.5ဆ"},
-    {"multiplier": 2.5, "weight": 5, "label": "2.5ဆ"},
-    {"multiplier": 2.5, "weight": 2, "label": "2.5ဆ"},
+    {"multiplier": 0.0, "weight": 12, "label": "1ဆ"},
+    {"multiplier": 0.0, "weight": 10, "label": "0ဆ"},
+    {"multiplier": 0.0, "weight": 8, "label": "0ဆ"},
+    {"multiplier": 1.0, "weight": 5, "label": "1ဆ"},
+    {"multiplier": 0.0, "weight": 2, "label": "0ဆ"},
 ]
 active_wheel_games = {}
 _wheel_game_counter = 0
