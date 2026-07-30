@@ -9765,7 +9765,7 @@ async def blackjack_callback(event):
         new_card = game["deck"].pop()
         game["player_hand"].append(new_card)
         if _hand_value(game["player_hand"]) > 21:
-            game["stand"] = True  # ပျက်သွားပြီ
+            game["stand"] = True
     
     elif action == "double":
         if len(game["player_hand"]) != 2 or game.get("doubled"):
@@ -9779,55 +9779,92 @@ async def blackjack_callback(event):
         game["doubled"] = True
         new_card = game["deck"].pop()
         game["player_hand"].append(new_card)
-        game["stand"] = True  # Double Down လုပ်ရင် ရပ်ရမယ်
+        game["stand"] = True
     
     # ---- ဂိမ်းပြီးဆုံးမှု စစ်ဆေးမယ် ----
     if game.get("stand") or _hand_value(game["player_hand"]) > 21:
-        # ဒိုင်လာရဲ့ ကတ်တွေကို ပြမယ်
+        # ==========================================
+        # 🎯 စတီဗင်ချောင်ကို ၂၁ အတွင်း အမြဲရှိနေအောင်လုပ်မယ်
+        # ==========================================
+        player_val = _hand_value(game["player_hand"])
+        
+        # စတီဗင်ချောင်ရဲ့ ကတ်တွေကို ဆွဲမယ်
         dealer_val = _hand_value(game["dealer_hand"])
-        while dealer_val < 17:
+        
+        # စတီဗင်ချောင် ပျက်သွားရင် (၂၁ ကျော်ရင်) ပြန်ဆွဲမယ်
+        while dealer_val < 17 or dealer_val > 21:
+            if dealer_val > 21:
+                # ပျက်သွားရင် ကတ်အကုန်ပြန်ဖျက်ပြီး အသစ်ဆွဲမယ်
+                game["dealer_hand"] = [game["deck"].pop(), game["deck"].pop()]
+                dealer_val = _hand_value(game["dealer_hand"])
+                continue
             game["dealer_hand"].append(game["deck"].pop())
             dealer_val = _hand_value(game["dealer_hand"])
         
-        player_val = _hand_value(game["player_hand"])
+        # ==========================================
+        # 🎯 စတီဗင်ချောင်က ကစားသမားထက် အမြဲများနေအောင်လုပ်မယ် (သို့မဟုတ် အပြိုင်)
+        # ==========================================
+        # ကစားသမားက ၂၁ ရထားရင် စတီဗင်ချောင်က ၂၁ ပဲရှိအောင်လုပ်မယ် (အပြိုင်)
+        if player_val == 21:
+            # စတီဗင်ချောင်ကို ၂၁ ဖြစ်အောင်လုပ်မယ်
+            while dealer_val < 21:
+                game["dealer_hand"].append(game["deck"].pop())
+                dealer_val = _hand_value(game["dealer_hand"])
+                if dealer_val > 21:
+                    # ပျက်သွားရင် ပြန်ဆွဲမယ်
+                    game["dealer_hand"] = [game["deck"].pop(), game["deck"].pop()]
+                    dealer_val = _hand_value(game["dealer_hand"])
+            dealer_val = 21
+        
+        # ကစားသမားက ၂၁ အောက်ဆိုရင် စတီဗင်ချောင်က ကစားသမားထက် ၁ မှတ်ပိုများအောင်လုပ်မယ်
+        elif player_val < 21:
+            target = player_val + 1
+            if target > 21:
+                target = 21
+            # စတီဗင်ချောင်ကို target ဖြစ်အောင်ဆွဲမယ်
+            attempts = 0
+            while dealer_val != target and attempts < 50:
+                if dealer_val < target:
+                    game["dealer_hand"].append(game["deck"].pop())
+                    dealer_val = _hand_value(game["dealer_hand"])
+                    if dealer_val > 21:
+                        # ပျက်သွားရင် ပြန်ဆွဲမယ်
+                        game["dealer_hand"] = [game["deck"].pop(), game["deck"].pop()]
+                        dealer_val = _hand_value(game["dealer_hand"])
+                        attempts += 1
+                        continue
+                elif dealer_val > target:
+                    # ကျော်သွားရင် ပြန်ဆွဲမယ်
+                    game["dealer_hand"] = [game["deck"].pop(), game["deck"].pop()]
+                    dealer_val = _hand_value(game["dealer_hand"])
+                attempts += 1
+            # မအောင်မြင်ရင် အနီးဆုံးကိုယူမယ်
+            if dealer_val > 21:
+                dealer_val = 21
         
         # ==========================================
-        # 🎯 အနိုင် ၁၀% ပဲ ဖြစ်အောင် ထိန်းချုပ်မယ်
+        # 🎯 ရလဒ်ဆုံးဖြတ်မယ်
         # ==========================================
-        # သာမန်အတိုင်း ရလဒ်တွက်မယ်
-        normal_result = ""
-        normal_payout = 0
+        result = ""
+        payout = 0
         
         if player_val > 21:
-            normal_result = "သင့်ကတ်ပျက်သွားသည်။ ရှုံးသည်။"
-            normal_payout = 0
+            result = f"သင့်ကတ်ပျက်သွားသည် ({player_val})"
+            payout = 0
         elif dealer_val > 21:
-            normal_result = "ဒိုင်လာပျက်သွားသည်။ သင်နိုင်သည်။"
-            normal_payout = game["bet"] * 2
+            # ဒါက ဘယ်တော့မှ မဖြစ်သင့်ဘူး (ဒါပေမယ့် သေချာအောင်)
+            result = f"စတီဗင်ချောင်ပျက်သွားသည် ({dealer_val})"
+            payout = game["bet"] * 2
         elif player_val > dealer_val:
-            normal_result = f"သင်နိုင်သည် ({player_val} vs {dealer_val})"
-            normal_payout = game["bet"] * 2
+            # ဒါလည်း ဘယ်တော့မှ မဖြစ်သင့်ဘူး
+            result = f"သင်နိုင်သည် ({player_val} vs {dealer_val})"
+            payout = game["bet"] * 2
         elif player_val < dealer_val:
-            normal_result = f"သင်ရှုံးသည် ({player_val} vs {dealer_val})"
-            normal_payout = 0
-        else:
-            normal_result = f"အပြိုင် ({player_val} vs {dealer_val})"
-            normal_payout = game["bet"]  # ကိုယ်လောင်းထားတဲ့ငွေပြန်ရမယ်
-        
-        # ကစားသမား အနိုင်ရခဲ့လား စစ်မယ်
-        user_won = False
-        if "နိုင်သည်" in normal_result and normal_payout > 0:
-            user_won = True
-        
-        # 🎲 ၁၀% အခွင့်အရေးပဲ အနိုင်ပေးမယ် (ကျန် ၉၀% က ရှုံးအောင်ပြင်မယ်)
-        result = normal_result
-        payout = normal_payout
-        
-        if user_won and random.random() > 0.1:
-            # အနိုင်ကို ရှုံးအောင်ပြင်မယ် (ဘယ်လိုမှ မနိုင်အောင်)
             result = f"သင်ရှုံးသည် ({player_val} vs {dealer_val})"
             payout = 0
-            user_won = False
+        else:
+            result = f"အပြိုင် ({player_val} vs {dealer_val})"
+            payout = game["bet"]  # လောင်းငွေပြန်ရမယ်
         
         # ==========================================
         # 🎯 ငွေပေးချေမယ်
@@ -9861,11 +9898,12 @@ async def blackjack_callback(event):
             f"<blockquote>"
             f"👤 <b>ကစားသမား:</b> {game['mention']}\n"
             f"💰 <b>လောင်းငွေ:</b> <code>{game['bet']:,.2f} USD</code>\n"
+            f"━━━━━\n"
             f"🎴 <b>စတီဗင်ချောင်ကတ်:</b> {_hand_display(game['dealer_hand'])} (ပေါင်း {dealer_val})\n"
             f"🎴 <b>သင့်ကတ်:</b> {_hand_display(game['player_hand'])} (ပေါင်း {player_val})\n"
-            f"━━━━━━━\n"
+            f"━━━━━\n"
             f"📌 <b>ရလဒ်:</b> {result}\n"
-            f"━━━━━━━\n"
+            f"━━━━━\n"
             f"{status_emoji} {status_text}\n"
             f"💵 <b>ရငွေ:</b> <code>{payout:,.2f} USD</code>\n"
             f"{net_line}"
