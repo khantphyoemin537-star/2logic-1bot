@@ -7688,7 +7688,7 @@ async def retroactive_star_fee_handler(event):
     # Estimate total fee for all records
     total_gross_all = await star_exchange_log_col.aggregate([
         {"$match": {"type": "sell", "fee": {"$exists": False}}},
-        {"$group": {"_id": None, "total_gross": {"$sum": {"$convert": {"input": {"$ifNull": ["$gross_usd", {"$ifNull": ["$usd_amount", "$mmk_amount"]}]}, "to": "double"}}}}
+        {"$group": {"_id": None, "total_gross": {"$sum": {"$convert": {"input": {"$ifNull": ["$gross_usd", {"$ifNull": ["$usd_amount", "$mmk_amount"]}]}, "to": "double"}}}}}
     ]).to_list(length=1)
     
     estimated_total_gross = total_gross_all[0]["total_gross"] if total_gross_all else 0
