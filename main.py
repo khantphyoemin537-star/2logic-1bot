@@ -1405,10 +1405,6 @@ char_spam_data = bot_state.char_spam_data
 admin_cache = bot_state.admin_cache
 pending_sell_offers = bot_state.pending_sell_offers
 pending_premium_gifts = bot_state.pending_premium_gifts
-dark_passenger_targets = bot_state.dark_passenger_targets
-IS_REPLY_ACTIVE = False
-REPLY_INTERVAL = 4
-reply_msg_counters = bot_state.reply_msg_counters
 group_spawn_counters = bot_state.group_spawn_counters
 # 🗣️ Random talk (retired): used to quietly save clean lines from real chat and say one back
 # every RANDOM_TALK_INTERVAL messages, unprompted. /rton and /rtoff are removed, so this stays
