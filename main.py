@@ -1409,9 +1409,6 @@ group_spawn_counters = bot_state.group_spawn_counters
 # 🗣️ Random talk (retired): used to quietly save clean lines from real chat and say one back
 # every RANDOM_TALK_INTERVAL messages, unprompted. /rton and /rtoff are removed, so this stays
 # permanently off — see random_talk_engine below. /rtclean still exists to wipe talk_col.
-IS_RANDOM_TALK_ACTIVE = False
-RANDOM_TALK_INTERVAL = 50
-random_talk_counters = bot_state.random_talk_counters
 USER_METRICS_BUFFER = []
 BUFFER_LOCK = asyncio.Lock()
 user_cooldowns = bot_state.user_cooldowns
