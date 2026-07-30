@@ -8122,6 +8122,162 @@ async def gift_usd_callback(event):
         )
     except Exception:
         pass
+# ==========================================
+# 👑 OWNER: TAKEOVER USER (USD+Star ➜ Bot3, Cards list)
+# ==========================================
+pending_wipe_requests = {}  # wipe_id -> {"target": int, "balance": float, "star": float, "expiry": float}
+
+@bot1.on(events.NewMessage(pattern=own_pattern(r'^[/.]takeover(?:@\w+)?\s+(\d+)$', 'bot1')))
+async def takeover_user_handler(event):
+    if event.sender_id != OWNER_ID:
+        return
+    target_id = int(event.pattern_match.group(1))
+
+    user_doc = await users_catcher_col.find_one({"user_id": target_id})
+    if not user_doc:
+        return await event.reply(f"❌ User ID <code>{target_id}</code> မတွေ့ပါ။", parse_mode='html')
+
+    balance = user_doc.get("wallet_balance", 0)
+    star = user_doc.get("star_balance", 0)
+    harem = user_doc.get("harem", [])
+    total_caught = user_doc.get("total_caught", 0)
+    total_gifted = user_doc.get("total_gifted", 0)
+    total_buys = user_doc.get("total_buys", 0)
+    fullname = user_doc.get("fullname", f"User {target_id}")
+    mention = f"<a href='tg://user?id={target_id}'><b>{escape_html(fullname)}</b></a>"
+
+    # ---- ကဒ်စာရင်းကို ID နဲ့တကွ ပြင်ဆင်မယ် ----
+    card_lines = []
+    if harem:
+        char_ids = [c.get("char_id") for c in harem if c.get("char_id")]
+        char_map = {}
+        if char_ids:
+            chars = await characters_base_col.find({"char_id": {"$in": char_ids}}).to_list(length=None)
+            char_map = {c["char_id"]: c.get("name", "Unknown") for c in chars}
+        for idx, card in enumerate(harem[:20], 1):
+            cid = card.get("char_id")
+            name = char_map.get(cid, "Unknown")
+            card_lines.append(f"   {idx}. <code>{display_char_id(cid)}</code> — {escape_html(name)}")
+        if len(harem) > 20:
+            card_lines.append(f"   … နောက်ထပ် <code>{len(harem) - 20}</code> ကဒ်")
+    cards_display = "\n".join(card_lines) if card_lines else "   (ကဒ်မရှိပါ)"
+
+    preview = (
+        f"⚠️ <b>USER TAKEOVER CONFIRMATION</b>\n"
+        f"━━━━━━━━━━━━━━━━━━━━\n"
+        f"👤 {mention} (<code>{target_id}</code>)\n"
+        f"💵 <b>USD:</b> <code>{format_usd(balance)}</code> ➜ <i>Bot3 Treasury</i>\n"
+        f"⭐ <b>Star:</b> <code>{format_star_plain(star)}</code> ➜ <i>Bot3 Treasury</i>\n"
+        f"🃏 <b>Cards:</b> <code>{len(harem)}</code> (total caught: {total_caught})\n"
+        f"━━━━━━━━━━━━━━━━━━━━\n"
+        f"<b>📋 ကဒ်စာရင်း (ID နဲ့တကွ)</b>\n"
+        f"{cards_display}\n"
+        f"━━━━━━━━━━━━━━━━━━━━\n"
+        f"<i>ဒီ User ရဲ့ USD နဲ့ Star ကို Bot3 Treasury ထဲ ထည့်ပြီး\n"
+        f"ကဒ်အားလုံးကို ဖျက်ပစ်မှာဖြစ်ပါတယ်။\n"
+        f"ဒီလုပ်ဆောင်ချက်ကို <b>ပြန်ဖျက်လို့မရပါဘူး</b>။</i>"
+    )
+
+    wipe_id = f"wipe_{target_id}_{int(time.time())}"
+    pending_wipe_requests[wipe_id] = {
+        "target": target_id,
+        "balance": balance,
+        "star": star,
+        "expiry": time.time() + 120  # 2 minutes
+    }
+
+    buttons = [[
+        Button.inline("✅ အတည်ပြုမယ် (Bot3 ကိုပေါင်းမယ်)", data=f"wipe_confirm_{wipe_id}"),
+        Button.inline("❌ မလုပ်တော့ဘူး", data=f"wipe_cancel_{wipe_id}")
+    ]]
+    await event.reply(preview, parse_mode='html', buttons=buttons)
+
+
+@bot1.on(events.CallbackQuery(pattern=r'^wipe_(confirm|cancel)_(.+)$'))
+async def wipe_callback_handler(event):
+    action = event.pattern_match.group(1)
+    if isinstance(action, bytes):
+        action = action.decode('utf-8')
+    wipe_id = event.pattern_match.group(2)
+    if isinstance(wipe_id, bytes):
+        wipe_id = wipe_id.decode('utf-8')
+
+    req = pending_wipe_requests.get(wipe_id)
+    if not req:
+        return await event.answer("⏳ ဒီတောင်းဆိုချက် သက်တမ်းကုန်သွားပါပြီ။", alert=True)
+    if event.sender_id != OWNER_ID:
+        return await event.answer("⚠️ Owner မှသာ လုပ်ဆောင်နိုင်ပါတယ်။", alert=True)
+
+    if action == "cancel":
+        pending_wipe_requests.pop(wipe_id, None)
+        await event.edit("❌ <b>User takeover ကို ပယ်ဖျက်လိုက်ပါပြီ။</b>", parse_mode='html', buttons=None)
+        return await event.answer("Cancelled.", alert=True)
+
+    # ---- CONFIRM ----
+    target_id = req["target"]
+    balance = req["balance"]
+    star = req["star"]
+    pending_wipe_requests.pop(wipe_id, None)
+
+    # 1️⃣ USD နဲ့ Star ကို Bot3 Treasury ထဲ ထည့်မယ်
+    if balance > 0 or star > 0:
+        await bot3_treasury_adjust(usd=balance, star=star)
+        print(f"💰 Bot3 Treasury + {balance} USD, {star} Star from user {target_id}")
+
+    # 2️⃣ User ရဲ့ အကုန်လုံးကို ရှင်းပစ်မယ်
+    await users_catcher_col.update_one(
+        {"user_id": target_id},
+        {
+            "$set": {
+                "wallet_balance": 0,
+                "star_balance": 0,
+                "harem": [],
+                "total_caught": 0,
+                "total_gifted": 0,
+                "total_buys": 0,
+                "fav_card": None,
+                "daily_catches": 0,
+                "daily_limit_hit_at": None,
+                "last_catch_date": None,
+                "group_catches": {},
+                "gifted_by_rarity": {},
+                "star_spent_today": 0,
+                "star_bought_today": 0,
+                "star_activity_date": None,
+                "premium_until": 0,
+                "premium_gift_date": None,
+                "buy_date": None,
+                "daily_buy_count": 0,
+                "lifetime_char_buys": {},
+                "top_rarity_week_start": 0,
+                "top_rarity_buys_this_week": 0
+            }
+        }
+    )
+
+    # 3️⃣ Squad ထဲကလည်း ဖယ်ရှားမယ် (Squad လွတ်သွားရင် ဖျက်မယ်)
+    await squads_col.update_many(
+        {"members": target_id},
+        {"$pull": {"members": target_id}}
+    )
+    await squads_col.delete_many({"members": {"$size": 0}})
+
+    # 4️⃣ ပြီးဆုံးကြောင်း ပြန်ကြားမယ်
+    summary = (
+        f"✅ <b>User <code>{target_id}</code> Takeover ပြီးပါပြီ။</b>\n"
+        f"━━━━━━━━━━━━━━━━━━━━\n"
+        f"🏦 <b>Bot3 Treasury သို့ လွှဲပြောင်းခဲ့သည်</b>\n"
+        f"   💵 <code>+{format_usd(balance)}</code> USD\n"
+        f"   ⭐ <code>+{format_star_plain(star)}</code> Star\n"
+        f"━━━━━━━━━━━━━━━━━━━━\n"
+        f"🧹 <b>User ထံမှ သိမ်းဆည်းခဲ့သည်</b>\n"
+        f"   💵 USD → 0\n"
+        f"   ⭐ Star → 0\n"
+        f"   🃏 ကဒ်အားလုံး → ဖျက်ပြီး\n"
+        f"   🏰 Squad မှလည်း ဖယ်ရှားပြီးပါပြီ။"
+    )
+    await event.edit(summary, parse_mode='html', buttons=None)
+    await event.answer("Takeover ပြီးပါပြီ။", alert=True)
 
 # ---- /giftstar ----
 @bot1.on(events.NewMessage(pattern=own_pattern(r'^[/.]giftstar(?:@\w+)?\s+(\d+(?:\.\d+)?)$', 'bot1')))
