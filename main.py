@@ -74,8 +74,7 @@ class BotState:
 
         # ---- Group message-interval counters — one small int per active group, reset by the
         # spawn/talk logic itself when it fires, no expiry concept to sweep. ----
-        self.reply_msg_counters = {}
-        self.random_talk_counters = {}
+        
         # ⚡ PERFORMANCE: the spawn-progress counter for every group used to live purely in
         # Mongo, hit with a find_one_and_update on every single group message — the single
         # biggest source of database load in the whole bot. It now lives here in memory
@@ -100,8 +99,6 @@ class BotState:
         # 🏰 Squad-founding flow (/create): user_id -> {"stage": "name"/"photo", "name",
         # "chat_id", "prompt_msg_id", "deadline"}. Has its own dedicated timeout+refund
         # watchdog (_squad_setup_timeout_watchdog), same reasoning as the games above.
-        self.pending_squad_setup = {}
-
         # ---- asyncio.Lock factories — never swept; a lock can be actively held ----
         self.spawn_locks = defaultdict(asyncio.Lock)
         self.bot_added_locks = defaultdict(asyncio.Lock)
@@ -627,15 +624,28 @@ def rarity_rank_value(rarity_str):
         return len(RARITY_TIERS) - RARITY_TIERS.index(tier)
     except ValueError:
         return 0
-
 def star_price_for_char(char_doc):
-    """⭐ OWNER SHOP PRICE — fixed by rarity, No.1 (rarest) = 9⭐ ... No.9 (most common) = 1⭐.
-    This is exactly rarity_rank_value, kept as its own named function so the pricing rule
-    reads clearly at every /buy [char id] / /show call site."""
+    """⭐ OWNER SHOP PRICE — fixed by rarity, No.1 (rarest) = 90000⭐ ... No.9 (most common) = 1000⭐."""
     if not char_doc:
         return 0
-    return rarity_rank_value(char_doc.get("rarity_tier") or char_doc.get("rarity", ""))
-
+    
+    # Rarity tier ကို ရယူမယ်
+    tier = char_doc.get("rarity_tier") or classify_rarity(char_doc.get("rarity", ""))
+    
+    # သင်လိုချင်တဲ့ စျေးနှုန်း mapping
+    PRICE_MAP = {
+        "ULTRA": 90000,
+        "LEGEND": 50000,
+        "MYTHIC": 30000,
+        "EPIC": 20000,
+        "INCREDIBLE": 10000,
+        "GOLD": 7000,
+        "RARE": 4000,
+        "UNCOMMON": 2000,
+        "COMMON": 1000,
+    }
+    
+    return PRICE_MAP.get(tier, 0)
 # ==========================================
 # 💵 USD / ⭐ STAR DISPLAY FORMATTING
 # ==========================================
@@ -977,16 +987,8 @@ users_catcher_col = db["users_catcher_data"]
 groups_counters_col = db["groups_msg_counters"]
 groups_config_col = db["groups_catcher_config"]
 marketplace_col = db["marketplace_data"]
-guilds_col = db["guilds_data"]
-# 🏰 SQUAD SYSTEM — deliberately its OWN collection, not guilds_col. guilds_col already has an
-# older, never-actually-wired-up "Guild XP/Level" mechanic (see the guild_levelup_msg block in
-# catch_handler) that assumes every doc there has "xp"/"level" fields. Squad docs don't have
-# those, and nothing currently ever inserts into guilds_col — so reusing it here would leave a
-# latent KeyError crash sitting in every future catch for anyone in a Squad. Keeping Squad data
-# in its own collection sidesteps that entirely without needing to touch the old dormant code.
-squads_col = db["squads_data"]
+
 gift_history_col = db["gift_history"]
-haido_history_col = db["haido_history"] # records each person-to-person /gift for profile stats
 artists_col = db["artists"]  # 🎨 artist_name (lowercased) -> linked Telegram user_id, for Guard Bot collect rewards — see /linkartist
 wealth_compression_log_col = db["wealth_compression_log"] # 🐋 audit trail — one doc per /compresswealth confirm run
 force_sub_reclaim_log_col = db["force_sub_reclaim_log"] # 🧾 audit trail — one doc per /reclaimforcesub confirm run
@@ -1320,7 +1322,7 @@ async def create_indexes():
     await users_col.create_index("user_id", unique=True)
     await users_catcher_col.create_index("user_id", unique=True)
     await groups_col.create_index("chat_id", unique=True)
-    await reply_save_col.create_index("trigger")
+    
     # 🗣️ /rton — random_talk is looked up filtered by chat_id on every speak, and grows one
     # document per harvested message while active, so this needs an index from day one.
     await talk_col.create_index("chat_id")
@@ -1354,10 +1356,7 @@ async def create_indexes():
     await characters_base_col.create_index("spawn_limit")
     await gift_history_col.create_index([("sender_id", 1), ("timestamp", -1)])
     await gift_history_col.create_index([("receiver_id", 1), ("timestamp", -1)])
-    # haido_history_col indexes
-    await haido_history_col.create_index([("chat_id", 1), ("timestamp", -1)])
-    await haido_history_col.create_index([("claimed_by", 1), ("timestamp", -1)])
-    await haido_history_col.create_index("claimed")
+
     # 📈 Catcher indexes
     await users_catcher_col.create_index([("daily_catches", -1)])
     await users_catcher_col.create_index("harem.caught_date")
@@ -1383,11 +1382,7 @@ async def create_indexes():
     await marketplace_col.create_index([("seller_id", 1), ("char_id", 1)])
     await marketplace_col.create_index([("timestamp", -1)])
     await artists_col.create_index("artist_name", unique=True)
-    # 🏰 Squad system — squad_id is looked up on every /squad, /invite, and page-nav callback;
-    # members is queried via {"members": user_id} on every catch/command to find "my squad".
-    await squads_col.create_index("squad_id", unique=True)
-    await squads_col.create_index("members")
-    # ❌ REMOVED: gotu_pairs_col, gotu_games_col, gotu_players_col, quiz_questions_col, quiz_msg_counters_col
+    
     await _migrate_rarity_tiers()
     print("Database Indexes synchronized! ✔️")
 
@@ -1797,15 +1792,15 @@ async def global_slash_cmd_acc_opener(event):
 FORCE_SUB_CHAT_ID = int(os.environ.get("FORCE_SUB_CHAT_ID", "-1003580630981"))
 FORCE_SUB_REWARD_USD = 500 / MMK_PER_USD
 FORCE_SUB_MEMBERSHIP_TTL = 120  # seconds a "yes/no member" answer is cached per user
-FORCE_SUB_PROMPT_COOLDOWN = 30  # seconds — don't re-nag the same user more than once per 5 min
-FORCE_SUB_PROMPT_TTL = 30  # seconds — the join-nudge message deletes itself after this long
+FORCE_SUB_PROMPT_COOLDOWN = 300  # seconds — don't re-nag the same user more than once per 5 min
+FORCE_SUB_PROMPT_TTL = 1000  # seconds — the join-nudge message deletes itself after this long
 
 # Exactly the commands an ordinary player uses to play — everything listed in get_game_text()/
 # get_casino_text()/get_collection_text(), plus catch/who/w/waifu/haido/trade/sell/buy/dex/
 # search/scrap/richest/leaderboard/lb/achievements. Deliberately excludes /start, /help,
 # /game, /weather, /gift, /fav, and every admin/owner-only command — /gift and /fav no longer
 # nudge a non-member to join the force-sub group.
-FORCE_SUB_GATED_COMMANDS = {"slot" , "game"}
+FORCE_SUB_GATED_COMMANDS = {"slot" , "game" , "harem@Imjustkidding_bot"}
 _FORCE_SUB_CMD_RE = re.compile(r'^[/.](\w+)')
 
 force_sub_membership_cache = bot_state.force_sub_membership_cache  # user_id -> (is_member: bool, expiry_ts: float)
@@ -1855,7 +1850,7 @@ async def send_force_sub_prompt(event):
     force_sub_prompt_last_sent[user_id] = now
     link = await get_force_sub_invite_link()
     text = (
-        "🔒 <b>Collectလုပ်နိုင်ဖို့ Group ထဲ ဝင်ဖို့လိုပါတယ်။</b>\n"
+        "🔒 <b>Harem လုပ်နိုင်ဖို့ Group ထဲ ဝင်ဖို့လိုပါတယ်။</b>\n"
         "အောက်ကခလုတ်ကနေ Group ထဲဝင်ပြီးမှ ဒီ command ကို ပြန်ရိုက်ပါ။\n\n"
         "🔒 <b>You need to join our group before you can COLLECT.</b>\n"
         "Tap the button below to join, then send this command again."
@@ -1901,8 +1896,13 @@ async def force_sub_gate(event):
 # the one place bot3 actually lives and can post it), and via bot1 (the event's own client)
 # everywhere else — bot3 is never a member of the many arbitrary other groups this bot is
 # added to, so it could never send there anyway.
-GUARD_GAME_COOLDOWN_SECONDS = 4  # minimum gap between game commands per player, in any one chat
-GUARD_GAME_COMMANDS = {"slot", "cardgame", "flip", "dice", "hilo", "gamble", "mines", "box"}
+GUARD_GAME_COOLDOWN_SECONDS = 2  # minimum gap between game commands per player, in any one chat
+GUARD_GAME_COMMANDS = {
+    "slot", "cardgame", "flip", "dice", "hilo", "gamble", "mines", "box",
+    "blackjack", "bj", "roulette", "r", "crash", "c", "rps", "wheel",
+    "bac", "baccarat", "ct", "colortower", "lucky", "limbo", "lm",
+    "ou", "overunder", "tw", "tower", "plinko", "p"
+}
 
 @bot1.on(events.NewMessage(pattern=r'^[/.]'))
 async def guard_bot_game_throttle(event):
@@ -1929,14 +1929,6 @@ async def guard_bot_game_throttle(event):
     except Exception:
         pass
     raise events.StopPropagation
-
-# ---- JOIN REWARD — REMOVED. This used to grant +FORCE_SUB_REWARD_USD and one random
-# character card to anyone joining FORCE_SUB_CHAT_ID (via a ChatAction watcher on new joins,
-# plus a startup backfill for existing members). That grant path is gone — nobody gets paid
-# for joining anymore. FORCE_SUB_REWARD_USD, the "force_sub_rewarded" flag, and harem entries
-# tagged source="force_sub_reward" are KEPT below because /revokereward (single user) and
-# /reclaimforcesub (bulk, see further down) both still need them to reverse what was already
-# handed out historically. ----
 
 @bot1.on(events.ChatAction(chats=FORCE_SUB_CHAT_ID))
 async def force_sub_join_tracker(event):
@@ -2021,184 +2013,7 @@ async def _guard_bot_join_leave_watcher(event):
 if bot3 is not None:
     bot3.on(events.ChatAction)(_guard_bot_join_leave_watcher)
 
-# ---- /revokereward [user_id] [confirm] — owner-only cleanup tool for an ALREADY-granted
-# force-sub reward that shouldn't have gone out (e.g. a bot account rewarded before the
-# is-this-a-bot fix above existed). Shows a preview first; nothing is touched until "confirm"
-# is added. Only pulls harem entries tagged source="force_sub_reward" (added going forward) —
-# rewards granted before that tag existed can still have their USD reversed here, but any card
-# from them needs manual removal since there's no reliable way to tell it apart from a normal
-# catch. ----
-@bot1.on(events.NewMessage(pattern=own_pattern(r'^[/.]revokereward(?:@\w+)?\s+(-?\d+)(?:\s+(confirm))?$', 'bot1')))
-async def revoke_force_sub_reward(event):
-    if event.sender_id != OWNER_ID: return
-    target_id = int(event.pattern_match.group(1))
-    is_confirm = bool(event.pattern_match.group(2))
-    user_doc = await users_catcher_col.find_one({"user_id": target_id})
-    if not user_doc or not user_doc.get("force_sub_rewarded"):
-        return await event.reply(f"❌ No force-sub reward on record for <code>{target_id}</code> — nothing to revoke.", parse_mode='html')
-    harem = user_doc.get("harem", [])
-    reward_entries = [item for item in harem if isinstance(item, dict) and item.get("source") == "force_sub_reward"]
-    wallet = user_doc.get("wallet_balance", 0)
-    new_wallet = max(0, wallet - FORCE_SUB_REWARD_USD)
-    if not is_confirm:
-        preview = (
-            f"⚠️ <b>Revoke force-sub reward for</b> <code>{target_id}</code>?\n\n"
-            f"💰 Wallet: <code>{wallet:,}</code> → <code>{new_wallet:,}</code> USD\n"
-            f"🎴 Tagged reward card(s) found: <code>{len(reward_entries)}</code>"
-        )
-        if not reward_entries:
-            preview += (
-                "\n\n⚠️ <i>No tagged reward card found (this account was rewarded before the "
-                "tagging fix) — only the wallet USD will be reversed here; remove any card "
-                "manually if needed.</i>"
-            )
-        preview += f"\n\nRun <code>/revokereward {target_id} confirm</code> to actually apply this."
-        return await event.reply(preview, parse_mode='html')
-    new_total_caught = max(0, user_doc.get("total_caught", 0) - len(reward_entries))
-    new_daily_catches = max(0, user_doc.get("daily_catches", 0) - len(reward_entries))
-    update_ops = {
-        "$set": {"wallet_balance": new_wallet, "total_caught": new_total_caught, "daily_catches": new_daily_catches},
-        "$unset": {"force_sub_rewarded": ""}
-    }
-    if reward_entries:
-        update_ops["$pull"] = {"harem": {"source": "force_sub_reward"}}
-    await users_catcher_col.update_one({"user_id": target_id}, update_ops)
-    await event.reply(
-        f"✅ <b>Reward revoked for</b> <code>{target_id}</code>\n"
-        f"💰 Wallet: <code>{wallet:,}</code> → <code>{new_wallet:,}</code> USD\n"
-        f"🎴 Removed <code>{len(reward_entries)}</code> tagged reward card(s).",
-        parse_mode='html'
-    )
 
-# ==========================================
-# 🧹 /reclaimforcesub [confirm] — owner-only BULK version of /revokereward above. Finds every
-# account that was granted the (now-removed) join reward — force_sub_rewarded=True, with at
-# least one harem entry tagged source="force_sub_reward" so the exact card(s) granted are
-# known precisely — AND that has NEVER caught anything else: total_caught doesn't exceed how
-# many reward cards it has. That combination is the signal for "joined only to collect the
-# free USD/card and never actually played" as opposed to a genuine player who happened to
-# also get the join reward along the way. Genuine players (any catch beyond the reward
-# card(s)) are left completely untouched — not even the reward card is pulled from them.
-# Same preview-then-confirm shape, and same audit-logging habit, as every other destructive
-# owner command in this file (/compresswealth, /revokereward, /changeusd).
-# ==========================================
-@bot1.on(events.NewMessage(pattern=own_pattern(r'^[/.]reclaimforcesub(?:@\w+)?(?:\s+(confirm))?$', 'bot1')))
-async def reclaim_force_sub_rewards_bulk(event):
-    if event.sender_id != OWNER_ID: return
-    is_confirm = bool(event.pattern_match.group(1))
-
-    candidates = await users_catcher_col.find(
-        {"force_sub_rewarded": True, "harem": {"$elemMatch": {"source": "force_sub_reward"}}},
-        {"user_id": 1, "fullname": 1, "wallet_balance": 1, "total_caught": 1, "daily_catches": 1, "harem": 1}
-    ).to_list(length=None)
-
-    to_reclaim = []
-    for doc in candidates:
-        harem = doc.get("harem", []) or []
-        reward_entries = [x for x in harem if isinstance(x, dict) and x.get("source") == "force_sub_reward"]
-        if not reward_entries:
-            continue
-        if doc.get("total_caught", 0) > len(reward_entries):
-            continue  # genuine player — has catches beyond the reward card(s), leave alone
-        to_reclaim.append((doc, reward_entries))
-
-    if not to_reclaim:
-        return await event.reply(
-            "✅ <b>No matching accounts</b> — nobody currently qualifies "
-            "(reward on record, but zero catches beyond it).",
-            parse_mode='html'
-        )
-
-    total_usd = sum(min(doc.get("wallet_balance", 0), FORCE_SUB_REWARD_USD) for doc, _ in to_reclaim)
-    total_cards = sum(len(entries) for _, entries in to_reclaim)
-
-    if not is_confirm:
-        sample_lines = "\n".join(
-            f"• <code>{doc['user_id']}</code> ({escape_html(doc.get('fullname', '?'))}) — "
-            f"wallet <code>{doc.get('wallet_balance', 0):,.2f}</code>, reward card(s) <code>{len(entries)}</code>"
-            for doc, entries in to_reclaim[:15]
-        )
-        more_line = f"\n…and {len(to_reclaim) - 15} more" if len(to_reclaim) > 15 else ""
-        return await event.reply(
-            f"⚠️ <b>BULK FORCE-SUB RECLAIM</b>\n\n"
-            f"Criteria: <code>force_sub_rewarded=True</code>, has a tagged reward card, "
-            f"<b>zero catches beyond it</b> (never actually played).\n\n"
-            f"👥 <b>Accounts matching:</b> <code>{len(to_reclaim)}</code>\n"
-            f"💰 <b>Total USD to reverse:</b> <code>{total_usd:,.2f}</code>\n"
-            f"🎴 <b>Total reward cards to remove:</b> <code>{total_cards}</code>\n\n"
-            f"{sample_lines}{more_line}\n\n"
-            f"❗ ဒါက <b>ပြန်ဖျက်လို့မရဘူး</b> — Run <code>/reclaimforcesub confirm</code> to proceed.",
-            parse_mode='html'
-        )
-
-    reclaimed = 0
-    for doc, entries in to_reclaim:
-        uid = doc["user_id"]
-        wallet = doc.get("wallet_balance", 0)
-        new_wallet = max(0, wallet - FORCE_SUB_REWARD_USD)
-        new_total_caught = max(0, doc.get("total_caught", 0) - len(entries))
-        new_daily_catches = max(0, doc.get("daily_catches", 0) - len(entries))
-        await users_catcher_col.update_one(
-            {"user_id": uid},
-            {
-                "$set": {"wallet_balance": new_wallet, "total_caught": new_total_caught, "daily_catches": new_daily_catches},
-                "$unset": {"force_sub_rewarded": ""},
-                "$pull": {"harem": {"source": "force_sub_reward"}}
-            }
-        )
-        reclaimed += 1
-
-    await force_sub_reclaim_log_col.insert_one({
-        "run_at": time.time(), "run_by": OWNER_ID, "accounts_reclaimed": reclaimed,
-        "total_usd_reversed": total_usd, "total_cards_removed": total_cards,
-        "user_ids": [doc["user_id"] for doc, _ in to_reclaim]
-    })
-
-    await event.reply(
-        f"✅ <b>BULK RECLAIM COMPLETE</b>\n"
-        f"👥 <b>Accounts reclaimed:</b> <code>{reclaimed}</code>\n"
-        f"💰 <b>Total USD reversed:</b> <code>{total_usd:,.2f}</code>\n"
-        f"🎴 <b>Total reward cards removed:</b> <code>{total_cards}</code>",
-        parse_mode='html'
-    )
-
-# ==========================================
-# 🔎 FORCE-GROUP AUTO-IDENTIFY (via bot2) — mirrors dm_auto_identify_handler just below, and
-# scoped to FORCE_SUB_CHAT_ID: any photo/video someone drops in that chat gets run through the
-# same perceptual-hash lookup and identified — via bot2 specifically, rather than bot1. This is
-# NOT limited to a spawn currently being live in FORCE_SUB_CHAT_ID itself — the whole point is
-# that a player who caught a spawn in some OTHER group can forward that bot1 spawn photo/video
-# here and still get it identified (name/ID/rarity + a /collect <name> hint) via _identify_media_
-# and_reply, same as the DM handler does. Requires bot3 to also be a member of FORCE_SUB_CHAT_ID
-# to see its messages at all. Moved here from bot2 — bot3 (Guard Bot) now owns everything that
-# happens in this specific group.
-# 🩹 FIX: animated video-format (.webm) stickers carry a DocumentAttributeVideo (for playback
-# dimensions) alongside their DocumentAttributeSticker — Telethon's e.video property doesn't
-# check for/exclude that, so it was true for those stickers too, sending them into
-# _identify_media_and_reply and producing a false "❓ This one isn't recognized." for a plain
-# sticker. `and not e.sticker` below is the fix.
-# ==========================================
-async def force_group_bot3_auto_identify_handler(event):
-    if event.sender_id in bot_ids or event.sender_id == OWNER_ID:
-        return
-    text = (event.raw_text or "").strip()
-    if _has_command_prefix(text):
-        return  # an explicit /who caption is handled by who_reveal_handler (bot1) instead
-    await _identify_media_and_reply(event, event.message)
-
-if bot3 is not None:
-    bot3.on(events.NewMessage(incoming=True, func=lambda e: e.chat_id == FORCE_SUB_CHAT_ID and (e.photo or e.video) and not e.sticker))(force_group_bot3_auto_identify_handler)
-
-# ==========================================
-# 🚨 ONE-TIME MIGRATION — required after the PHASH_SIZE 8→16 change above. Every character's
-# stored photo_phash in the DB was computed with the OLD 8x8/64-bit dHash. New identify
-# attempts now compute a 16x16/256-bit hash for the incoming media. hamming_distance() XORs the
-# two as raw integers — comparing a 64-bit int against a 256-bit int this way does NOT degrade
-# gracefully, it just produces a huge, meaningless distance, so every existing character would
-# silently stop being identifiable at all until this runs once. Owner-only, run it once right
-# after deploying this change (safe to re-run any time — it always recomputes from the original
-# stored media, never from the old hash).
-# ==========================================
 @bot1.on(events.NewMessage(pattern=own_pattern(r'^[/.]rehashall(?:@\w+)?$', 'bot1')))
 async def rehash_all_characters_handler(event):
     if event.sender_id != OWNER_ID:
@@ -2282,6 +2097,7 @@ async def update_admin_cache(client, chat_id):
         return set()
 
 
+
 # ==========================================
 # EVENT HANDLERS (start, help, etc.)
 # ==========================================
@@ -2338,6 +2154,7 @@ async def system_start_router(event):
     ]
     await event.respond(bq(welcome_msg), parse_mode='html', buttons=buttons)
 
+
 def get_help_text():
     return (
         f"⚙️ <b><u>Command Terminal</u></b>\n\n"
@@ -2350,6 +2167,7 @@ def get_help_text():
         f" <code>/calc [Expression]</code> - Calculate math expressions\n"
         f" <code>/weather</code> - Live weather report (Myanmar & Thailand)"
     )
+
 
 def get_game_text():
     return (
@@ -2365,11 +2183,12 @@ def get_game_text():
         f"🎖️ <code>/giftranks</code>\n<blockquote>See the full Giver and Receiver rank ladders — titles unlock automatically as your gift counts climb.</blockquote>\n\n"
         f"🏪 <code>/market</code>\n<blockquote>Your balance + a shortcut to buy cards or buy ⭐ Star.</blockquote>\n\n"
         f"🛍️ <code>/buy</code>\n<blockquote>Choose between browsing cards (via /show in DM) or buying ⭐ Star.</blockquote>\n\n"
-        f"🛍️ <code>/buy [char_id]</code>\n<blockquote>Buy a fresh copy of that character straight from the Owner Shop, priced by rarity (No.1 = 9⭐ ... No.9 = 1⭐). Capped at {DAILY_BUY_LIMIT}/day, {LIFETIME_BUY_PER_CHAR_LIMIT} copies of the same character ever, and Rarity No.1-3 share {TOP_RARITY_WEEKLY_BUY_LIMIT} combined per week.</blockquote>\n\n"
+        f"🛍️ <code>/buy [char_id]</code>\n<blockquote>Buy a fresh copy of that character straight from the Owner Shop, priced by rarity (No.1 = 90,000⭐ ... No.9 = 1,000⭐). Capped at {DAILY_BUY_LIMIT}/day, {LIFETIME_BUY_PER_CHAR_LIMIT} copies of the same character ever, and Rarity No.1-3 share {TOP_RARITY_WEEKLY_BUY_LIMIT} combined per week.</blockquote>\n\n"
         f"🏷️ <code>/sell [char_id]</code>\n<blockquote>Owner buys the card back with ⭐ Star — a random offer between 0.5x and 1.5x its Owner Shop price, yours to accept or decline. Player-to-player trading is disabled.</blockquote>\n\n"
         f"💱 <code>/buystar [⭐]</code> / <code>/sellstar [⭐]</code>\n<blockquote>Exchange ⭐ Star for USD (or back) at the fixed rate.</blockquote>\n\n"
         f"👑 <code>/buypremium</code>\n<blockquote>Buy Bot Premium User status with ⭐ Star — shorter spam cooldown, a higher daily catch limit, bonus cards, a daily Star gift, and more. (Or earn it free — spend/buy {PREMIUM_AUTO_STAR_THRESHOLD}⭐ in one day for {PREMIUM_AUTO_GRANT_DAYS} free day.)</blockquote>"
     )
+
 
 def get_casino_text():
     return (
@@ -2382,8 +2201,21 @@ def get_casino_text():
         f"🂡 <code>/hilo [amount]</code>\n<blockquote>Higher/lower card game.</blockquote>\n\n"
         f"🎯 <code>/gamble [amount]</code>\n<blockquote>Double or nothing — 50% chance.</blockquote>\n\n"
         f"💣 <code>/mines [amount]</code>\n<blockquote>Reveal safe tiles in a 5x5 grid, cash out anytime — hit a bomb and lose it all.</blockquote>\n\n"
-        f"📦 <code>/box [amount]</code>\n<blockquote>Deal or No Deal — 30 boxes, keep one, open the rest, take Morgan's offer whenever you want.</blockquote>"
+        f"📦 <code>/box [amount]</code>\n<blockquote>Deal or No Deal — 30 boxes, keep one, open the rest, take Morgan's offer whenever you want.</blockquote>\n\n"
+        f"🃏 <code>/blackjack</code> / <code>/bj [amount]</code>\n<blockquote>Blackjack (21) — play against Steven Chang.</blockquote>\n\n"
+        f"🎡 <code>/roulette</code> / <code>/r [amount]</code>\n<blockquote>Roulette — bet on red/black or a specific number.</blockquote>\n\n"
+        f"💥 <code>/crash</code> / <code>/c [amount]</code>\n<blockquote>Crash game — cash out before it crashes. Multiplier climbs until it crashes.</blockquote>\n\n"
+        f"🪨 <code>/rps [amount]</code>\n<blockquote>Rock Paper Scissors — beat the bot to double your bet.</blockquote>\n\n"
+        f"🎡 <code>/wheel [amount]</code>\n<blockquote>Wheel of Fortune — spin the wheel and win multipliers.</blockquote>\n\n"
+        f"🃏 <code>/bac</code> / <code>/baccarat [amount]</code>\n<blockquote>Baccarat — bet on Player, Banker, or Tie.</blockquote>\n\n"
+        f"🎨 <code>/ct</code> / <code>/colortower [amount]</code>\n<blockquote>Color Tower — guess red or black to climb the multiplier ladder.</blockquote>\n\n"
+        f"🍀 <code>/lucky [amount]</code>\n<blockquote>Lucky Number — pick a number (1-6), win 5x if it hits.</blockquote>\n\n"
+        f"📈 <code>/limbo</code> / <code>/lm [target] [amount]</code>\n<blockquote>Limbo — set a target multiplier, if the crash point is higher you win.</blockquote>\n\n"
+        f"⚖️ <code>/ou</code> / <code>/overunder [over/under/exact] [amount]</code>\n<blockquote>Over/Under 7 — predict if total dice roll is over, under, or exactly 7.</blockquote>\n\n"
+        f"🏰 <code>/tw</code> / <code>/tower [amount]</code>\n<blockquote>Tower — pick one of three boxes to avoid a bomb and climb the tower.</blockquote>\n\n"
+        f"📌 <code>/plinko</code> / <code>/p [amount]</code>\n<blockquote>Plinko — drop a ball and watch it bounce to a multiplier.</blockquote>\n"
     )
+
 
 def get_collection_text():
     return (
@@ -2397,21 +2229,22 @@ def get_collection_text():
         f"🔗 <code>/referral</code>\n<blockquote>Get your invite link — you get 0.50 USD, your friend gets 0.25 USD.</blockquote>"
     )
 
+
 @bot1.on(events.NewMessage(pattern=own_pattern(r'(?i)^[/.]help(?:@\w+)?$', 'bot1')))
 async def help_command_handler(event):
     await event.reply(bq(get_help_text()), parse_mode='html', buttons=[[Button.inline("🔙 Back", data="nav_back_home")]])
 
+
 @bot1.on(events.NewMessage(pattern=own_pattern(r'(?i)^[/.]game(?:@\w+)?$', 'bot1')))
 async def game_command_handler(event):
-    # 🩹 FIX: this used to call get_game_text(), which — despite the name — is actually the
-    # ECONOMY menu (balance/daily/hunt/gifts...). The real games list (slot, cardgame,
-    # flip, dice, hilo, gamble) lives in get_casino_text(). /game was showing the wrong menu.
     await event.reply(bq(get_casino_text()), parse_mode='html', buttons=[[Button.inline("🔙 Back", data="nav_back_home")]])
+
 
 @bot1.on(events.CallbackQuery())
 async def system_callback_router(event):
     data = event.data.decode('utf-8')
     user_id = event.sender_id
+    
     if data == "nav_back_home":
         bot_me = await bot1.get_me()
         welcome_msg = (
@@ -2427,16 +2260,22 @@ async def system_callback_router(event):
             [Button.url("Join Our Circle", "https://t.me/Comeback_BoD")]
         ]
         return await event.edit(bq(welcome_msg), parse_mode='html', buttons=buttons)
+    
     elif data == "nav_help_main":
         return await event.edit(bq(get_help_text()), parse_mode='html', buttons=[[Button.inline("🔙 Back", data="nav_back_home")]])
+    
     elif data == "nav_game_main":
         return await event.edit(bq(get_game_text()), parse_mode='html', buttons=[[Button.inline("🔙 Back", data="nav_back_home")]])
+    
     elif data == "nav_casino_main":
         return await event.edit(bq(get_casino_text()), parse_mode='html', buttons=[[Button.inline("🔙 Back", data="nav_back_home")]])
+    
     elif data == "nav_collection_main":
         return await event.edit(bq(get_collection_text()), parse_mode='html', buttons=[[Button.inline("🔙 Back", data="nav_back_home")]])
+    
     elif data == "nav_hmode":
         await set_rarity_filter_handler(event)
+    
     elif data.startswith("catchprofile_"):
         target_user_id = int(data.split("_", 1)[1])
         if user_id != target_user_id:
@@ -2445,6 +2284,7 @@ async def system_callback_router(event):
         text, buttons = await render_profile_main_page(event, user_id, mention)
         await event.respond(text, parse_mode='html', buttons=buttons)
         await event.answer()
+    
     elif data.startswith("pf_stats_"):
         target_user_id = int(data.split("_", 2)[2])
         if user_id != target_user_id:
@@ -2480,6 +2320,7 @@ async def system_callback_router(event):
         buttons = [[Button.inline("🔙 Back to Profile", data=f"pf_back_{user_id}")]]
         await event.edit(text, parse_mode='html', buttons=buttons)
         await event.answer()
+    
     elif data.startswith("pf_back_"):
         target_user_id = int(data.split("_", 2)[2])
         if user_id != target_user_id:
@@ -2681,94 +2522,101 @@ async def info_handler(event):
 # ---- WELCOME / GOODBYE ----
 @bot1.on(events.ChatAction)
 async def welcome_goodbye(event):
+    """Bot added to group notification only — no welcome/goodbye messages for users."""
     try:
         chat = await event.get_chat()
         bot_me = await bot1.get_me()
         group_name = chat.title or "Unknown Group"
         target_ids = event.user_ids or [event.user_id]
         is_broadcast_channel = bool(getattr(chat, 'broadcast', False) and not getattr(chat, 'megagroup', False))
-        
-        # ---------- BOT ADDED TO GROUP ----------
+
+        # ==========================================
+        # ✅ BOT ADDED TO GROUP (Only this matters)
+        # ==========================================
         if (event.user_added or event.user_joined) and any(uid == bot_me.id for uid in target_ids if uid):
+            # Prevent duplicate notifications
             async with bot_added_locks[chat.id]:
                 now_ts = time.time()
                 last_ts = _recent_bot_added_chats.get(chat.id)
                 if last_ts and (now_ts - last_ts) <= BOT_ADDED_DEDUP_WINDOW:
                     return
                 _recent_bot_added_chats[chat.id] = now_ts
-                
-                # ✅ Member count ကို get_participants နဲ့ မှန်ကန်အောင် ရယူမယ်
-                member_count = "Unknown"
+
+            # 👥 Get member count
+            member_count = "Unknown"
+            try:
+                participants = await bot1.get_participants(chat.id, limit=0)
+                if hasattr(participants, 'total'):
+                    member_count = f"{participants.total:,}"
+                elif isinstance(participants, list):
+                    member_count = f"{len(participants):,}"
+            except Exception:
                 try:
-                    # get_participants က total ကို ပြန်ပေးတယ်
-                    participants = await bot1.get_participants(chat.id, limit=0)
-                    if hasattr(participants, 'total'):
-                        member_count = f"{participants.total:,}"
-                    elif isinstance(participants, list):
-                        member_count = f"{len(participants):,}"
-                except Exception as e:
-                    print(f"Member count error (get_participants): {e}")
-                    # Fallback: get_full_chat ကို စမ်းကြည့်မယ်
-                    try:
-                        full_chat = await bot1.get_full_chat(chat.id)
-                        if hasattr(full_chat, 'participants_count'):
-                            member_count = f"{full_chat.participants_count:,}"
-                    except Exception as e2:
-                        print(f"Member count error (get_full_chat): {e2}")
-                        member_count = "N/A"
-                
-                # ✅ Invite link ရယူမယ်
-                group_link = None
-                try:
-                    invite = await bot1(ExportChatInviteRequest(chat.id))
-                    group_link = invite.link if invite else None
+                    full_chat = await bot1.get_full_chat(chat.id)
+                    if hasattr(full_chat, 'participants_count'):
+                        member_count = f"{full_chat.participants_count:,}"
                 except Exception:
-                    group_link = "Cannot fetch (need admin rights)"
-                if not group_link:
-                    group_link = "Not available (or bot not admin)"
-                
-                # Owner ကို ပို့မယ့် Message
-                owner_msg = (
-                    f"✅ <b>Bot Added to New {'Channel' if is_broadcast_channel else 'Group'}!</b>\n"
-                    f"━━━━━━━━━━━━━━━━━━━━\n"
-                    f"📛 <b>Name:</b> <code>{escape_html(group_name)}</code>\n"
-                    f"🆔 <b>ID:</b> <code>{chat.id}</code>\n"
-                    f"👥 <b>Members:</b> <code>{member_count}</code>\n"
-                    f"🔗 <b>Invite Link:</b> <code>{escape_html(str(group_link))}</code>\n"
-                    f"⏰ <b>Time:</b> <code>{datetime.now(TZ).strftime('%Y-%m-%d %H:%M:%S')}</code>"
-                )
-                await bot1.send_message(OWNER_ID, owner_msg, parse_mode='html')
-                try:
-                    await bot1.send_message(SPECIFIC_GROUP, owner_msg, parse_mode='html')
-                except Exception:
-                    pass
-                
-                # Channel ဆိုရင် ဒီမှာပဲ ရပ်မယ်
-                if is_broadcast_channel:
-                    return
-                
-                # Group ဆိုရင် intro message ပို့မယ် (ဖယ်ရှားချင်ရင် ဒီအောက်က ၅ ကြောင်းကို comment လုပ်ပါ)
-                intro_msg = (
-                    f"<blockquote><b>This group is now being looked after.</b>\n\n"
-                    f"I'll manage things here, run a few games, and keep everyone in line.\n"
-                    f"📌 <b>Try these commands:</b>\n"
-                    f"   • <code>/introduce</code> - Learn what I can do\n"
-                    f"   • <code>/help</code> - See all commands\n\n"
-                    f"✨ Enjoy your stay.</blockquote>"
-                )
-                await bot1.send_message(chat.id, intro_msg, parse_mode='html')
-                await groups_col.update_one(
-                    {"chat_id": chat.id},
-                    {"$set": {"title": chat.title, "joined_at": datetime.now(TZ)}},
-                    upsert=True
-                )
+                    member_count = "N/A"
+
+            # 🔗 Get invite link
+            group_link = None
+            try:
+                invite = await bot1(ExportChatInviteRequest(chat.id))
+                group_link = invite.link if invite else None
+            except Exception:
+                group_link = "Cannot fetch (need admin rights)"
+            if not group_link:
+                group_link = "Not available (or bot not admin)"
+
+            # 📨 Notify owner
+            channel_type = "Channel" if is_broadcast_channel else "Group"
+            owner_msg = (
+                f"✅ <b>Bot Added to New {channel_type}!</b>\n"
+                f"━━━━━━━━━━━━━━━━━━━━\n"
+                f"📛 <b>Name:</b> <code>{escape_html(group_name)}</code>\n"
+                f"🆔 <b>ID:</b> <code>{chat.id}</code>\n"
+                f"👥 <b>Members:</b> <code>{member_count}</code>\n"
+                f"🔗 <b>Invite Link:</b> <code>{escape_html(str(group_link))}</code>\n"
+                f"⏰ <b>Time:</b> <code>{datetime.now(TZ).strftime('%Y-%m-%d %H:%M:%S')}</code>"
+            )
+            await bot1.send_message(OWNER_ID, owner_msg, parse_mode='html')
+
+            # 📢 Also notify specific group
+            try:
+                await bot1.send_message(SPECIFIC_GROUP, owner_msg, parse_mode='html')
+            except Exception:
+                pass
+
+            # 📢 Broadcast channel? Stop here.
+            if is_broadcast_channel:
                 return
-        
-        # ---------- WELCOME & GOODBYE ကို လုံးဝ ဖယ်ရှားမယ် ----------
-        # အောက်က ကျန်တဲ့ welcome/goodbye code တွေအကုန်ကို ဖယ်ရှားလိုက်မယ်
-        # ဘယ်သူမှ join/leave လုပ်ရင် ဘာမှ မပို့တော့ဘူး
+
+            # 🎯 Send intro message to the group
+            intro_msg = (
+                f"<blockquote><b>🤖 This group is now being looked after.</b>\n\n"
+                f"I'll manage things here, run a few games, and keep everyone in line.\n"
+                f"📌 <b>Try these commands:</b>\n"
+                f"   • <code>/introduce</code> - Learn what I can do\n"
+                f"   • <code>/help</code> - See all commands\n"
+                f"   • <code>/game</code> - 🎰 Play casino games!\n\n"
+                f"✨ Enjoy your stay.</blockquote>"
+            )
+            await bot1.send_message(chat.id, intro_msg, parse_mode='html')
+
+            # 💾 Save to database
+            await groups_col.update_one(
+                {"chat_id": chat.id},
+                {"$set": {"title": chat.title, "joined_at": datetime.now(TZ)}},
+                upsert=True
+            )
+            return
+
+        # ==========================================
+        # ❌ WELCOME & GOODBYE — DISABLED
+        # No welcome/goodbye messages for users
+        # ==========================================
         return
-        
+
     except Exception as e:
         await report_system_error("Welcome Goodbye Event", e)
 
@@ -3365,48 +3213,6 @@ async def export_characters_handler(event):
         await status_msg.edit(f"❌ <b>Export Error:</b> <code>{escape_html(str(e))}</code>", parse_mode='html')
         await report_system_error("export_characters_handler", e)
 
-# ==========================================
-# 🗂️ /mergecategory & /mergecategories — owner-only category cleanup.
-# category is stored ONLY on characters_base_col (characters_col is an unused legacy
-# collection, and harem/user docs only ever keep a char_id — category is looked up fresh
-# from characters_base_col every time), so a single update_many + cache invalidation is a
-# complete fix everywhere the category name is shown (/harem, /dex, exports, etc.).
-# ==========================================
-@bot1.on(events.NewMessage(pattern=own_pattern(r'^[/.]mergecategory(?:@\w+)?\s+(.+)$', 'bot1')))
-async def merge_category_handler(event):
-    if event.sender_id != OWNER_ID: return
-    raw = event.pattern_match.group(1)
-    if '|' not in raw:
-        return await event.reply(bq("⚠️ Format: <code>/mergecategory Old Name | New Name</code>"), parse_mode='html')
-    old_name, new_name = (p.strip() for p in raw.split('|', 1))
-    if not old_name or not new_name:
-        return await event.reply(bq("⚠️ Need both an old and a new category name."), parse_mode='html')
-    if old_name == new_name:
-        return await event.reply(bq("⚠️ Old and new names are identical — nothing to do."), parse_mode='html')
-    result = await characters_base_col.update_many({"category": old_name}, {"$set": {"category": new_name}})
-    await invalidate_character_caches()
-    await event.reply(
-        bq(f"✅ Merged <b>{escape_html(old_name)}</b> → <b>{escape_html(new_name)}</b>\n<code>{result.modified_count}</code> character(s) moved."),
-        parse_mode='html'
-    )
-
-@bot1.on(events.NewMessage(pattern=own_pattern(r'^[/.]mergecategories(?:@\w+)?\s+(.+)$', 'bot1')))
-async def merge_categories_bulk_handler(event):
-    if event.sender_id != OWNER_ID: return
-    raw = event.pattern_match.group(1)
-    if '|' not in raw:
-        return await event.reply(bq("⚠️ Format: <code>/mergecategories Old A, Old B, Old C | New Name</code>"), parse_mode='html')
-    old_names_raw, new_name = raw.split('|', 1)
-    old_names = [n.strip() for n in old_names_raw.split(',') if n.strip()]
-    new_name = new_name.strip()
-    if not old_names or not new_name:
-        return await event.reply(bq("⚠️ Need at least one old category name and a new name."), parse_mode='html')
-    result = await characters_base_col.update_many({"category": {"$in": old_names}}, {"$set": {"category": new_name}})
-    await invalidate_character_caches()
-    await event.reply(
-        bq(f"✅ Merged <code>{len(old_names)}</code> categories → <b>{escape_html(new_name)}</b>\n<code>{result.modified_count}</code> character(s) moved."),
-        parse_mode='html'
-    )
 
 # ==========================================
 # 🖼️ /show — full-quality rarity gallery browser, open to any user but DM-only.
@@ -3818,172 +3624,6 @@ async def _maybe_reward_artist_for_collect(artist_name, catcher_mention, charact
         )
     except Exception as e:
         print(f"⚠️ Artist reward failed for '{artist_name}': {e}")
-
-# ---- SETCHAR ----
-@bot1.on(events.NewMessage(pattern=own_pattern(r'^[/.]setchar(?:@\w+)?(?:\s+([\s\S]+))?$', 'bot1')))
-async def bulk_set_char_handler(event):
-    if event.sender_id != OWNER_ID: return
-    raw_block = event.pattern_match.group(1)
-    if not raw_block and event.is_reply:
-        reply_msg = await event.get_reply_message()
-        if reply_msg and reply_msg.text:
-            raw_block = reply_msg.text
-    if not raw_block or not raw_block.strip():
-        return await event.reply(
-            "⚠️ <b>Usage</b>\n"
-            "Send (or reply to) a block of lines — one character per line:\n"
-            "<code>CharID | Event | CatchLimit</code>\n\n"
-            "<b>Example</b> (paste as many lines as you like, e.g. 15 or 30 at once):\n"
-            "<code>BOD1234 | Lightning⚡ | 75\nBOD5678 | Fire Festival | 30\nBOD9012 | - | 0</code>\n\n"
-            "<i>Use - to leave a field unchanged. CatchLimit 0 = infinite.</i>",
-            parse_mode='html'
-        )
-    lines = [ln.strip() for ln in raw_block.strip().splitlines() if ln.strip()]
-    updated, skipped, failed = [], [], []
-    for ln in lines:
-        parts = [p.strip() for p in ln.split('|')]
-        if len(parts) < 3:
-            failed.append(f"<code>{escape_html(ln[:40])}</code> — needs 3 parts (CharID | Event | CatchLimit)")
-            continue
-        char_id, ev_raw, limit_raw = parts[0].upper(), parts[1], parts[2]
-        char_doc = await characters_base_col.find_one({"char_id": char_id})
-        if not char_doc:
-            failed.append(f"<code>{char_id}</code> — not found")
-            continue
-        update_fields = {}
-        if ev_raw and ev_raw != "-":
-            update_fields["event"] = ev_raw
-        if limit_raw and limit_raw != "-":
-            if not limit_raw.lstrip('-').isdigit():
-                failed.append(f"<code>{char_id}</code> — CatchLimit must be a whole number")
-                continue
-            update_fields["spawn_limit"] = max(0, int(limit_raw))
-        if not update_fields:
-            skipped.append(char_id)
-            continue
-        await characters_base_col.update_one({"char_id": char_id}, {"$set": update_fields})
-        updated.append(char_id)
-    if updated:
-        await invalidate_character_caches()
-    summary = [f"✅ <b>Bulk Set Complete!</b>\n🔁 <b>Updated:</b> <code>{len(updated)}</code> character(s) out of <code>{len(lines)}</code> line(s)"]
-    if updated:
-        shown = ", ".join(f"<code>{c}</code>" for c in updated[:40])
-        if len(updated) > 40:
-            shown += " …"
-        summary.append(f"<blockquote>{shown}</blockquote>")
-    if skipped:
-        summary.append(f"➖ <b>Skipped</b> (nothing to change): <code>{len(skipped)}</code>")
-    if failed:
-        fail_preview = "\n".join(failed[:20])
-        if len(failed) > 20:
-            fail_preview += "\n…"
-        summary.append(f"❌ <b>Failed:</b> <code>{len(failed)}</code>")
-        summary.append(f"<blockquote>{fail_preview}</blockquote>")
-    await event.reply("\n".join(summary), parse_mode='html')
-
-# ---- CHANGE ALL RARITY (rebrand rarity emoji/name/value everywhere, DB-wide) ----
-def _current_official_rarity_fields(old_rarity_str, fallback_tier=None):
-    """Given whatever rarity string is currently stored (old emoji, old font, anything),
-    work out its canonical tier and return today's official RARITY_NUM_MAP name + value
-    for it. Returns (new_name, new_value, tier) or (None, None, "OTHER") if unclassifiable."""
-    tier = fallback_tier or classify_rarity(old_rarity_str)
-    num = RARITY_TIER_TO_NUM.get(tier)
-    if not num:
-        return None, None, "OTHER"
-    return RARITY_NUM_MAP[num]["name"], RARITY_NUM_MAP[num]["value"], tier
-
-@bot1.on(events.NewMessage(pattern=own_pattern(r'^[/.]changeallrarity(?:@\w+)?(?:\s+(\S+))?$', 'bot1')))
-async def change_all_rarity_handler(event):
-    """Owner-only. Rewrites EVERY stored rarity name (+ currency_value on the base character
-    record) in the database (characters_base_data, characters, and every user's harem) to
-    today's official RARITY_NUM_MAP name/emoji/value, so no old rarity name, emoji, or
-    stale value is left anywhere — old data included. Run with 'confirm'."""
-    if event.sender_id != OWNER_ID: return
-    confirm_arg = (event.pattern_match.group(1) or "").lower()
-
-    legend = "\n".join(
-        f"<code>{num}</code> = {RARITY_NUM_MAP[num]['name']} (<code>{RARITY_NUM_MAP[num]['value']}</code> USD)"
-        for num in sorted(RARITY_NUM_MAP.keys())
-    )
-
-    if confirm_arg != "confirm":
-        return await event.reply(
-            f"⚠️ <b>{f('CHANGE ALL RARITY')}</b>\n"
-            f"This rewrites the <b>rarity</b> name/emoji AND <b>currency_value</b> on every "
-            f"character in the database (+ the <b>rarity</b> name inside every player's "
-            f"harem) to the current official values below. Old rarity names/emoji/values "
-            f"will no longer appear anywhere.\n\n"
-            f"🔢 <b>{f('Current Rarity Set')}:</b>\n{legend}\n\n"
-            f"❗ <b>{f('This cannot be undone.')}</b>\n"
-            f"Run <code>/changeallrarity confirm</code> to proceed.",
-            parse_mode='html'
-        )
-
-    status_msg = await event.reply("⏳ <b>Rebranding rarity across the database...</b>", parse_mode='html')
-
-    chars_updated, chars_skipped = 0, 0
-    for col in (characters_base_col, characters_col):
-        docs = await col.find({}, {"_id": 1, "rarity": 1, "rarity_tier": 1}).to_list(length=None)
-        if not docs:
-            continue
-        ops = []
-        for doc in docs:
-            new_name, new_value, tier = _current_official_rarity_fields(doc.get("rarity", ""), doc.get("rarity_tier"))
-            if not new_name:
-                chars_skipped += 1
-                continue
-            ops.append(UpdateOne({"_id": doc["_id"]}, {"$set": {"rarity": new_name, "rarity_tier": tier, "currency_value": new_value}}))
-        if ops:
-            for i in range(0, len(ops), 500):
-                await col.bulk_write(ops[i:i + 500])
-            chars_updated += len(ops)
-
-    harem_users_updated, harem_items_updated, harem_users_skipped = 0, 0, 0
-    cursor = users_catcher_col.find({"harem.0": {"$exists": True}}, {"_id": 1, "harem": 1})
-    batch = []
-    async for user_doc in cursor:
-        harem = user_doc.get("harem") or []
-        changed = False
-        new_harem = []
-        for item in harem:
-            if not isinstance(item, dict):
-                new_harem.append(item)
-                continue
-            new_name, _new_value, _tier = _current_official_rarity_fields(item.get("rarity", ""))
-            if new_name and new_name != item.get("rarity"):
-                item = {**item, "rarity": new_name}
-                changed = True
-                harem_items_updated += 1
-            new_harem.append(item)
-        if changed:
-            batch.append(UpdateOne({"_id": user_doc["_id"]}, {"$set": {"harem": new_harem}}))
-            harem_users_updated += 1
-        else:
-            harem_users_skipped += 1
-        if len(batch) >= 500:
-            await users_catcher_col.bulk_write(batch)
-            batch = []
-    if batch:
-        await users_catcher_col.bulk_write(batch)
-
-    await invalidate_character_caches()
-    try:
-        await redis_client.delete("cache:chars:all", "cache:chars:categories")
-    except Exception:
-        pass
-
-    await status_msg.edit(
-        f"✅ <b>{f('RARITY REBRAND COMPLETE')}</b>\n"
-        f"🗄️ <b>{f('Characters updated')}:</b> <code>{chars_updated}</code>"
-        + (f" <i>(⚠️ {chars_skipped} unclassifiable, left untouched)</i>" if chars_skipped else "") + "\n"
-        f"🎒 <b>{f('Players with harem updated')}:</b> <code>{harem_users_updated}</code>\n"
-        f"🃏 <b>{f('Harem cards renamed')}:</b> <code>{harem_items_updated}</code>\n\n"
-        f"🔢 <b>{f('New Rarity Set')}:</b>\n{legend}",
-        parse_mode='html'
-    )
-
-
-
 
 # ==========================================
 # 🔁 .cr — owner-only, force-changes ONE specific character's rarity tier by number
@@ -4853,7 +4493,7 @@ async def who_reveal_handler(event):
     )
 
 # ---- CATCH LOGIC (with daily limit and spawn_count increment on success) ----
-DAILY_CATCH_LIMIT = 22  # flat cap for everyone — single source of truth, used by both the
+DAILY_CATCH_LIMIT = 20 # flat cap for everyone — single source of truth, used by both the
 # limit check in catch_handler and the /today "who hit the limit first" ranking below.
 
 async def perform_catch(chat_id, user_id, spawn_data, event, reply_to_msg=None, is_callback=False, temp_msg_id=None):
@@ -6995,17 +6635,17 @@ NEW_CARD_PROTECTION_SECONDS = 86400  # 24 hours
 PREMIUM_AUTO_STAR_THRESHOLD = 100  # ⭐ spent (via /buy) OR bought (via /buystar) in one day auto-grants Premium
 PREMIUM_AUTO_GRANT_DAYS = 1  # length of the auto-grant, from the moment the threshold is crossed
 PREMIUM_TIERS = [  # (months, price in ⭐, days credited) — the 5 /buypremium tiers
-    (1, 90, 30),
-    (2, 175, 60),
-    (3, 255, 90),
-    (6, 480, 180),
-    (12, 900, 365),
+    (1, 9000, 30),
+    (2, 17500, 60),
+    (3, 25500, 90),
+    (6, 48000, 180),
+    (12, 90000, 365),
 ]
 PREMIUM_DAILY_CATCH_LIMIT = 25  # vs DAILY_CATCH_LIMIT (22) for everyone else
 PREMIUM_SPAM_MUTE_SECONDS = 180  # 3 minutes, vs SPAM_CATCH_MUTE_SECONDS (8 min / 480s)
-PREMIUM_QUIZ_REWARD_MULTIPLIER = 1.5  # Premium winners' rarity-gate quiz Star bonus is scaled by this
+PREMIUM_QUIZ_REWARD_MULTIPLIER = 100  # Premium winners' rarity-gate quiz Star bonus is scaled by this
 PREMIUM_PURCHASE_BONUS_TIER = "GOLD"  # Rarity No.6 (🌕 GOLDENMOON) — free cards on every /buypremium purchase
-PREMIUM_PURCHASE_BONUS_COUNT = 2
+PREMIUM_PURCHASE_BONUS_COUNT = 3
 
 def is_premium_active(user_doc):
     """True if user_doc's premium_until is still in the future. Safe to call with None."""
@@ -7177,8 +6817,8 @@ async def execute_star_shop_purchase(buyer_id, char_id):
 # changes hands until the player confirms with an inline button. Identical flow whether run
 # in a group chat or in the bot's DM.
 # ==========================================
-SELL_OFFER_MIN_MULT = 0.5
-SELL_OFFER_MAX_MULT = 1.5
+SELL_OFFER_MIN_MULT = 0.1
+SELL_OFFER_MAX_MULT = 1.0
 SELL_OFFER_TIMEOUT = 300  # seconds an offer stays open before it silently expires
 
 @bot1.on(events.NewMessage(pattern=own_pattern(r'^[/.]sell(?:@\w+)?$', 'bot1')))
@@ -7444,8 +7084,8 @@ async def premium_purchase_callback(event):
 # (its original behaviour), so nothing silently disappears on a deployment that hasn't set up
 # the Guard Bot yet.
 # ==========================================
-PREMIUM_DAILY_GIFT_MIN = 1  # ⭐
-PREMIUM_DAILY_GIFT_MAX = 2  # ⭐
+PREMIUM_DAILY_GIFT_MIN = 100  # ⭐
+PREMIUM_DAILY_GIFT_MAX = 200  # ⭐
 
 async def _maybe_offer_premium_daily_gift(event, user_id):
     user_doc = await users_catcher_col.find_one({"user_id": user_id}, {"premium_until": 1, "premium_gift_date": 1})
@@ -7720,72 +7360,78 @@ async def buy_star_handler(event):
 async def sell_star_handler(event):
     user_id = event.sender_id
     raw = event.pattern_match.group(1)
-    market = await get_or_create_star_market()
+    
+    # ==========================================
+    # 🎯 SELL STAR — FIXED RATE RANGE (25 ~ 200 USD per 1⭐)
+    # 2% fee goes to Bot3 Treasury automatically
+    # ==========================================
+    SELL_STAR_MIN_USD = 25
+    SELL_STAR_MAX_USD = 200
+    SELL_FEE_PERCENT = 0.02  # 2% fee
+    
     if not raw:
         return await event.reply(
             f"⭐ <b>Star ရောင်းရန်</b>\n"
-            f"💱 <b>နှုန်းထား:</b> <code>1⭐ = {market['price']:,.0f} USD</code>\n"
+            f"💱 <b>ရောင်းစျေးနှုန်း:</b> <code>1⭐ = {SELL_STAR_MIN_USD} ~ {SELL_STAR_MAX_USD} USD</code> (Random)\n"
             f"📌 <b>Usage:</b> <code>/sellstar [Star amount]</code>\n"
-            f"<i>Example:</i> <code>/sellstar 1</code>",
+            f"<i>Example:</i> <code>/sellstar 1</code>\n\n"
+            f"<i>⚠️ ရောင်းစျေးကို random ပေးပါမယ်။ ရငွေ၏ 2% ကို Bot3 Treasury သို့ အလိုအလျောက် ထည့်ပါမယ်။</i>",
             parse_mode='html'
         )
+    
     try:
         star_amount = float(raw)
     except ValueError:
         return await event.reply("❌ <b>Star ပမာဏ မှန်ကန်အောင် ရိုက်ပါ။</b>", parse_mode='html')
+    
     if star_amount <= 0:
         return await event.reply("❌ <b>Star ပမာဏ မှန်ကန်အောင် ရိုက်ပါ။</b>", parse_mode='html')
+    
+    # 🔒 Check if user has enough Star
     if not await try_deduct_star(user_id, star_amount):
         return await event.reply("❌ <b>Star Balance မလုံလောက်ပါ။</b>", parse_mode='html')
-    mmk_gained = round(star_amount * market["price"])
-    await users_catcher_col.update_one({"user_id": user_id}, {"$inc": {"wallet_balance": mmk_gained}}, upsert=True)
+    
+    # 🎲 Generate random sell rate between 25 and 200 USD per 1⭐
+    sell_rate = round(random.uniform(SELL_STAR_MIN_USD, SELL_STAR_MAX_USD), 2)
+    gross_usd = round(star_amount * sell_rate, 2)
+    
+    # 💰 Calculate fee (2%) and net amount for user
+    fee = round(gross_usd * SELL_FEE_PERCENT, 2)
+    user_usd_gained = round(gross_usd - fee, 2)
+    
+    # 🏦 Send fee to Bot3 Treasury
+    if fee > 0:
+        await bot3_treasury_adjust(usd=fee)
+    
+    # 💰 Add net USD to user's wallet
+    await users_catcher_col.update_one({"user_id": user_id}, {"$inc": {"wallet_balance": user_usd_gained}}, upsert=True)
+    
+    # 📝 Log to star_exchange_log_col
     await star_exchange_log_col.insert_one({
-        "user_id": user_id, "type": "sell", "star_amount": star_amount, "mmk_amount": mmk_gained,
-        "rate": market["price"], "timestamp": time.time()
+        "user_id": user_id,
+        "type": "sell",
+        "star_amount": star_amount,
+        "gross_usd": gross_usd,
+        "fee": fee,
+        "user_usd_gained": user_usd_gained,
+        "rate": sell_rate,
+        "timestamp": time.time()
     })
+    
+    # 📨 Reply with success message
+    fee_percent_display = int(SELL_FEE_PERCENT * 100)
     await event.reply(
         f"✅ <b>Star ရောင်းချမှု အောင်မြင်ပါတယ်!</b>\n"
         f"<blockquote>"
         f"⭐ <b>ရောင်း:</b> <code>{format_star_plain(star_amount)}</code>\n"
-        f"💸 <b>ရရှိ:</b> <code>{mmk_gained:,} USD</code>\n"
-        f"💱 <b>နှုန်းထား:</b> <code>1⭐ = {market['price']:,.0f} USD</code>"
-        f"</blockquote>",
+        f"💸 <b>ရငွေ (အကြမ်း):</b> <code>{gross_usd:,.2f} USD</code>\n"
+        f"🏦 <b>အခွန် ({fee_percent_display}%):</b> <code>-{fee:,.2f} USD</code>\n"
+        f"💵 <b>အသားတင်ရရှိ:</b> <code>{user_usd_gained:,.2f} USD</code>\n"
+        f"💱 <b>ရောင်းစျေး:</b> <code>1⭐ = {sell_rate:,.2f} USD</code>"
+        f"</blockquote>\n"
+        f"<i>📌 ဤစျေးနှုန်းသည် random ဖြစ်ပြီး /setstarrate နဲ့ မသက်ဆိုင်ပါ။</i>",
         parse_mode='html'
-    )
-
-# ==========================================
-# 🛠️ /setstarrate [USD] — OWNER ONLY: manually re-peg the ⭐ Star <-> USD exchange rate.
-# This is the only way the rate ever changes now (defaults to 1⭐ = STAR_STARTING_PRICE at genesis).
-# ==========================================
-@bot1.on(events.NewMessage(pattern=own_pattern(r'^[/.]setstarrate(?:@\w+)?(?:\s+(\S+))?$', 'bot1')))
-async def set_star_rate_handler(event):
-    if event.sender_id != OWNER_ID: return
-    raw = event.pattern_match.group(1)
-    market = await get_or_create_star_market()
-    if not raw:
-        return await event.reply(
-            f"⭐ <b>Star Exchange Rate</b>\n"
-            f"💱 <b>လက်ရှိနှုန်းထား:</b> <code>1⭐ = {market['price']:,.0f} USD</code>\n"
-            f"📌 <b>Usage:</b> <code>/setstarrate [USD amount]</code>\n"
-            f"<i>Example:</i> <code>/setstarrate 1000000</code>",
-            parse_mode='html'
         )
-    try:
-        new_rate = float(raw)
-    except ValueError:
-        return await event.reply("❌ <b>USD ပမာဏ မှန်ကန်အောင် ရိုက်ပါ။</b>", parse_mode='html')
-    if new_rate <= 0:
-        return await event.reply("❌ <b>USD ပမာဏ မှန်ကန်အောင် ရိုက်ပါ။</b>", parse_mode='html')
-    old_price = market["price"]
-    new_price = await _write_star_price(market, new_rate)
-    await event.reply(
-        f"✅ <b>Star Exchange Rate ကို ပြောင်းလိုက်ပါပြီ!</b>\n"
-        f"<blockquote>"
-        f"↩️ <b>Old:</b> <code>1⭐ = {old_price:,.0f} USD</code>\n"
-        f"➡️ <b>New:</b> <code>1⭐ = {new_price:,.0f} USD</code>"
-        f"</blockquote>",
-        parse_mode='html'
-    )
 
 # ==========================================
 # 🏆 LEADERBOARDS
@@ -7921,7 +7567,6 @@ async def gift_ranks_handler(event):
     await event.reply(text, parse_mode='html')
 
 
-
 # ==========================================
 # 🎖️ GIFT RANK TITLES — 6 escalating Burmese titles for GIVING (total_gifted) and a separate
 # 6 for RECEIVING (total_gift_received). Purely a cosmetic badge computed live off the two
@@ -7991,7 +7636,158 @@ async def render_gift_history_page(user_id, page):
     buttons = [nav] if nav else None
     return text, buttons
 
-
+@bot1.on(events.NewMessage(pattern=own_pattern(r'^[/.]retroactive_star_fee(?:@\w+)?(?:\s+(confirm))?$', 'bot1')))
+async def retroactive_star_fee_handler(event):
+    """Owner-only: Collect 2% fee from ALL past sellstar transactions that haven't been processed yet."""
+    if event.sender_id != OWNER_ID:
+        return
+    
+    is_confirm = bool(event.pattern_match.group(1))
+    SELL_FEE_PERCENT = 0.02  # 2%
+    
+    # ==========================================
+    # 1. Count unprocessed sell records
+    # ==========================================
+    pipeline = [
+        {"$match": {"type": "sell", "fee": {"$exists": False}}},
+        {"$count": "total"}
+    ]
+    total_docs = await star_exchange_log_col.aggregate(pipeline).to_list(length=1)
+    total = total_docs[0]["total"] if total_docs else 0
+    
+    if total == 0:
+        return await event.reply(
+            "📭 <b>No unprocessed sell records found.</b>\n"
+            "All past sell transactions have already been charged the 2% fee.",
+            parse_mode='html'
+        )
+    
+    # ==========================================
+    # 2. Preview (first 5 records)
+    # ==========================================
+    sample = await star_exchange_log_col.find(
+        {"type": "sell", "fee": {"$exists": False}}
+    ).limit(5).to_list(length=5)
+    
+    sample_lines = []
+    total_gross = 0
+    total_fee_est = 0
+    
+    for doc in sample:
+        user_id = doc.get("user_id", "?")
+        star_amount = doc.get("star_amount", 0)
+        gross_usd = doc.get("gross_usd") or doc.get("usd_amount") or doc.get("mmk_amount", 0)
+        fee = round(gross_usd * SELL_FEE_PERCENT, 2)
+        total_gross += gross_usd
+        total_fee_est += fee
+        sample_lines.append(
+            f"• <code>{user_id}</code> — <code>{star_amount}⭐</code> → "
+            f"<code>${gross_usd:,.2f}</code> (fee: <code>${fee:,.2f}</code>)"
+        )
+    
+    # Estimate total fee for all records
+    total_gross_all = await star_exchange_log_col.aggregate([
+        {"$match": {"type": "sell", "fee": {"$exists": False}}},
+        {"$group": {"_id": None, "total_gross": {"$sum": {"$convert": {"input": {"$ifNull": ["$gross_usd", {"$ifNull": ["$usd_amount", "$mmk_amount"]}]}, "to": "double"}}}}
+    ]).to_list(length=1)
+    
+    estimated_total_gross = total_gross_all[0]["total_gross"] if total_gross_all else 0
+    estimated_total_fee = round(estimated_total_gross * SELL_FEE_PERCENT, 2)
+    
+    if not is_confirm:
+        preview_text = (
+            f"⚠️ <b>RETROACTIVE STAR SELL FEE</b>\n\n"
+            f"📊 <b>Unprocessed records:</b> <code>{total}</code>\n"
+            f"💵 <b>Estimated total gross:</b> <code>${estimated_total_gross:,.2f}</code>\n"
+            f"🏦 <b>Estimated total fee (2%):</b> <code>${estimated_total_fee:,.2f}</code>\n\n"
+            f"<b>Sample (first 5):</b>\n" + "\n".join(sample_lines) + "\n\n"
+            f"❗ ဒါက <b>ပြန်ဖျက်လို့မရဘူး</b> — Run <code>/retroactive_star_fee confirm</code> to proceed."
+        )
+        return await event.reply(preview_text, parse_mode='html')
+    
+    # ==========================================
+    # 3. Process ALL unprocessed sell records
+    # ==========================================
+    processed = 0
+    total_fee_collected = 0
+    total_processed_gross = 0
+    error_count = 0
+    
+    status_msg = await event.reply(
+        f"⏳ <b>Processing {total} records...</b>\n"
+        f"0/{total} completed",
+        parse_mode='html'
+    )
+    
+    cursor = star_exchange_log_col.find({"type": "sell", "fee": {"$exists": False}})
+    
+    async for doc in cursor:
+        try:
+            user_id = doc.get("user_id")
+            star_amount = doc.get("star_amount", 0)
+            gross_usd = doc.get("gross_usd") or doc.get("usd_amount") or doc.get("mmk_amount", 0)
+            
+            if gross_usd <= 0:
+                # No gross amount, skip and mark as processed with zero fee
+                await star_exchange_log_col.update_one(
+                    {"_id": doc["_id"]},
+                    {"$set": {"fee": 0, "user_usd_gained": 0}}
+                )
+                processed += 1
+                continue
+            
+            fee = round(gross_usd * SELL_FEE_PERCENT, 2)
+            
+            if fee > 0:
+                # Send fee to Bot3 Treasury
+                await bot3_treasury_adjust(usd=fee)
+                total_fee_collected += fee
+                total_processed_gross += gross_usd
+            
+            # Mark as processed
+            await star_exchange_log_col.update_one(
+                {"_id": doc["_id"]},
+                {"$set": {
+                    "fee": fee,
+                    "user_usd_gained": round(gross_usd - fee, 2),
+                    "fee_processed_at": time.time()
+                }}
+            )
+            processed += 1
+            
+            # Update progress every 10 records
+            if processed % 10 == 0 or processed == total:
+                try:
+                    await status_msg.edit(
+                        f"⏳ <b>Processing {total} records...</b>\n"
+                        f"{processed}/{total} completed\n"
+                        f"🏦 Collected: <code>${total_fee_collected:,.2f}</code>",
+                        parse_mode='html'
+                    )
+                except Exception:
+                    pass
+                    
+        except Exception as e:
+            error_count += 1
+            print(f"❌ Retroactive fee error for doc {doc.get('_id')}: {e}")
+            continue
+    
+    # ==========================================
+    # 4. Final result
+    # ==========================================
+    result_msg = (
+        f"✅ <b>RETROACTIVE FEE COMPLETE</b>\n\n"
+        f"📊 <b>Processed records:</b> <code>{processed}/{total}</code>\n"
+        f"💵 <b>Total gross processed:</b> <code>${total_processed_gross:,.2f}</code>\n"
+        f"🏦 <b>Total fee collected (2%):</b> <code>${total_fee_collected:,.2f}</code>\n"
+    )
+    
+    if error_count > 0:
+        result_msg += f"⚠️ <b>Errors:</b> <code>{error_count}</code> records failed (check logs)\n"
+    
+    result_msg += f"\n📌 <i>Bot3 Treasury now includes 2% from all past sellstar transactions.</i>"
+    
+    await status_msg.edit(result_msg, parse_mode='html')
 # ==========================================
 # 🎁 GIFT (fixed)
 # ==========================================
@@ -8052,10 +7848,16 @@ async def gift_callback_handler(event):
         char_id = char_id_raw.decode('utf-8').upper()
     else:
         char_id = char_id_raw.upper()
+    
     if event.sender_id != sender_id:
         return await event.answer("❌ This action is not for you!", alert=True)
+    
     if not claim_single_tap(event):
         return await event.answer("⏳ Already processing...", alert=False)
+    
+    # ==========================================
+    # ❌ CANCEL
+    # ==========================================
     if action == "cancel":
         await event.edit(
             f"❌ <b>Gift Cancelled</b>\n\n"
@@ -8066,12 +7868,46 @@ async def gift_callback_handler(event):
         )
         await event.answer("Gift cancelled.", alert=True)
         return
-    # confirm
+    
+    # ==========================================
+    # ✅ CONFIRM — Check & Deduct 1000 USD from BOTH sender and receiver
+    # ==========================================
+    GIFT_FEE_USD = 1000  # 1000 USD per person
+    
+    # 🔒 Check sender's balance
+    if not await try_deduct_balance(sender_id, GIFT_FEE_USD):
+        await event.edit(
+            f"❌ <b>Sender doesn't have enough USD!</b>\n"
+            f"💰 Need: <code>{GIFT_FEE_USD:,.2f} USD</code>\n"
+            f"💡 Please check your balance with <code>/balance</code>",
+            parse_mode='html',
+            buttons=None
+        )
+        await event.answer("Insufficient balance!", alert=True)
+        return
+    
+    # 🔒 Check receiver's balance
+    if not await try_deduct_balance(receiver_id, GIFT_FEE_USD):
+        # Refund sender if receiver can't afford it
+        await users_catcher_col.update_one({"user_id": sender_id}, {"$inc": {"wallet_balance": GIFT_FEE_USD}})
+        await event.edit(
+            f"❌ <b>Receiver doesn't have enough USD!</b>\n"
+            f"💰 Need: <code>{GIFT_FEE_USD:,.2f} USD</code>\n"
+            f"💡 <i>Sender's {GIFT_FEE_USD:,.2f} USD has been refunded.</i>",
+            parse_mode='html',
+            buttons=None
+        )
+        await event.answer("Receiver insufficient balance!", alert=True)
+        return
+    
+    # 🏦 Send total fee (2000 USD) to Bot3 Treasury
+    await bot3_treasury_adjust(usd=GIFT_FEE_USD * 2)
+    
+    # ==========================================
+    # 🎁 PROCESS GIFT (Original logic continues)
+    # ==========================================
     if sender_id == OWNER_ID:
-        # 👑 Unlimited vault: nothing to remove — this card stays available for every future
-        # gift too. Rarity comes straight from the character record instead of a harem item
-        # (the owner may never have actually caught this one for real). Gift stats are still
-        # tracked for visibility, they just don't touch the owner's real harem array.
+        # 👑 Unlimited vault: nothing to remove
         char_data = await characters_base_col.find_one({"char_id": char_id})
         if not char_data:
             await event.edit(
@@ -8094,10 +7930,14 @@ async def gift_callback_handler(event):
         sender_harem = sender_doc.get("harem", []) if sender_doc else []
         char_item = next((x for x in sender_harem if isinstance(x, dict) and x.get("char_id") == char_id and x.get("status") != "market"), None)
         if not char_item:
+            # Refund both if card disappeared
+            await users_catcher_col.update_one({"user_id": sender_id}, {"$inc": {"wallet_balance": GIFT_FEE_USD}})
+            await users_catcher_col.update_one({"user_id": receiver_id}, {"$inc": {"wallet_balance": GIFT_FEE_USD}})
+            await bot3_treasury_adjust(usd=-(GIFT_FEE_USD * 2))
             await event.edit(
                 f"❌ <b>Oops!</b>\n\n"
                 f"It seems you no longer have card <code>{display_char_id(char_id)}</code>.\n"
-                f"☄️ Looks like luck played a little trick on you!",
+                f"☄️ Fees have been refunded to both parties.",
                 parse_mode='html',
                 buttons=None
             )
@@ -8114,6 +7954,8 @@ async def gift_callback_handler(event):
             }
         )
         await clear_stale_favorite(sender_id, char_id, sender_harem)
+    
+    # Add card to receiver
     r_mention = await get_html_mention(event, receiver_id)
     r_plain_name = await get_plain_name(event, receiver_id)
     await users_catcher_col.update_one(
@@ -8125,21 +7967,21 @@ async def gift_callback_handler(event):
         },
         upsert=True
     )
+    
+    # Log gift history
     try:
         await gift_history_col.insert_one({
             "sender_id": sender_id,
             "receiver_id": receiver_id,
             "char_id": char_id,
             "rarity_tier": gift_tier,
+            "fee": GIFT_FEE_USD * 2,
             "timestamp": time.time()
         })
     except Exception as e:
         print(f"gift_history log error: {e}")
-
-    # 🎖️ Gift Rank: pull each side's fresh post-gift count and work out (a) their current
-    # title, and (b) whether THIS gift is the exact moment that crossed them into a new tier
-    # (count lands precisely on a threshold — safe since each gift only ever moves a counter
-    # up by 1) — that's the promotion banner moment, shown once, right when it happens.
+    
+    # 🎖️ Gift Rank promotions
     sender_after = await users_catcher_col.find_one({"user_id": sender_id}, {"total_gifted": 1})
     receiver_after = await users_catcher_col.find_one({"user_id": receiver_id}, {"total_gift_received": 1})
     sender_gift_count = (sender_after or {}).get("total_gifted", 0)
@@ -8152,15 +7994,14 @@ async def gift_callback_handler(event):
     giver_promo_line = f"\n🎉 <b>ဂုဏ်ယူပါတယ်! Rank အသစ် {giver_title[0]} <code>{giver_title[1]}</code> ရရှိသွားပါပြီ!</b> <i>(Gift {sender_gift_count} ကြိမ်ပြည့်ပါပြီ)</i>" if giver_promoted and giver_title else ""
     receiver_rank_line = f"🎖️ <b>Your Rank:</b> {receiver_title[0]} <code>{receiver_title[1]}</code>\n" if receiver_title else ""
     receiver_promo_line = f"\n🎉 <b>ဂုဏ်ယူပါတယ်! Rank အသစ် {receiver_title[0]} <code>{receiver_title[1]}</code> ရရှိသွားပါပြီ!</b> <i>(Gift {receiver_gift_count} ကြိမ် လက်ခံရရှိပါပြီ)</i>" if receiver_promoted and receiver_title else ""
-
-    # 🎨 A designed experience for BOTH sides: a richer confirmation where the gift happened,
-    # plus a dedicated DM straight to the receiver (with the card's image) so they find out even
-    # if they're not watching the group chat right now.
+    
+    # Final confirmation message
     char_doc = await characters_base_col.find_one({"char_id": char_id})
     char_name_display = escape_html(char_doc.get("name", "?")) if char_doc else char_id
     rarity_emoji = RARITY_EMOJI.get(gift_tier, RARITY_DEFAULT_EMOJI)
     s_mention = await get_html_mention(event, sender_id)
-
+    
+    fee_display = GIFT_FEE_USD * 2
     await event.edit(
         f"🎁 <b>GIFT SUCCESSFUL!</b>\n"
         f"<blockquote>"
@@ -8168,6 +8009,7 @@ async def gift_callback_handler(event):
         f"📥 <b>To:</b> {r_mention}\n"
         f"{rarity_emoji} <b>Card:</b> <code>{char_name_display}</code> (<code>{display_char_id(char_id)}</code>)\n"
         f"🦋 <b>Rarity:</b> {char_rarity}\n"
+        f"🏦 <b>Gift Fee (2 persons):</b> <code>{fee_display:,.2f} USD</code>\n"
         f"{giver_rank_line}"
         f"</blockquote>\n"
         f"🍔 <i>All done!</i>"
@@ -8176,31 +8018,7 @@ async def gift_callback_handler(event):
         buttons=None
     )
     await event.answer("Gift sent successfully!", alert=True)
-
-    receiver_dm_text = (
-        f"🎁 <b>You've received a gift!</b>\n"
-        f"<blockquote>"
-        f"📤 <b>From:</b> {s_mention}\n"
-        f"{rarity_emoji} <b>Card:</b> <code>{char_name_display}</code> (<code>{display_char_id(char_id)}</code>)\n"
-        f"🦋 <b>Rarity:</b> {char_rarity}\n"
-        f"{receiver_rank_line}"
-        f"</blockquote>\n"
-        f"<code>/harem</code> <i>ဖြင့် ကြည့်နိုင်ပါတယ်။</i>"
-        f"{receiver_promo_line}"
-    )
-
-    async def _send_gift_dm(media):
-        return await bot1.send_message(receiver_id, receiver_dm_text, file=media, parse_mode='html')
-
-    try:
-        sent = None
-        if char_doc:
-            sent = await send_with_char_media(char_doc["char_id"], char_doc["storage_msg_id"], _send_gift_dm)
-        if sent is None:
-            await bot1.send_message(receiver_id, receiver_dm_text, parse_mode='html')
-    except Exception:
-        pass  # receiver hasn't started a DM with the bot / blocked it / privacy settings — safe to skip
-
+    
 # ==========================================
 # 🎁 /giftusd, /giftstar, /giftpremium — direct user-to-user gifting of USD, ⭐ Star, and Bot
 # Premium. All three: reply to the receiver's message, same confirm/cancel pattern as the card
@@ -8226,20 +8044,28 @@ async def _resolve_gift_receiver(event):
         return None, "❌ <b>Can't gift to a bot.</b>"
     return receiver_id, None
 
-# ---- /giftusd ----
 @bot1.on(events.NewMessage(pattern=own_pattern(r'^[/.]giftusd(?:@\w+)?\s+(\d+(?:\.\d+)?)$', 'bot1')))
 async def gift_usd_handler(event):
     amount = round(float(event.pattern_match.group(1)), 2)
     receiver_id, err = await _resolve_gift_receiver(event)
     if err:
         return await event.reply(err, parse_mode='html')
+    
+    GIFT_FEE_PERCENT = 0.02  # 2% fee
+    fee = round(amount * GIFT_FEE_PERCENT, 2)
+    net_amount = round(amount - fee, 2)
+    
     if amount < GIFT_USD_MIN:
         return await event.reply(f"❌ <b>Minimum gift is {format_usd(GIFT_USD_MIN)}.</b>", parse_mode='html')
+    
     sender_id = event.sender_id
     r_mention = await get_html_mention(event, receiver_id)
+    
     confirm_text = (
         f"💵 <b>Gift Confirmation</b>\n\n"
         f"💰 <b>Amount:</b> <code>{format_usd(amount)}</code>\n"
+        f"🏦 <b>Fee (2%):</b> <code>-{format_usd(fee)}</code>\n"
+        f"💵 <b>Receiver gets:</b> <code>{format_usd(net_amount)}</code>\n"
         f"🎯 <b>Receiver:</b> {r_mention}\n\n"
         f"<blockquote>Are you sure you want to send this to {r_mention}?</blockquote>"
     )
@@ -8248,37 +8074,67 @@ async def gift_usd_handler(event):
         Button.inline("❌ Cancel", data=f"giftusd_cancel_{sender_id}_{receiver_id}_{amount}")
     ]]
     await event.reply(confirm_text, buttons=buttons, parse_mode='html')
-
 @bot1.on(events.CallbackQuery(pattern=r'^giftusd_(confirm|cancel)_(\d+)_(\d+)_([\d.]+)$'))
 async def gift_usd_callback(event):
     action = event.pattern_match.group(1)
-    if isinstance(action, bytes): action = action.decode('utf-8')
+    if isinstance(action, bytes):
+        action = action.decode('utf-8')
     sender_id = int(event.pattern_match.group(2))
     receiver_id = int(event.pattern_match.group(3))
     amount = round(float(event.pattern_match.group(4)), 2)
+    
+    GIFT_FEE_PERCENT = 0.02  # 2% fee
+    fee = round(amount * GIFT_FEE_PERCENT, 2)
+    net_amount = round(amount - fee, 2)
+    
     if event.sender_id != sender_id:
         return await event.answer("❌ This action is not for you!", alert=True)
+    
     if not claim_single_tap(event):
         return await event.answer("⏳ Already processing...", alert=False)
+    
     if action == "cancel":
         await event.edit(f"❌ <b>Gift Cancelled.</b> {format_usd(amount)} was not sent.", parse_mode='html', buttons=None)
         return await event.answer("Gift cancelled.", alert=True)
+    
+    # 🔒 Check sender has enough USD (full amount including fee)
     if not await try_deduct_balance(sender_id, amount):
         await event.edit("❌ <b>Not enough USD balance anymore.</b>", parse_mode='html', buttons=None)
         return await event.answer("Insufficient balance.", alert=True)
+    
+    # 🏦 Send fee to Bot3 Treasury
+    if fee > 0:
+        await bot3_treasury_adjust(usd=fee)
+    
+    # 💰 Send net amount to receiver
     r_plain_name = await get_plain_name(event, receiver_id)
     await users_catcher_col.update_one(
         {"user_id": receiver_id},
-        {"$inc": {"wallet_balance": amount}, "$set": {"fullname": r_plain_name}},
+        {"$inc": {"wallet_balance": net_amount}, "$set": {"fullname": r_plain_name}},
         upsert=True
     )
+    
     r_mention = await get_html_mention(event, receiver_id)
     s_mention = await get_html_mention(event, sender_id)
-    await event.edit(f"✅ <b>{format_usd(amount)} sent to {r_mention}!</b>", parse_mode='html', buttons=None)
+    
+    # 📨 Reply in chat
+    await event.edit(
+        f"✅ <b>{format_usd(amount)} sent to {r_mention}!</b>\n"
+        f"🏦 <b>Fee (2%):</b> <code>{format_usd(fee)}</code>\n"
+        f"💵 <b>Receiver gets:</b> <code>{format_usd(net_amount)}</code>",
+        parse_mode='html',
+        buttons=None
+    )
+    
+    # 📨 DM to receiver
     try:
         await bot1.send_message(
             receiver_id,
-            f"💵 <b>You received a gift!</b>\n📤 <b>From:</b> {s_mention}\n💰 <b>Amount:</b> <code>{format_usd(amount)}</code>",
+            f"💵 <b>You received a USD gift!</b>\n"
+            f"📤 <b>From:</b> {s_mention}\n"
+            f"💰 <b>Amount:</b> <code>{format_usd(amount)}</code>\n"
+            f"🏦 <b>Fee deducted:</b> <code>{format_usd(fee)}</code>\n"
+            f"💵 <b>You received:</b> <code>{format_usd(net_amount)}</code>",
             parse_mode='html'
         )
     except Exception:
@@ -8291,13 +8147,22 @@ async def gift_star_handler(event):
     receiver_id, err = await _resolve_gift_receiver(event)
     if err:
         return await event.reply(err, parse_mode='html')
+    
+    GIFT_STAR_FEE_PERCENT = 0.02  # 2% fee
+    fee = round(amount * GIFT_STAR_FEE_PERCENT, 2)
+    net_amount = round(amount - fee, 2)
+    
     if amount < GIFT_STAR_MIN:
         return await event.reply(f"❌ <b>Minimum gift is {GIFT_STAR_MIN}⭐.</b>", parse_mode='html')
+    
     sender_id = event.sender_id
     r_mention = await get_html_mention(event, receiver_id)
+    
     confirm_text = (
         f"⭐ <b>Gift Confirmation</b>\n\n"
         f"💰 <b>Amount:</b> <code>{amount}⭐</code>\n"
+        f"🏦 <b>Fee (2%):</b> <code>-{fee}⭐</code>\n"
+        f"⭐ <b>Receiver gets:</b> <code>{net_amount}⭐</code>\n"
         f"🎯 <b>Receiver:</b> {r_mention}\n\n"
         f"<blockquote>Are you sure you want to send this to {r_mention}?</blockquote>"
     )
@@ -8306,42 +8171,72 @@ async def gift_star_handler(event):
         Button.inline("❌ Cancel", data=f"giftstar_cancel_{sender_id}_{receiver_id}_{amount}")
     ]]
     await event.reply(confirm_text, buttons=buttons, parse_mode='html')
-
 @bot1.on(events.CallbackQuery(pattern=r'^giftstar_(confirm|cancel)_(\d+)_(\d+)_([\d.]+)$'))
 async def gift_star_callback(event):
     action = event.pattern_match.group(1)
-    if isinstance(action, bytes): action = action.decode('utf-8')
+    if isinstance(action, bytes):
+        action = action.decode('utf-8')
     sender_id = int(event.pattern_match.group(2))
     receiver_id = int(event.pattern_match.group(3))
     amount = round(float(event.pattern_match.group(4)), 2)
+    
+    GIFT_STAR_FEE_PERCENT = 0.02  # 2% fee
+    fee = round(amount * GIFT_STAR_FEE_PERCENT, 2)
+    net_amount = round(amount - fee, 2)
+    
     if event.sender_id != sender_id:
         return await event.answer("❌ This action is not for you!", alert=True)
+    
     if not claim_single_tap(event):
         return await event.answer("⏳ Already processing...", alert=False)
+    
     if action == "cancel":
         await event.edit(f"❌ <b>Gift Cancelled.</b> {amount}⭐ was not sent.", parse_mode='html', buttons=None)
         return await event.answer("Gift cancelled.", alert=True)
+    
+    # 🔒 Check sender has enough Star (full amount including fee)
     if not await try_deduct_star(sender_id, amount):
         await event.edit("❌ <b>Not enough ⭐ Star balance anymore.</b>", parse_mode='html', buttons=None)
         return await event.answer("Insufficient Star.", alert=True)
+    
+    # 🏦 Send fee to Bot3 Treasury (Star)
+    if fee > 0:
+        await bot3_treasury_adjust(star=fee)
+    
+    # ⭐ Send net amount to receiver
     r_plain_name = await get_plain_name(event, receiver_id)
     await users_catcher_col.update_one(
         {"user_id": receiver_id},
-        {"$inc": {"star_balance": amount}, "$set": {"fullname": r_plain_name}},
+        {"$inc": {"star_balance": net_amount}, "$set": {"fullname": r_plain_name}},
         upsert=True
     )
+    
     r_mention = await get_html_mention(event, receiver_id)
     s_mention = await get_html_mention(event, sender_id)
-    await event.edit(f"✅ <b>{amount}⭐ sent to {r_mention}!</b>", parse_mode='html', buttons=None)
+    
+    # 📨 Reply in chat
+    await event.edit(
+        f"✅ <b>{amount}⭐ sent to {r_mention}!</b>\n"
+        f"🏦 <b>Fee (2%):</b> <code>-{fee}⭐</code>\n"
+        f"⭐ <b>Receiver gets:</b> <code>{net_amount}⭐</code>",
+        parse_mode='html',
+        buttons=None
+    )
+    
+    # 📨 DM to receiver
     try:
         await bot1.send_message(
             receiver_id,
-            f"⭐ <b>You received a gift!</b>\n📤 <b>From:</b> {s_mention}\n💰 <b>Amount:</b> <code>{amount}⭐</code>",
+            f"⭐ <b>You received a Star gift!</b>\n"
+            f"📤 <b>From:</b> {s_mention}\n"
+            f"💰 <b>Amount:</b> <code>{amount}⭐</code>\n"
+            f"🏦 <b>Fee deducted:</b> <code>-{fee}⭐</code>\n"
+            f"⭐ <b>You received:</b> <code>{net_amount}⭐</code>",
             parse_mode='html'
         )
     except Exception:
         pass
-
+        
 # ---- /giftpremium ----
 @bot1.on(events.NewMessage(pattern=own_pattern(r'^[/.]giftpremium(?:@\w+)?\s+(\d+)$', 'bot1')))
 async def gift_premium_handler(event):
@@ -8350,16 +8245,26 @@ async def gift_premium_handler(event):
     if not tier:
         valid = ", ".join(str(t[0]) for t in PREMIUM_TIERS)
         return await event.reply(f"❌ <b>Invalid duration.</b> Valid tiers (months): <code>{valid}</code>", parse_mode='html')
+    
     receiver_id, err = await _resolve_gift_receiver(event)
     if err:
         return await event.reply(err, parse_mode='html')
+    
     sender_id = event.sender_id
     _, price, days = tier
+    
+    GIFT_PREMIUM_FEE_PERCENT = 0.02  # 2% fee
+    fee = round(price * GIFT_PREMIUM_FEE_PERCENT, 2)
+    total_cost = round(price + fee, 2)  # Sender pays price + fee
+    
     r_mention = await get_html_mention(event, receiver_id)
+    
     confirm_text = (
         f"👑 <b>Gift Premium Confirmation</b>\n\n"
         f"⏳ <b>Duration:</b> <code>{_premium_tier_label(months)}</code>\n"
-        f"💰 <b>Cost (from your ⭐ Star):</b> <code>{price}⭐</code>\n"
+        f"💰 <b>Premium Cost:</b> <code>{price}⭐</code>\n"
+        f"🏦 <b>Fee (2%):</b> <code>{fee}⭐</code>\n"
+        f"💎 <b>Total Cost:</b> <code>{total_cost}⭐</code>\n"
         f"🎯 <b>Receiver:</b> {r_mention}\n\n"
         f"<blockquote>Are you sure you want to gift Premium to {r_mention}?</blockquote>"
     )
@@ -8368,51 +8273,329 @@ async def gift_premium_handler(event):
         Button.inline("❌ Cancel", data=f"giftprem_cancel_{sender_id}_{receiver_id}_{months}")
     ]]
     await event.reply(confirm_text, buttons=buttons, parse_mode='html')
-
 @bot1.on(events.CallbackQuery(pattern=r'^giftprem_(confirm|cancel)_(\d+)_(\d+)_(\d+)$'))
 async def gift_premium_callback(event):
     action = event.pattern_match.group(1)
-    if isinstance(action, bytes): action = action.decode('utf-8')
+    if isinstance(action, bytes):
+        action = action.decode('utf-8')
     sender_id = int(event.pattern_match.group(2))
     receiver_id = int(event.pattern_match.group(3))
     months = int(event.pattern_match.group(4))
+    
     if event.sender_id != sender_id:
         return await event.answer("❌ This action is not for you!", alert=True)
+    
     if not claim_single_tap(event):
         return await event.answer("⏳ Already processing...", alert=False)
+    
     tier = next((t for t in PREMIUM_TIERS if t[0] == months), None)
     if not tier:
         await event.edit("❌ <b>Invalid tier.</b>", parse_mode='html', buttons=None)
         return await event.answer("Invalid tier.", alert=True)
+    
     _, price, days = tier
+    
+    GIFT_PREMIUM_FEE_PERCENT = 0.02  # 2% fee
+    fee = round(price * GIFT_PREMIUM_FEE_PERCENT, 2)
+    total_cost = round(price + fee, 2)
+    
     if action == "cancel":
         await event.edit("❌ <b>Gift Cancelled.</b> Premium was not sent.", parse_mode='html', buttons=None)
         return await event.answer("Gift cancelled.", alert=True)
-    if not await try_deduct_star(sender_id, price):
+    
+    # 🔒 Check sender has enough Star (price + fee)
+    if not await try_deduct_star(sender_id, total_cost):
         buyer_doc = await users_catcher_col.find_one({"user_id": sender_id})
         have = buyer_doc.get("star_balance", 0) if buyer_doc else 0
-        await event.edit(f"❌ <b>Not enough ⭐ Star.</b> Need: <code>{price}⭐</code> | Have: <code>{format_star_plain(have)}</code>", parse_mode='html', buttons=None)
+        await event.edit(
+            f"❌ <b>Not enough ⭐ Star.</b>\n"
+            f"Need: <code>{total_cost}⭐</code> (price + fee)\n"
+            f"Have: <code>{format_star_plain(have)}</code>",
+            parse_mode='html',
+            buttons=None
+        )
         return await event.answer("Insufficient Star.", alert=True)
+    
+    # 🏦 Send fee to Bot3 Treasury (Star)
+    if fee > 0:
+        await bot3_treasury_adjust(star=fee)
+    
+    # 👑 Grant Premium to receiver
     new_until = await grant_premium_days(receiver_id, days)
-    # Same Star sink as every other Premium purchase — the Owner receives the Star paid.
+    
+    # 💰 Owner receives the Star paid for Premium (price only, not fee)
     await users_catcher_col.update_one({"user_id": OWNER_ID}, {"$inc": {"star_balance": price}}, upsert=True)
+    
     r_mention = await get_html_mention(event, receiver_id)
     s_mention = await get_html_mention(event, sender_id)
     expiry_str = datetime.fromtimestamp(new_until, TZ).strftime("%Y-%m-%d %H:%M")
+    
     await event.edit(
-        f"✅ <b>Premium gifted to {r_mention}!</b>\n⏳ <b>Runs until:</b> <code>{expiry_str}</code>",
-        parse_mode='html', buttons=None
+        f"✅ <b>Premium gifted to {r_mention}!</b>\n"
+        f"⏳ <b>Runs until:</b> <code>{expiry_str}</code>\n"
+        f"💰 <b>Cost:</b> <code>{price}⭐</code>\n"
+        f"🏦 <b>Fee (2%):</b> <code>{fee}⭐</code>\n"
+        f"💎 <b>Total paid:</b> <code>{total_cost}⭐</code>",
+        parse_mode='html',
+        buttons=None
     )
+    
+    # 📨 DM to receiver
     try:
         await bot1.send_message(
             receiver_id,
-            f"👑 <b>You've been gifted Bot Premium!</b>\n📤 <b>From:</b> {s_mention}\n"
-            f"⏳ <b>Duration:</b> {_premium_tier_label(months)}\n⏳ <b>Runs until:</b> <code>{expiry_str}</code>",
+            f"👑 <b>You've been gifted Bot Premium!</b>\n"
+            f"📤 <b>From:</b> {s_mention}\n"
+            f"⏳ <b>Duration:</b> {_premium_tier_label(months)}\n"
+            f"⏳ <b>Runs until:</b> <code>{expiry_str}</code>",
             parse_mode='html'
         )
     except Exception:
         pass
-
+@bot1.on(events.NewMessage(pattern=own_pattern(r'^[/.]retroactive_gift_fee(?:@\w+)?(?:\s+(confirm))?$', 'bot1')))
+async def retroactive_gift_fee_handler(event):
+    """Owner-only: Collect 2% fee from ALL past gift transactions (USD, Star, Premium)."""
+    if event.sender_id != OWNER_ID:
+        return
+    
+    is_confirm = bool(event.pattern_match.group(1))
+    FEE_PERCENT = 0.02  # 2%
+    
+    # ==========================================
+    # 1. Find all unprocessed gifts (fee not yet collected)
+    # ==========================================
+    pipeline = [
+        {"$match": {"fee": {"$exists": False}}},
+        {"$count": "total"}
+    ]
+    total_docs = await gift_history_col.aggregate(pipeline).to_list(length=1)
+    total = total_docs[0]["total"] if total_docs else 0
+    
+    if total == 0:
+        return await event.reply(
+            "📭 <b>No unprocessed gift records found.</b>\n"
+            "All past gifts have already been charged the 2% fee.",
+            parse_mode='html'
+        )
+    
+    # ==========================================
+    # 2. Preview - Show summary and sample
+    # ==========================================
+    sample = await gift_history_col.find(
+        {"fee": {"$exists": False}}
+    ).limit(5).to_list(length=5)
+    
+    sample_lines = []
+    total_fee_est = 0
+    total_senders = set()
+    total_receivers = set()
+    
+    # Estimate total fee by checking each gift type
+    all_unprocessed = await gift_history_col.find({"fee": {"$exists": False}}).to_list(length=None)
+    
+    for doc in all_unprocessed:
+        sender_id = doc.get("sender_id")
+        receiver_id = doc.get("receiver_id")
+        gift_type = doc.get("type", "card")  # 'usd', 'star', 'premium', or 'card'
+        
+        # Calculate fee based on gift type
+        if gift_type == "usd":
+            amount = doc.get("amount", 0)
+            fee = round(amount * FEE_PERCENT, 2)
+            total_fee_est += fee
+        elif gift_type == "star":
+            amount = doc.get("amount", 0)
+            fee = round(amount * FEE_PERCENT, 2)
+            total_fee_est += fee
+        elif gift_type == "premium":
+            price = doc.get("price", 0)
+            fee = round(price * FEE_PERCENT, 2)
+            total_fee_est += fee
+        else:  # card gift
+            # Card gifts: 1000 USD per person (sender + receiver) = 2000 total
+            fee = 2000 * FEE_PERCENT  # 40 USD
+            total_fee_est += fee
+        
+        total_senders.add(sender_id)
+        total_receivers.add(receiver_id)
+    
+    # Sample preview (first 5)
+    for doc in sample[:5]:
+        sender_id = doc.get("sender_id")
+        receiver_id = doc.get("receiver_id")
+        gift_type = doc.get("type", "card")
+        
+        if gift_type == "usd":
+            amount = doc.get("amount", 0)
+            fee = round(amount * FEE_PERCENT, 2)
+            sample_lines.append(
+                f"• <code>{sender_id}</code> → <code>{receiver_id}</code> "
+                f"(USD) <code>${amount:,.2f}</code> (fee: <code>${fee:,.2f}</code>)"
+            )
+        elif gift_type == "star":
+            amount = doc.get("amount", 0)
+            fee = round(amount * FEE_PERCENT, 2)
+            sample_lines.append(
+                f"• <code>{sender_id}</code> → <code>{receiver_id}</code> "
+                f"(Star) <code>{amount}⭐</code> (fee: <code>{fee}⭐</code>)"
+            )
+        elif gift_type == "premium":
+            price = doc.get("price", 0)
+            fee = round(price * FEE_PERCENT, 2)
+            sample_lines.append(
+                f"• <code>{sender_id}</code> → <code>{receiver_id}</code> "
+                f"(Premium) <code>{price}⭐</code> (fee: <code>{fee}⭐</code>)"
+            )
+        else:  # card gift
+            sample_lines.append(
+                f"• <code>{sender_id}</code> → <code>{receiver_id}</code> "
+                f"(Card) fee: <code>${40:.2f}</code> (1000 per person)"
+            )
+    
+    if not is_confirm:
+        preview_text = (
+            f"⚠️ <b>RETROACTIVE GIFT FEE COLLECTION</b>\n\n"
+            f"📊 <b>Unprocessed gifts:</b> <code>{total}</code>\n"
+            f"👥 <b>Senders:</b> <code>{len(total_senders)}</code>\n"
+            f"👥 <b>Receivers:</b> <code>{len(total_receivers)}</code>\n"
+            f"🏦 <b>Estimated total fee (2%):</b> <code>${total_fee_est:,.2f}</code>\n\n"
+            f"<b>Sample (first 5):</b>\n" + "\n".join(sample_lines) + "\n\n"
+            f"❗ ဒါက <b>ပြန်ဖျက်လို့မရဘူး</b> — Run <code>/retroactive_gift_fee confirm</code> to proceed.\n\n"
+            f"<i>⚠️ သုံးစွဲသူများတွင် ငွေမလုံလောက်ပါက ကျော်သွားမည်။</i>"
+        )
+        return await event.reply(preview_text, parse_mode='html')
+    
+    # ==========================================
+    # 3. PROCESS: Collect fee from ALL parties
+    # ==========================================
+    processed = 0
+    total_fee_collected_usd = 0
+    total_fee_collected_star = 0
+    failed_senders = []
+    failed_receivers = []
+    
+    status_msg = await event.reply(
+        f"⏳ <b>Processing {total} gifts...</b>\n"
+        f"0/{total} completed",
+        parse_mode='html'
+    )
+    
+    async for doc in gift_history_col.find({"fee": {"$exists": False}}):
+        try:
+            sender_id = doc.get("sender_id")
+            receiver_id = doc.get("receiver_id")
+            gift_type = doc.get("type", "card")
+            fee_usd = 0
+            fee_star = 0
+            
+            # Calculate fee based on gift type
+            if gift_type == "usd":
+                amount = doc.get("amount", 0)
+                fee_usd = round(amount * FEE_PERCENT, 2)
+                
+                # Deduct from sender (full fee from sender only for USD gifts)
+                if fee_usd > 0:
+                    if not await try_deduct_balance(sender_id, fee_usd):
+                        failed_senders.append(sender_id)
+                    else:
+                        await bot3_treasury_adjust(usd=fee_usd)
+                        total_fee_collected_usd += fee_usd
+                
+            elif gift_type == "star":
+                amount = doc.get("amount", 0)
+                fee_star = round(amount * FEE_PERCENT, 2)
+                
+                # Deduct from sender (full fee from sender only for Star gifts)
+                if fee_star > 0:
+                    if not await try_deduct_star(sender_id, fee_star):
+                        failed_senders.append(sender_id)
+                    else:
+                        await bot3_treasury_adjust(star=fee_star)
+                        total_fee_collected_star += fee_star
+                
+            elif gift_type == "premium":
+                price = doc.get("price", 0)
+                fee_star = round(price * FEE_PERCENT, 2)
+                
+                # Deduct from sender (full fee from sender only for Premium gifts)
+                if fee_star > 0:
+                    if not await try_deduct_star(sender_id, fee_star):
+                        failed_senders.append(sender_id)
+                    else:
+                        await bot3_treasury_adjust(star=fee_star)
+                        total_fee_collected_star += fee_star
+                
+            else:  # card gift - 1000 USD from BOTH sender AND receiver
+                fee_per_person = 1000 * FEE_PERCENT  # 20 USD
+                fee_usd = fee_per_person * 2  # 40 USD total
+                
+                # Deduct from sender
+                if not await try_deduct_balance(sender_id, fee_per_person):
+                    failed_senders.append(sender_id)
+                else:
+                    await bot3_treasury_adjust(usd=fee_per_person)
+                    total_fee_collected_usd += fee_per_person
+                
+                # Deduct from receiver
+                if not await try_deduct_balance(receiver_id, fee_per_person):
+                    failed_receivers.append(receiver_id)
+                else:
+                    await bot3_treasury_adjust(usd=fee_per_person)
+                    total_fee_collected_usd += fee_per_person
+            
+            # Mark as processed
+            await gift_history_col.update_one(
+                {"_id": doc["_id"]},
+                {"$set": {
+                    "fee": fee_usd or fee_star,
+                    "fee_currency": "star" if fee_star > 0 else "usd",
+                    "fee_processed_at": time.time()
+                }}
+            )
+            processed += 1
+            
+            # Update progress every 10 records
+            if processed % 10 == 0 or processed == total:
+                try:
+                    await status_msg.edit(
+                        f"⏳ <b>Processing {total} gifts...</b>\n"
+                        f"{processed}/{total} completed\n"
+                        f"🏦 Collected: <code>${total_fee_collected_usd:,.2f}</code> USD, <code>{total_fee_collected_star:,.2f}⭐</code>",
+                        parse_mode='html'
+                    )
+                except Exception:
+                    pass
+                    
+        except Exception as e:
+            print(f"❌ Retroactive gift fee error for doc {doc.get('_id')}: {e}")
+            continue
+    
+    # ==========================================
+    # 4. Final result
+    # ==========================================
+    result_msg = (
+        f"✅ <b>RETROACTIVE GIFT FEE COMPLETE</b>\n\n"
+        f"📊 <b>Processed gifts:</b> <code>{processed}/{total}</code>\n"
+        f"🏦 <b>Total fee collected:</b>\n"
+        f"   • USD: <code>${total_fee_collected_usd:,.2f}</code>\n"
+        f"   • Star: <code>{total_fee_collected_star:,.2f}⭐</code>\n"
+    )
+    
+    if failed_senders:
+        unique_failed_senders = list(set(failed_senders))
+        result_msg += f"\n⚠️ <b>Failed to deduct from senders:</b> <code>{len(unique_failed_senders)}</code> users\n"
+        if len(unique_failed_senders) <= 10:
+            result_msg += "   " + ", ".join(f"<code>{uid}</code>" for uid in unique_failed_senders) + "\n"
+    
+    if failed_receivers:
+        unique_failed_receivers = list(set(failed_receivers))
+        result_msg += f"\n⚠️ <b>Failed to deduct from receivers:</b> <code>{len(unique_failed_receivers)}</code> users\n"
+        if len(unique_failed_receivers) <= 10:
+            result_msg += "   " + ", ".join(f"<code>{uid}</code>" for uid in unique_failed_receivers) + "\n"
+    
+    result_msg += f"\n📌 <i>Bot3 Treasury now includes 2% from all past gift transactions.</i>"
+    
+    await status_msg.edit(result_msg, parse_mode='html')
 # 🤝 TRADE
 @bot1.on(events.NewMessage(pattern=own_pattern(r'^[/.]trade(?:@\w+)?\s+([a-zA-Z0-9_]+)\s+([a-zA-Z0-9_]+)$', 'bot1')))
 async def trade_proposal_handler(event):
