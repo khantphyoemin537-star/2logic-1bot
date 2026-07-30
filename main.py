@@ -9905,13 +9905,13 @@ WHEEL_MIN_BET = 0.5
 # ကဏ္ဍများ (မြှောက်ကိန်း၊ အလေးချိန်)
 WHEEL_SEGMENTS = [
     {"multiplier": 0.0, "weight": 20, "label": "၀x"},
-    {"multiplier": 0.5, "weight": 15, "label": "၀.၅x"},
-    {"multiplier": 1.0, "weight": 15, "label": "၁x"},
-    {"multiplier": 2.0, "weight": 12, "label": "၂x"},
-    {"multiplier": 3.0, "weight": 10, "label": "၃x"},
-    {"multiplier": 5.0, "weight": 8, "label": "၅x"},
-    {"multiplier": 10.0, "weight": 5, "label": "၁၀x"},
-    {"multiplier": 20.0, "weight": 2, "label": "၂၀x"},
+    {"multiplier": 0.5, "weight": 20, "label": "၀.၅x"},
+    {"multiplier": 0.8, "weight": 20, "label": "၁x"},
+    {"multiplier": 1.0, "weight": 15, "label": "၂x"},
+    {"multiplier": 2.0, "weight": 5, "label": "၃x"},
+    {"multiplier": 5.0, "weight": 4, "label": "၅x"},
+    {"multiplier": 10.0, "weight": 2, "label": "၁၀x"},
+    {"multiplier": 20.0, "weight": 1, "label": "၂၀x"},
 ]
 active_wheel_games = {}
 _wheel_game_counter = 0
