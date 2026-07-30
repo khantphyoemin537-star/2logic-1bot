@@ -4543,15 +4543,6 @@ async def perform_catch(chat_id, user_id, spawn_data, event, reply_to_msg=None, 
             {"$inc": {"spawn_count": 1}}
         )
         guild_levelup_msg = ""
-        user_guild = await guilds_col.find_one({"members": user_id})
-        if user_guild:
-            new_xp = user_guild["xp"] + 10
-            current_level = user_guild["level"]
-            if new_xp >= (current_level * 500):
-                await guilds_col.update_one({"_id": user_guild["_id"]}, {"$set": {"xp": 0}, "$inc": {"level": 1}})
-                guild_levelup_msg = f"\n\n🏰 <b>Guild Level Up!</b> 👑\nYour guild <b>[{escape_html(user_guild['name'])}]</b> is now Level <b>{current_level + 1}</b>! 🎉"
-            else:
-                await guilds_col.update_one({"_id": user_guild["_id"]}, {"$inc": {"xp": 10}})
         character_name = spawn_data['name']
         asyncio.create_task(_maybe_reward_artist_for_collect(spawn_data.get('artist'), mention, character_name))
         newly_earned = await check_and_award_achievements(user_id)
