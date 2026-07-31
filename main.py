@@ -8939,6 +8939,72 @@ async def bot3_balance_command(event):
         f"</blockquote>"
     )
     await _out(event, text, parse_mode='html')
+RICHEST_PAGE_SIZE = 5
+@bot1.on(events.CallbackQuery(pattern=r'^richest_(\d+)$'))
+async def richest_page_callback(event):
+    page = int(event.pattern_match.group(1))
+    skip = page * RICHEST_PAGE_SIZE
+    
+    total = await users_catcher_col.count_documents({"wallet_balance": {"$gt": 0}})
+    total_pages = max(1, (total + RICHEST_PAGE_SIZE - 1) // RICHEST_PAGE_SIZE)
+    
+    if page < 0:
+        page = 0
+    if page >= total_pages:
+        page = total_pages - 1
+    skip = page * RICHEST_PAGE_SIZE
+    
+    pipeline = [
+        {"$match": {"wallet_balance": {"$gt": 0}}},
+        {"$project": {
+            "user_id": 1,
+            "fullname": 1,
+            "wallet_balance": 1,
+            "star_balance": 1,
+            "cards": {"$size": "$harem"}
+        }},
+        {"$sort": {"wallet_balance": -1}},
+        {"$skip": skip},
+        {"$limit": RICHEST_PAGE_SIZE}
+    ]
+    users = await users_catcher_col.aggregate(pipeline).to_list(length=RICHEST_PAGE_SIZE)
+    
+    if not users:
+        await event.edit("🏆 <b>No wealthy players yet!</b>", parse_mode='html', buttons=None)
+        return await event.answer()
+    
+    msg = f"💰 <b>TOP RICHEST PLAYERS</b> <i>(Page {page+1}/{total_pages})</i>\n\n"
+    
+    for idx, u in enumerate(users, start=skip + 1):
+        try:
+            bal = float(u.get("wallet_balance", 0))
+        except (ValueError, TypeError):
+            bal = 0.0
+        try:
+            star = float(u.get("star_balance", 0))
+        except (ValueError, TypeError):
+            star = 0.0
+        cards = u.get("cards", 0)
+        name = clean_display_name(u.get('fullname'), fallback=f"User {u['user_id']}")
+        mention = f"<a href='tg://user?id={u['user_id']}'>{escape_html(name)}</a>"
+        msg += f"<b>'{idx}'</b> {mention}\n"
+        msg += f"💵 {format_usd(bal)} | ⭐ {format_star_plain(star)} | 🎴 {cards:,}\n"
+        msg += f"----------\n"
+    
+    buttons = []
+    nav = []
+    if page > 0:
+        nav.append(Button.inline("⬅️ Prev", data=f"richest_{page-1}"))
+    if page + 1 < total_pages:
+        nav.append(Button.inline("Next ➡️", data=f"richest_{page+1}"))
+    if nav:
+        buttons.append(nav)
+    
+    try:
+        await event.edit(msg, parse_mode='html', buttons=(buttons if buttons else None))
+        await event.answer()
+    except errors.MessageNotModifiedError:
+        await event.answer()
 
 # =========================================================
 # 🎰 SLOT (bot3) - ANIMATION EMOJI + လှုပ်ရှားမှု
