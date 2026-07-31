@@ -638,8 +638,7 @@ def star_price_for_char(char_doc):
     reads clearly at every /buy [char id] / /show call site."""
     if not char_doc:
         return 0
-    return rarity_rank_value(char_doc.get("rarity_tier") or char_doc.get("rarity", ""))
-
+    return rarity_rank_value(char_doc.get("rarity_tier") or char_doc.get("rarity", "")) * 100
 # ==========================================
 # 💵 USD / ⭐ STAR DISPLAY FORMATTING
 # ==========================================
@@ -7299,10 +7298,10 @@ async def dex_with_category_handler(event):
 # ==========================================
 # 🛍️ /buy [char_id] — DAILY & LIFETIME PURCHASE LIMITS (Owner exempt from both)
 # ==========================================
-DAILY_BUY_LIMIT = 2  # Owner Shop purchases (/buy [char_id]) per player per day
+DAILY_BUY_LIMIT = 3  # Owner Shop purchases (/buy [char_id]) per player per day
 LIFETIME_BUY_PER_CHAR_LIMIT = 1  # max copies of the SAME character a player can EVER buy via /buy
 TOP_RARITY_WEEKLY_TIERS = {"ULTRA", "LEGEND", "MYTHIC"}  # Rarity No.1, No.2, No.3
-TOP_RARITY_WEEKLY_BUY_LIMIT = 1  # combined cap across ALL THREE tiers together, per rolling week
+TOP_RARITY_WEEKLY_BUY_LIMIT = 2  # combined cap across ALL THREE tiers together, per rolling week
 TOP_RARITY_WEEK_SECONDS = 7 * 86400
 # 🔒 NEW CARD PROTECTION — a freshly /addchar'd character can't be bought outright via
 # /buy for this long after creation; it can only be obtained by actually catching it from a
