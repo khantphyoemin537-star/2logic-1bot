@@ -1005,7 +1005,7 @@ bot3_treasury_col = db["bot3_treasury"]
 star_purchase_log_col = db["star_purchase_log"] # 🧾 every /buy [char id] Owner Shop purchase, for /buylist
 star_sell_log_col = db["star_sell_log"] # 🧾 every /sell [char id] Owner buyback (Star paid to the player), for /starlist
 star_exchange_log_col = db["star_exchange_log"] # 🧾 every /buystar & /sellstar USD<->Star exchange, for /starlist
-
+debts_col = db["debts"]  # 💰 အကြွေးစာရင်း
 # Redis caching with connection pool
 # NOTE: previously hardcoded to host='localhost' — if Redis runs anywhere other
 # than the same machine as the bot (managed Redis, separate container, Redis
@@ -1748,6 +1748,50 @@ async def get_user_profile_data(user, chat_id, client=None):
         "user": user
     }
 
+async def handle_gift_fee(sender_id):
+    """
+    sender ဆီက 1000 USD ကောက်ခံပြီး မရရင် အကြွေးတင်မယ်။
+    bot3 balance ကိုလည်း update လုပ်မယ်။
+    """
+    fee = 1000.0
+
+    # 1️⃣ အရင်ဆုံး sender မှာ အကြွေးရှိမရှိ စစ်မယ်
+    debt_doc = await debts_col.find_one({"user_id": sender_id})
+    if debt_doc:
+        debt_amount = debt_doc.get("amount", 0)
+        sender_doc = await users_catcher_col.find_one({"user_id": sender_id})
+        balance = sender_doc.get("wallet_balance", 0) if sender_doc else 0
+
+        if balance > 0:
+            deduct = min(debt_amount, balance)
+            await users_catcher_col.update_one(
+                {"user_id": sender_id},
+                {"$inc": {"wallet_balance": -deduct}}
+            )
+            await bot3_treasury_adjust(usd=deduct)  # bot3 မှာ ပေါင်းထည့်
+
+            new_debt = debt_amount - deduct
+            if new_debt <= 0:
+                await debts_col.delete_one({"user_id": sender_id})
+            else:
+                await debts_col.update_one(
+                    {"user_id": sender_id},
+                    {"$set": {"amount": new_debt}}
+                )
+
+    # 2️⃣ ဒီ gift အတွက် fee ကောက်မယ်
+    if not await try_deduct_balance(sender_id, fee):
+        # မရရင် အကြွေးတင်မယ်
+        await debts_col.update_one(
+            {"user_id": sender_id},
+            {"$inc": {"amount": fee}},
+            upsert=True
+        )
+        await bot3_treasury_adjust(usd=fee)
+        return False  # fee မရဘူး (အကြွေးတင်ထားတယ်)
+
+    return True  # fee ရတယ်
+    
 async def get_profile_photo(user, client=None):
     """User Profile Photo ကို ယူပေးမယ် (ရှိရင်)"""
     client = client or bot1
@@ -6198,10 +6242,6 @@ async def unified_callback_handler(event):
         seller_id = listing["seller_id"]
         char_id = listing["char_id"]
         if buyer_id == seller_id: return await event.answer("⚠️ You cannot buy your own item!", alert=True)
-        # Atomically "claim" the listing by deleting it FIRST — if two buyers race for the
-        # same listing (or one buyer double-taps Buy), only whichever request actually
-        # deletes it here gets to proceed; everyone else sees "no longer exists" instead of
-        # both paying for — and both receiving — the same single card.
         claim = await marketplace_col.delete_one({"listing_id": listing_id})
         if claim.deleted_count == 0:
             return await event.answer("❌ This listing no longer exists.", alert=True)
@@ -6215,7 +6255,6 @@ async def unified_callback_handler(event):
             }
         )
         if res.modified_count == 0:
-            # Buyer couldn't actually afford it — put the listing back since we already claimed it.
             await marketplace_col.insert_one(listing)
             return await event.answer("❌ Insufficient balance!", alert=True)
         seller_doc = await users_catcher_col.find_one({"user_id": seller_id})
@@ -6270,8 +6309,6 @@ async def unified_callback_handler(event):
             return await event.answer(f"❌ Insufficient balance! Need {game['bet']} USD", alert=True)
         await bot3_treasury_adjust(usd=game["bet"])
         if p_id in game["players"]:
-            # Extra safety net in case of an interleave the tap-guard didn't catch — refund
-            # rather than silently pocket a duplicate deduction.
             await users_catcher_col.update_one({"user_id": p_id}, {"$inc": {"wallet_balance": game["bet"]}})
             await bot3_treasury_adjust(usd=-(game["bet"]))
             return await event.answer("⚠️ Already in game.", alert=True)
@@ -6291,37 +6328,81 @@ async def unified_callback_handler(event):
         buttons = [[Button.inline("🃏 Join", data=f"cardjoin_{g_chat_id}")]]
         await event.edit(lobby_text, parse_mode='html', buttons=buttons)
         await event.answer("🎉 You joined the game!")
+    
+    # ==========================================
+    # 🃏 HI-LO (ပြင်ဆင်ပြီး ဗားရှင်း)
+    # ==========================================
     elif action_type == "hilo":
         choice = data_parts[1]
         base_card = int(data_parts[2])
         bet_amount = float(data_parts[3])
         target_user_id = int(data_parts[4])
-        if event.sender_id != target_user_id: return await event.answer("⚠️ This is not your game.", alert=True)
+        
+        if event.sender_id != target_user_id:
+            return await event.answer("⚠️ This is not your game.", alert=True)
         if not claim_single_tap(event):
             return await event.answer("⏳ Already processing...", alert=False)
-        if not await try_deduct_bet_bot3(event, target_user_id, bet_amount):
-            return await event.answer("❌ Insufficient balance.", alert=True)
-        await bot3_treasury_adjust(usd=bet_amount)
-        await event.answer("🎲 Shuffling...")
+        
         new_card = random.randint(1, 13)
-        while new_card == base_card: new_card = random.randint(1, 13)
+        while new_card == base_card:
+            new_card = random.randint(1, 13)
+        
         card_map = {1: "A", 11: "J", 12: "Q", 13: "K"}
-        base_display = card_map.get(base_card, str(base_card))
-        new_display = card_map.get(new_card, str(new_card))
+        base_display = base_card if base_card <= 10 else card_map.get(base_card, str(base_card))
+        new_display = new_card if new_card <= 10 else card_map.get(new_card, str(new_card))
+        
         is_win = (choice == "HIGH" and new_card > base_card) or (choice == "LOW" and new_card < base_card)
         mention = await get_html_mention(event, target_user_id)
+        
+        # 🐋 Whale Check
+        user_doc = await users_catcher_col.find_one({"user_id": target_user_id})
+        is_whale = (user_doc.get("wallet_balance", 0) if user_doc else 0) > WEALTH_THRESHOLD
+        
+        result_text = ""
+        payout = 0
+        whale_text = ""
+        
         if is_win:
-            # Bet already deducted upfront, so a win pays back double (net +bet_amount, same as before)
-            await users_catcher_col.update_one({"user_id": target_user_id}, {"$inc": {"wallet_balance": bet_amount * 2}})
-            await bot3_treasury_adjust(usd=-(bet_amount * 2))
-            status_text = f"🎉 <b>YOU WIN! (+{bet_amount:,} USD)</b>"
+            raw_win = bet_amount * 2
+            if is_whale:
+                raw_win = round(raw_win * WEALTH_MULTIPLIER_PENALTY, 2)
+                whale_text = f"\n🐋 <b>ငွေကြေးရှိသူအခွန် (၅၀% လျှော့):</b> <code>-{format_usd(round(bet_amount * 0.5, 2))}</code>"
+            payout = raw_win
+            await users_catcher_col.update_one({"user_id": target_user_id}, {"$inc": {"wallet_balance": payout}})
+            await bot3_treasury_adjust(usd=-(payout))
+            result_text = f"🎉 <b>သင်နိုင်သည်!</b> <code>+{format_usd(payout)}</code>"
+            
+        elif new_card == base_card:
+            # 🤝 အပြိုင် - လောင်းငွေ ပြန်အမ်းမယ်
+            refund = bet_amount
+            await users_catcher_col.update_one({"user_id": target_user_id}, {"$inc": {"wallet_balance": refund}})
+            await bot3_treasury_adjust(usd=-(refund))
+            result_text = f"🤝 <b>အပြိုင်</b> (လောင်းငွေ <code>{format_usd(bet_amount)}</code> ပြန်ရမယ်)"
         else:
-            status_text = f"💸 <b>YOU LOSE... (-{bet_amount:,} USD)</b>"
-        result_text = f"🃏 <b>HI-LO RESULT</b>\n👤 <b>Player:</b> {mention}\n💵 <b>Bet:</b> <code>{bet_amount:,} USD</code>\n\n🎴 Previous: <b>[{base_display}]</b>\n🎲 New: <b>[{new_display}]</b>\n🎯 You chose: <code>{choice}</code>\n\n{status_text}{GAME_FOOTER}"
-        await event.edit(result_text, parse_mode='html')
+            result_text = f"💸 <b>သင်ရှုံးသည်</b> <code>-{format_usd(bet_amount)}</code>"
+        
+        final_message = (
+            f"🃏 <b>HI-LO ရလဒ်</b>\n"
+            f"━━━━━━━━━━━━━━━━━━━━\n"
+            f"👤 <b>ကစားသမား:</b> {mention}\n"
+            f"💵 <b>လောင်းငွေ:</b> <code>{format_usd(bet_amount)}</code>\n"
+            f"━━━━━━━━━━━━━━━━━━━━\n"
+            f"🎴 <b>မူလကတ်:</b> <code>[ {base_display} ]</code>\n"
+            f"🆕 <b>ကျသွားသောကတ်:</b> <code>[ {new_display} ]</code>\n"
+            f"🎯 <b>သင်ရွေး:</b> <code>{'📈 Higher' if choice == 'HIGH' else '📉 Lower'}</code>\n"
+            f"━━━━━━━━━━━━━━━━━━━━\n"
+            f"{result_text}"
+            f"{whale_text}"
+            f"{GAME_FOOTER}"
+        )
+        
+        await event.edit(final_message, parse_mode='html')
         if not event.is_private:
             schedule_game_cleanup(event.client, event.chat_id, event.message_id)
-    # ---- Gift-history pagination (from /myinfo, /profile) ----
+    
+    # ==========================================
+    # 🎁 Gift-history pagination (from /myinfo, /profile)
+    # ==========================================
     elif action_type == "gh":
         owner_user_id = int(data_parts[1])
         page = int(data_parts[2])
@@ -6334,7 +6415,9 @@ async def unified_callback_handler(event):
             pass
         await event.answer()
 
-    # ---- Profile main/stats page toggle ----
+    # ==========================================
+    # 📊 Profile main/stats page toggle
+    # ==========================================
     elif action_type == "pf":
         sub_action = data_parts[1]
         owner_user_id = int(data_parts[2])
@@ -6351,7 +6434,9 @@ async def unified_callback_handler(event):
             pass
         await event.answer()
 
-    # ---- Leaderboard tab/page switching ----
+    # ==========================================
+    # 🏆 Leaderboard tab/page switching
+    # ==========================================
     elif action_type == "lb":
         mode = data_parts[1]
         page = int(data_parts[2])
@@ -6362,7 +6447,9 @@ async def unified_callback_handler(event):
             pass
         await event.answer()
 
-    # ---- /fav confirm / cancel callbacks ----
+    # ==========================================
+    # ⭐ /fav confirm / cancel callbacks
+    # ==========================================
     elif action_type == "fav":
         if len(data_parts) < 4:
             return await event.answer("❌ Invalid request.", alert=True)
@@ -6401,7 +6488,6 @@ async def unified_callback_handler(event):
             except Exception:
                 pass
             return
-
 # 🛡️ Guard Bot (bot3) also gets this SAME handler — needed because whichever bot actually
 # SENT a message owns the callback taps on it. In the force-join room, /cardgame and /hilo's
 # outgoing messages are sent via bot3 (see _out/_out_dice above and their handlers
@@ -7214,9 +7300,9 @@ async def dex_with_category_handler(event):
 # 🛍️ /buy [char_id] — DAILY & LIFETIME PURCHASE LIMITS (Owner exempt from both)
 # ==========================================
 DAILY_BUY_LIMIT = 2  # Owner Shop purchases (/buy [char_id]) per player per day
-LIFETIME_BUY_PER_CHAR_LIMIT = 2  # max copies of the SAME character a player can EVER buy via /buy
+LIFETIME_BUY_PER_CHAR_LIMIT = 1  # max copies of the SAME character a player can EVER buy via /buy
 TOP_RARITY_WEEKLY_TIERS = {"ULTRA", "LEGEND", "MYTHIC"}  # Rarity No.1, No.2, No.3
-TOP_RARITY_WEEKLY_BUY_LIMIT = 2  # combined cap across ALL THREE tiers together, per rolling week
+TOP_RARITY_WEEKLY_BUY_LIMIT = 1  # combined cap across ALL THREE tiers together, per rolling week
 TOP_RARITY_WEEK_SECONDS = 7 * 86400
 # 🔒 NEW CARD PROTECTION — a freshly /addchar'd character can't be bought outright via
 # /buy for this long after creation; it can only be obtained by actually catching it from a
@@ -7233,17 +7319,17 @@ NEW_CARD_PROTECTION_SECONDS = 86400  # 24 hours
 PREMIUM_AUTO_STAR_THRESHOLD = 100  # ⭐ spent (via /buy) OR bought (via /buystar) in one day auto-grants Premium
 PREMIUM_AUTO_GRANT_DAYS = 1  # length of the auto-grant, from the moment the threshold is crossed
 PREMIUM_TIERS = [  # (months, price in ⭐, days credited) — the 5 /buypremium tiers
-    (1, 90, 30),
-    (2, 175, 60),
-    (3, 255, 90),
-    (6, 480, 180),
-    (12, 900, 365),
+    (1, 9000, 30),
+    (2, 17500, 60),
+    (3, 25500, 90),
+    (6, 48000, 180),
+    (12, 90000, 365),
 ]
 PREMIUM_DAILY_CATCH_LIMIT = 25  # vs DAILY_CATCH_LIMIT (22) for everyone else
 PREMIUM_SPAM_MUTE_SECONDS = 180  # 3 minutes, vs SPAM_CATCH_MUTE_SECONDS (8 min / 480s)
 PREMIUM_QUIZ_REWARD_MULTIPLIER = 1.5  # Premium winners' rarity-gate quiz Star bonus is scaled by this
 PREMIUM_PURCHASE_BONUS_TIER = "GOLD"  # Rarity No.6 (🌕 GOLDENMOON) — free cards on every /buypremium purchase
-PREMIUM_PURCHASE_BONUS_COUNT = 2
+PREMIUM_PURCHASE_BONUS_COUNT = 0
 
 def is_premium_active(user_doc):
     """True if user_doc's premium_until is still in the future. Safe to call with None."""
@@ -7415,8 +7501,8 @@ async def execute_star_shop_purchase(buyer_id, char_id):
 # changes hands until the player confirms with an inline button. Identical flow whether run
 # in a group chat or in the bot's DM.
 # ==========================================
-SELL_OFFER_MIN_MULT = 0.5
-SELL_OFFER_MAX_MULT = 1.5
+SELL_OFFER_MIN_MULT = 0.1
+SELL_OFFER_MAX_MULT = 1.0
 SELL_OFFER_TIMEOUT = 300  # seconds an offer stays open before it silently expires
 
 @bot1.on(events.NewMessage(pattern=own_pattern(r'^[/.]sell(?:@\w+)?$', 'bot1')))
@@ -7647,27 +7733,13 @@ async def premium_purchase_callback(event):
     new_until = await grant_premium_days(owner_uid, days)
     # Owner receives the Star paid for Premium too, same as every other Star sink in this economy.
     await users_catcher_col.update_one({"user_id": OWNER_ID}, {"$inc": {"star_balance": price}}, upsert=True)
-    # 🎁 Instant bonus: PREMIUM_PURCHASE_BONUS_COUNT free Rarity No.6 (GOLDENMOON) cards.
-    bonus_chars = await characters_base_col.aggregate([
-        {"$match": {"rarity_tier": PREMIUM_PURCHASE_BONUS_TIER}},
-        {"$sample": {"size": PREMIUM_PURCHASE_BONUS_COUNT}}
-    ]).to_list(length=PREMIUM_PURCHASE_BONUS_COUNT)
-    bonus_lines = []
-    for c in bonus_chars:
-        await users_catcher_col.update_one(
-            {"user_id": owner_uid},
-            {"$inc": {"total_caught": 1},
-             "$push": {"harem": {"char_id": c["char_id"], "caught_date": time.time(), "rarity": c.get("rarity", "Unknown"), "status": "vault"}}}
-        )
-        bonus_lines.append(f"🎁 <code>{escape_html(c.get('name','?'))}</code> [{c.get('rarity','')}]")
-    bonus_block = ("\n" + "\n".join(bonus_lines) + "\n") if bonus_lines else "\n"
+    
     expiry_str = datetime.fromtimestamp(new_until, TZ).strftime("%Y-%m-%d %H:%M")
     await event.answer("👑 Premium Activated!", alert=True)
     await event.edit(
         f"👑 <b>BOT PREMIUM ACTIVATED!</b>\n"
         f"<blockquote>"
-        f"⏳ <b>သက်တမ်း:</b> <code>{expiry_str}</code> အထိ"
-        f"{bonus_block}"
+        f"⏳ <b>သက်တမ်း:</b> <code>{expiry_str}</code> အထိ
         f"</blockquote>\n"
         f"🎉 <i>Premium အကျိုးခံစားခွင့်များ ချက်ချင်း စတင်အသုံးပြုနိုင်ပါပြီ!</i>",
         parse_mode='html', buttons=None
@@ -7682,8 +7754,8 @@ async def premium_purchase_callback(event):
 # (its original behaviour), so nothing silently disappears on a deployment that hasn't set up
 # the Guard Bot yet.
 # ==========================================
-PREMIUM_DAILY_GIFT_MIN = 1  # ⭐
-PREMIUM_DAILY_GIFT_MAX = 2  # ⭐
+PREMIUM_DAILY_GIFT_MIN = 100  # ⭐
+PREMIUM_DAILY_GIFT_MAX = 200  # ⭐
 
 async def _maybe_offer_premium_daily_gift(event, user_id):
     user_doc = await users_catcher_col.find_one({"user_id": user_id}, {"premium_until": 1, "premium_gift_date": 1})
@@ -7954,43 +8026,62 @@ async def buy_star_handler(event):
         parse_mode='html'
     )
 
+# ==========================================
+# ⭐ /sellstar — Owner: သတ်မှတ်ပုံသေ နှုန်းထားနဲ့ Star ရောင်းချခြင်း (၁ Star = ၂၅၀ USD)
+# ==========================================
+SELL_STAR_RATE = 250  # ဒီနေရာမှာ သင်သတ်မှတ်ချင်တဲ့ နှုန်းထားကို ပြောင်းပါ
+
 @bot1.on(events.NewMessage(pattern=own_pattern(r'^[/.]sellstar(?:@\w+)?(?:\s+(\S+))?$', 'bot1')))
 async def sell_star_handler(event):
     user_id = event.sender_id
     raw = event.pattern_match.group(1)
-    market = await get_or_create_star_market()
+    
     if not raw:
         return await event.reply(
             f"⭐ <b>Star ရောင်းရန်</b>\n"
-            f"💱 <b>နှုန်းထား:</b> <code>1⭐ = {market['price']:,.0f} USD</code>\n"
+            f"💱 <b>နှုန်းထား:</b> <code>1⭐ = {SELL_STAR_RATE:,} USD</code> (ပုံသေ)\n"
             f"📌 <b>Usage:</b> <code>/sellstar [Star amount]</code>\n"
             f"<i>Example:</i> <code>/sellstar 1</code>",
             parse_mode='html'
         )
+    
     try:
         star_amount = float(raw)
     except ValueError:
         return await event.reply("❌ <b>Star ပမာဏ မှန်ကန်အောင် ရိုက်ပါ။</b>", parse_mode='html')
+    
     if star_amount <= 0:
         return await event.reply("❌ <b>Star ပမာဏ မှန်ကန်အောင် ရိုက်ပါ။</b>", parse_mode='html')
+    
     if not await try_deduct_star(user_id, star_amount):
         return await event.reply("❌ <b>Star Balance မလုံလောက်ပါ။</b>", parse_mode='html')
-    mmk_gained = round(star_amount * market["price"])
-    await users_catcher_col.update_one({"user_id": user_id}, {"$inc": {"wallet_balance": mmk_gained}}, upsert=True)
+    
+    usd_gained = round(star_amount * SELL_STAR_RATE, 2)
+    
+    await users_catcher_col.update_one(
+        {"user_id": user_id},
+        {"$inc": {"wallet_balance": usd_gained}},
+        upsert=True
+    )
+    
     await star_exchange_log_col.insert_one({
-        "user_id": user_id, "type": "sell", "star_amount": star_amount, "mmk_amount": mmk_gained,
-        "rate": market["price"], "timestamp": time.time()
+        "user_id": user_id,
+        "type": "sell",
+        "star_amount": star_amount,
+        "mmk_amount": usd_gained,
+        "rate": SELL_STAR_RATE,
+        "timestamp": time.time()
     })
+    
     await event.reply(
         f"✅ <b>Star ရောင်းချမှု အောင်မြင်ပါတယ်!</b>\n"
         f"<blockquote>"
         f"⭐ <b>ရောင်း:</b> <code>{format_star_plain(star_amount)}</code>\n"
-        f"💸 <b>ရရှိ:</b> <code>{mmk_gained:,} USD</code>\n"
-        f"💱 <b>နှုန်းထား:</b> <code>1⭐ = {market['price']:,.0f} USD</code>"
+        f"💸 <b>ရရှိ:</b> <code>{format_usd(usd_gained)}</code>\n"
+        f"💱 <b>နှုန်းထား:</b> <code>1⭐ = {SELL_STAR_RATE:,} USD</code> (ပုံသေ)"
         f"</blockquote>",
         parse_mode='html'
     )
-
 # ==========================================
 # 🛠️ /setstarrate [USD] — OWNER ONLY: manually re-peg the ⭐ Star <-> USD exchange rate.
 # This is the only way the rate ever changes now (defaults to 1⭐ = STAR_STARTING_PRICE at genesis).
@@ -8237,23 +8328,54 @@ async def render_gift_history_page(user_id, page):
 async def gift_asset_handler(event):
     if not event.is_reply:
         return await event.reply("❌ <b>Reply to the user you want to gift.</b>", parse_mode='html')
+
     char_id = normalize_char_id_input(event.pattern_match.group(1))
     sender_id = event.sender_id
     reply_msg = await event.get_reply_message()
     receiver_id = reply_msg.sender_id
+
     if sender_id == receiver_id:
         return await event.reply("❌ <b>Can't gift to yourself!</b>", parse_mode='html')
+
+    # ==========================================
+    # 💰 1000 USD Fee Handling (လက်ငင်း အသိပေးချက်)
+    # ==========================================
+    fee = 1000.0
+    fee_paid = await try_deduct_balance(sender_id, fee)
+    
+    if fee_paid:
+        await event.reply(
+            f"💰 <b>Gift Fee Paid:</b> <code>{format_usd(fee)}</code> နှုတ်ယူပြီးပါပြီ။",
+            parse_mode='html'
+        )
+    else:
+        # ငွေမလုံလောက်လို့ အကြွေးတင်မယ်
+        await debts_col.update_one(
+            {"user_id": sender_id},
+            {"$inc": {"amount": fee}},
+            upsert=True
+        )
+        await bot3_treasury_adjust(usd=fee)  # bot3 balance မှာ ပေါင်းထည့်
+        await event.reply(
+            f"⚠️ <b>Gift Fee Not Paid:</b> သင့်မှာ {format_usd(fee)} မရှိလို့ အကြွေးတင်ထားပါတယ်။ "
+            f"နောက်မှ ပြန်ဖြတ်ပါမယ်။",
+            parse_mode='html'
+        )
+
+    # ==========================================
+    # 📦 ကျန်တဲ့ မူလ Code အတိုင်း ဆက်သွားပါ
+    # ==========================================
     char_data = await characters_base_col.find_one({"char_id": char_id})
     if not char_data:
         return await event.reply("❌ <b>Character data not found.</b>", parse_mode='html')
+
     if sender_id != OWNER_ID:
-        # 👑 The owner's vault is unlimited (every character always counts as owned — see
-        # send_paginated_harem), so only non-owner senders need this real-ownership check.
         sender_doc = await users_catcher_col.find_one({"user_id": sender_id})
         sender_harem = sender_doc.get("harem", []) if sender_doc else []
         char_item = next((x for x in sender_harem if isinstance(x, dict) and x.get("char_id") == char_id and x.get("status") != "market"), None)
         if not char_item:
             return await event.reply(f"❌ <b>You don’t have this card.</b>", parse_mode='html')
+
     r_mention = await get_html_mention(event, receiver_id)
     confirm_text = (
         f"🎠 <b>Gift Confirmation</b>\n\n"
@@ -8264,6 +8386,7 @@ async def gift_asset_handler(event):
         f"<blockquote>Are you sure you want to send this card to {r_mention}?</blockquote>\n"
         f"✨ Confirm below! 🦋"
     )
+
     buttons = [
         [
             Button.inline("✅ Yep, Why Not✔", data=f"gift_confirm_{sender_id}_{receiver_id}_{char_id}"),
@@ -8471,57 +8594,98 @@ async def gift_usd_handler(event):
     receiver_id, err = await _resolve_gift_receiver(event)
     if err:
         return await event.reply(err, parse_mode='html')
-    if amount < GIFT_USD_MIN:
-        return await event.reply(f"❌ <b>Minimum gift is {format_usd(GIFT_USD_MIN)}.</b>", parse_mode='html')
+    
+    # 💰 0.2% Fee (0.002)
+    fee_rate = 0.002
+    fee = round(amount * fee_rate, 2)
+    net_amount = round(amount - fee, 2)
+    
+    if fee <= 0:
+        return await event.reply("❌ <b>Gift amount too small (fee would be zero).</b>", parse_mode='html')
+    
     sender_id = event.sender_id
     r_mention = await get_html_mention(event, receiver_id)
+    
+    # Check sender balance (including fee)
+    sender_doc = await users_catcher_col.find_one({"user_id": sender_id})
+    balance = sender_doc.get("wallet_balance", 0) if sender_doc else 0
+    if balance < amount:
+        return await event.reply(
+            f"❌ <b>Insufficient balance!</b> You need {format_usd(amount)} (including {format_usd(fee)} fee).",
+            parse_mode='html'
+        )
+    
     confirm_text = (
         f"💵 <b>Gift Confirmation</b>\n\n"
         f"💰 <b>Amount:</b> <code>{format_usd(amount)}</code>\n"
+        f"🏦 <b>Fee (0.2%):</b> <code>{format_usd(fee)}</code>\n"
+        f"📥 <b>Receiver gets:</b> <code>{format_usd(net_amount)}</code>\n"
         f"🎯 <b>Receiver:</b> {r_mention}\n\n"
-        f"<blockquote>Are you sure you want to send this to {r_mention}?</blockquote>"
+        f"<blockquote>Are you sure you want to send this?</blockquote>"
     )
     buttons = [[
-        Button.inline("✅ Confirm", data=f"giftusd_confirm_{sender_id}_{receiver_id}_{amount}"),
+        Button.inline("✅ Confirm", data=f"giftusd_confirm_{sender_id}_{receiver_id}_{amount}_{fee}"),
         Button.inline("❌ Cancel", data=f"giftusd_cancel_{sender_id}_{receiver_id}_{amount}")
     ]]
     await event.reply(confirm_text, buttons=buttons, parse_mode='html')
-
-@bot1.on(events.CallbackQuery(pattern=r'^giftusd_(confirm|cancel)_(\d+)_(\d+)_([\d.]+)$'))
+@bot1.on(events.CallbackQuery(pattern=r'^giftusd_(confirm|cancel)_(\d+)_(\d+)_([\d.]+)(?:_([\d.]+))?$'))
 async def gift_usd_callback(event):
     action = event.pattern_match.group(1)
-    if isinstance(action, bytes): action = action.decode('utf-8')
+    if isinstance(action, bytes):
+        action = action.decode('utf-8')
     sender_id = int(event.pattern_match.group(2))
     receiver_id = int(event.pattern_match.group(3))
     amount = round(float(event.pattern_match.group(4)), 2)
+    fee = round(float(event.pattern_match.group(5) or 0), 2) if event.pattern_match.group(5) else 0
+    
     if event.sender_id != sender_id:
         return await event.answer("❌ This action is not for you!", alert=True)
     if not claim_single_tap(event):
         return await event.answer("⏳ Already processing...", alert=False)
+    
     if action == "cancel":
         await event.edit(f"❌ <b>Gift Cancelled.</b> {format_usd(amount)} was not sent.", parse_mode='html', buttons=None)
         return await event.answer("Gift cancelled.", alert=True)
+    
+    # Deduct full amount first
     if not await try_deduct_balance(sender_id, amount):
         await event.edit("❌ <b>Not enough USD balance anymore.</b>", parse_mode='html', buttons=None)
         return await event.answer("Insufficient balance.", alert=True)
-    r_plain_name = await get_plain_name(event, receiver_id)
-    await users_catcher_col.update_one(
-        {"user_id": receiver_id},
-        {"$inc": {"wallet_balance": amount}, "$set": {"fullname": r_plain_name}},
-        upsert=True
-    )
+    
+    # Send net amount to receiver
+    net_amount = round(amount - fee, 2)
+    if net_amount > 0:
+        r_plain_name = await get_plain_name(event, receiver_id)
+        await users_catcher_col.update_one(
+            {"user_id": receiver_id},
+            {"$inc": {"wallet_balance": net_amount}, "$set": {"fullname": r_plain_name}},
+            upsert=True
+        )
+    
+    # Send fee to bot3 treasury
+    if fee > 0:
+        await bot3_treasury_adjust(usd=fee)
+    
     r_mention = await get_html_mention(event, receiver_id)
     s_mention = await get_html_mention(event, sender_id)
-    await event.edit(f"✅ <b>{format_usd(amount)} sent to {r_mention}!</b>", parse_mode='html', buttons=None)
+    await event.edit(
+        f"✅ <b>{format_usd(net_amount)} sent to {r_mention}!</b>\n"
+        f"🏦 <b>Fee (0.2%):</b> {format_usd(fee)} (added to bot3 treasury)",
+        parse_mode='html',
+        buttons=None
+    )
     try:
         await bot1.send_message(
             receiver_id,
-            f"💵 <b>You received a gift!</b>\n📤 <b>From:</b> {s_mention}\n💰 <b>Amount:</b> <code>{format_usd(amount)}</code>",
+            f"💵 <b>You received a gift!</b>\n"
+            f"📤 <b>From:</b> {s_mention}\n"
+            f"💰 <b>Amount:</b> <code>{format_usd(net_amount)}</code>\n"
+            f"(Fee {format_usd(fee)} was deducted by bot)",
             parse_mode='html'
         )
     except Exception:
         pass
-
+        
 # ---- /giftstar ----
 @bot1.on(events.NewMessage(pattern=own_pattern(r'^[/.]giftstar(?:@\w+)?\s+(\d+(?:\.\d+)?)$', 'bot1')))
 async def gift_star_handler(event):
@@ -8529,57 +8693,99 @@ async def gift_star_handler(event):
     receiver_id, err = await _resolve_gift_receiver(event)
     if err:
         return await event.reply(err, parse_mode='html')
-    if amount < GIFT_STAR_MIN:
-        return await event.reply(f"❌ <b>Minimum gift is {GIFT_STAR_MIN}⭐.</b>", parse_mode='html')
+    
+    # 💰 0.2% Fee (0.002)
+    fee_rate = 0.002
+    fee = round(amount * fee_rate, 2)
+    net_amount = round(amount - fee, 2)
+    
+    if fee <= 0:
+        return await event.reply("❌ <b>Gift amount too small (fee would be zero).</b>", parse_mode='html')
+    
     sender_id = event.sender_id
     r_mention = await get_html_mention(event, receiver_id)
+    
+    # Check sender Star balance (including fee)
+    sender_doc = await users_catcher_col.find_one({"user_id": sender_id})
+    star_balance = sender_doc.get("star_balance", 0) if sender_doc else 0
+    if star_balance < amount:
+        return await event.reply(
+            f"❌ <b>Insufficient Star balance!</b> You need {format_star_plain(amount)} (including {format_star_plain(fee)} fee).",
+            parse_mode='html'
+        )
+    
     confirm_text = (
         f"⭐ <b>Gift Confirmation</b>\n\n"
-        f"💰 <b>Amount:</b> <code>{amount}⭐</code>\n"
+        f"💰 <b>Amount:</b> <code>{format_star_plain(amount)}</code>\n"
+        f"🏦 <b>Fee (0.2%):</b> <code>{format_star_plain(fee)}</code>\n"
+        f"📥 <b>Receiver gets:</b> <code>{format_star_plain(net_amount)}</code>\n"
         f"🎯 <b>Receiver:</b> {r_mention}\n\n"
-        f"<blockquote>Are you sure you want to send this to {r_mention}?</blockquote>"
+        f"<blockquote>Are you sure you want to send this?</blockquote>"
     )
     buttons = [[
-        Button.inline("✅ Confirm", data=f"giftstar_confirm_{sender_id}_{receiver_id}_{amount}"),
+        Button.inline("✅ Confirm", data=f"giftstar_confirm_{sender_id}_{receiver_id}_{amount}_{fee}"),
         Button.inline("❌ Cancel", data=f"giftstar_cancel_{sender_id}_{receiver_id}_{amount}")
     ]]
     await event.reply(confirm_text, buttons=buttons, parse_mode='html')
 
-@bot1.on(events.CallbackQuery(pattern=r'^giftstar_(confirm|cancel)_(\d+)_(\d+)_([\d.]+)$'))
+@bot1.on(events.CallbackQuery(pattern=r'^giftstar_(confirm|cancel)_(\d+)_(\d+)_([\d.]+)(?:_([\d.]+))?$'))
 async def gift_star_callback(event):
     action = event.pattern_match.group(1)
-    if isinstance(action, bytes): action = action.decode('utf-8')
+    if isinstance(action, bytes):
+        action = action.decode('utf-8')
     sender_id = int(event.pattern_match.group(2))
     receiver_id = int(event.pattern_match.group(3))
     amount = round(float(event.pattern_match.group(4)), 2)
+    fee = round(float(event.pattern_match.group(5) or 0), 2) if event.pattern_match.group(5) else 0
+    
     if event.sender_id != sender_id:
         return await event.answer("❌ This action is not for you!", alert=True)
     if not claim_single_tap(event):
         return await event.answer("⏳ Already processing...", alert=False)
+    
     if action == "cancel":
-        await event.edit(f"❌ <b>Gift Cancelled.</b> {amount}⭐ was not sent.", parse_mode='html', buttons=None)
+        await event.edit(f"❌ <b>Gift Cancelled.</b> {format_star_plain(amount)} was not sent.", parse_mode='html', buttons=None)
         return await event.answer("Gift cancelled.", alert=True)
+    
+    # Deduct full amount first (gross Star)
     if not await try_deduct_star(sender_id, amount):
         await event.edit("❌ <b>Not enough ⭐ Star balance anymore.</b>", parse_mode='html', buttons=None)
         return await event.answer("Insufficient Star.", alert=True)
-    r_plain_name = await get_plain_name(event, receiver_id)
-    await users_catcher_col.update_one(
-        {"user_id": receiver_id},
-        {"$inc": {"star_balance": amount}, "$set": {"fullname": r_plain_name}},
-        upsert=True
-    )
+    
+    # Send net amount to receiver
+    net_amount = round(amount - fee, 2)
+    if net_amount > 0:
+        r_plain_name = await get_plain_name(event, receiver_id)
+        await users_catcher_col.update_one(
+            {"user_id": receiver_id},
+            {"$inc": {"star_balance": net_amount}, "$set": {"fullname": r_plain_name}},
+            upsert=True
+        )
+    
+    # Send fee to bot3 treasury (Star side)
+    if fee > 0:
+        await bot3_treasury_adjust(star=fee)
+    
     r_mention = await get_html_mention(event, receiver_id)
     s_mention = await get_html_mention(event, sender_id)
-    await event.edit(f"✅ <b>{amount}⭐ sent to {r_mention}!</b>", parse_mode='html', buttons=None)
+    await event.edit(
+        f"✅ <b>{format_star_plain(net_amount)} sent to {r_mention}!</b>\n"
+        f"🏦 <b>Fee (0.2%):</b> {format_star_plain(fee)} (added to bot3 treasury)",
+        parse_mode='html',
+        buttons=None
+    )
     try:
         await bot1.send_message(
             receiver_id,
-            f"⭐ <b>You received a gift!</b>\n📤 <b>From:</b> {s_mention}\n💰 <b>Amount:</b> <code>{amount}⭐</code>",
+            f"⭐ <b>You received a gift!</b>\n"
+            f"📤 <b>From:</b> {s_mention}\n"
+            f"💰 <b>Amount:</b> <code>{format_star_plain(net_amount)}</code>\n"
+            f"(Fee {format_star_plain(fee)} was deducted by bot)",
             parse_mode='html'
         )
     except Exception:
         pass
-
+    
 # ---- /giftpremium ----
 @bot1.on(events.NewMessage(pattern=own_pattern(r'^[/.]giftpremium(?:@\w+)?\s+(\d+)$', 'bot1')))
 async def gift_premium_handler(event):
@@ -8755,7 +8961,7 @@ SPIN_BURN_RATE = 0.02            # 2% of the bet is burned as a flat "machine fe
 CASHOUT_PROFIT_TAX = 0.05        # 5% tax, taken only from PROFIT (net > 0) when you cash out
 WEALTH_THRESHOLD = 1000          # USD wallet balance above which a player is treated as a "whale"
 WEALTH_MULTIPLIER_PENALTY = 0.5  # whales' raw winnings are multiplied by this (50% cut) — matches the "၅၀% လျှော့" text below
-
+SLOT_MIN_SPINS = 3  # အနည်းဆုံး ၃ ခါလှည့်မှ ငွေထုတ်ခွင့်ရမယ်
 # Slot သင်္ကေတများ (ဂန္တဝင် အကောင်များ)
 SLOT_SYMBOLS = ["🐢", "🐕", "🐊", "🐇", "🐉", "🦬", "🦉"]
 JACKPOT_SYMBOL = "🦬"
@@ -8765,12 +8971,11 @@ def _render_slot_bot3(session, result=None, final=False, animating=False):
     bet = session["bet"]
     net = session["net"]
     spins = session.get("spins", 0)
-        # ✅ Session ထဲက Mention ကိုယူပါ (မရှိရင် Fallback)
     mention = session.get("mention", f"<a href='tg://user?id={user_id}'><b>သင့်အကောင်</b></a>")
+    
     # Symbols တန်း (Animation ဖြစ်နေရင် သင်္ကေတတွေ လှည့်နေသလိုပြမယ်)
     symbol_line = ""
     if animating:
-        # လှုပ်ရှားနေတဲ့ သင်္ကေတတွေ (ကျပန်းပြောင်းနေမယ်)
         anim_syms = random.choices(SLOT_SYMBOLS, k=7)
         symbol_line = f"<code>[ {' | '.join(anim_syms)} ]</code> 🔄\n"
     elif result:
@@ -8790,6 +8995,11 @@ def _render_slot_bot3(session, result=None, final=False, animating=False):
     else:
         status_line = "👆 'လှည့်မယ်' ကိုနှိပ်ပြီး စလိုက်ပါ။"
 
+    # 🩹 FIX: ငွေထုတ်ဖို့ အနည်းဆုံးလှည့်ရမယ့်အကြောင်း အသိပေးစာ
+    min_spins_note = ""
+    if not final and spins < SLOT_MIN_SPINS:
+        min_spins_note = f"\n⚠️ <i>ငွေထုတ်ဖို့ အနည်းဆုံး {SLOT_MIN_SPINS} ခါလှည့်ရမယ်။ (လက်ရှိ {spins}/{SLOT_MIN_SPINS})</i>"
+
     net_display = f"{'+' if net >= 0 else ''}{net:.2f} USD"
 
     text = (
@@ -8799,7 +9009,8 @@ def _render_slot_bot3(session, result=None, final=False, animating=False):
         f"🔄 <b>အရေအတွက်:</b> <code>{spins}</code> ပွဲ\n"
         f"📊 <b>စုစုပေါင်းအမြတ်/အရှုံး:</b> <code>{net_display}</code>\n\n"
         f"{symbol_line}"
-        f"{status_line}\n\n"
+        f"{status_line}"
+        f"{min_spins_note}\n\n"
         f"<i>ဆက်ကစားရန် ခလုတ်နှိပ်ပါ။</i>"
     )
 
@@ -8893,7 +9104,7 @@ async def _slot_spin_logic_bot3(event, user_id):
     # 🔥 Spin Burn
     burn = round(bet * SPIN_BURN_RATE, 2)
     if burn > 0 and not await try_deduct_balance(user_id, burn):
-        await event.answer("❌ မီးရှို့ခ မပေးနိုင် — ပိတ်မယ်။", alert=True)
+        await event.answer("❌ ကာစီနိုဆော့ခ မပေးနိုင် — ပိတ်မယ်။", alert=True)
         return await _slot_end_bot3(user_id, chat_id, session["msg_id"], cashout=False)
     await bot3_treasury_adjust(usd=burn)
     if not await try_deduct_bet_bot3(event, user_id, bet):
@@ -8919,12 +9130,12 @@ async def _slot_spin_logic_bot3(event, user_id):
     counts = Counter(res)
     most, max_count = counts.most_common(1)[0]
     raw_win = 0
-    if max_count >= 7: raw_win = bet * 70 if most == JACKPOT_SYMBOL else bet * 50
-    elif max_count == 6: raw_win = bet * 20
-    elif max_count == 5: raw_win = bet * 10
-    elif max_count == 4: raw_win = bet * 5
+    if max_count >= 7: raw_win = bet * 20 if most == JACKPOT_SYMBOL else bet * 50
+    elif max_count == 6: raw_win = bet * 2
+    elif max_count == 5: raw_win = bet * 3
+    elif max_count == 3: raw_win = bet * 2
     elif max_count == 3: raw_win = round(bet * 2.5, 2)
-    elif max_count == 2: raw_win = round(bet * 0.5, 2)
+    elif max_count == 2: raw_win = round(bet * 0.5, 1)
     else: raw_win = 0
 
     if is_whale and raw_win > 0:
@@ -9002,6 +9213,15 @@ async def sl3_cashout_cb(event):
         return await event.answer("❌ Session မရှိ", alert=True)
     if not claim_single_tap(event):
         return await event.answer("⏳ ခဏစောင့်", alert=False)
+    
+    # 🩹 FIX: အနည်းဆုံး ၃ ခါ လှည့်ပြီးလား စစ်ဆေးမယ်
+    spins = session.get("spins", 0)
+    if spins < SLOT_MIN_SPINS:
+        return await event.answer(
+            f"⚠️ အနည်းဆုံး {SLOT_MIN_SPINS} ခါလှည့်မှ ငွေထုတ်လို့ရမယ်။ လက်ရှိ {spins} ခါပဲလှည့်ရသေးတယ်။",
+            alert=True
+        )
+    
     await _slot_end_bot3(user_id, session["chat_id"], session["msg_id"], cashout=True)
     await event.answer("💰 ငွေထုတ်ပြီး!", alert=True)
 
@@ -9053,9 +9273,9 @@ def _render_roulette_bot3(session, result=None, final=False, animating=False):
 
     buttons = []
     if not final:
-        buttons.append([Button.inline("🔴 အနီ (x2)", data=f"r3_color_{user_id}_🔴"),
-                        Button.inline("⚫ အမည်း (x2)", data=f"r3_color_{user_id}_⚫"),
-                        Button.inline("🟢 အစိမ်း (x14)", data=f"r3_color_{user_id}_🟢")])
+        buttons.append([Button.inline("🔴(x2)", data=f"r3_color_{user_id}_🔴"),
+                        Button.inline("⚫(x2)", data=f"r3_color_{user_id}_⚫"),
+                        Button.inline("🟢(x14)", data=f"r3_color_{user_id}_🟢")])
         row1, row2 = [], []
         for i in range(1, 11):
             (row1 if i <= 5 else row2).append(Button.inline(str(i), data=f"r3_num_{user_id}_{i}"))
@@ -9136,7 +9356,7 @@ async def _roulette_spin_bot3(event, user_id, bet_type, bet_value=None):
     # Burn
     burn = round(bet * SPIN_BURN_RATE, 2)
     if burn > 0 and not await try_deduct_balance(user_id, burn):
-        await event.answer("❌ မီးရှို့ခ မပေးနိုင်", alert=True)
+        await event.answer("❌ ကာစီနိုဆော့ခ မပေးနိုင်", alert=True)
         return await _roulette_end_bot3(user_id, chat_id, session["msg_id"], cashout=False)
     await bot3_treasury_adjust(usd=burn)
     if not await try_deduct_bet_bot3(event, user_id, bet):
@@ -9348,14 +9568,33 @@ async def coin_flip_handler(event):
     user_id = event.sender_id
     choice = event.pattern_match.group(1)
     bet_str = event.pattern_match.group(2)
+    
     if not choice or not bet_str:
         return await _out(event, f"🪙 ခေါင်း/ပန်း ရွေးပြီး ငွေပမာဏထည့်ပါ။\nဥပမာ: <code>/flip ခေါင်း 1</code> (သို့) <code>/flip ပန်း 1</code>", parse_mode='html')
+    
     bet_amount = round(float(bet_str), 2)
+    
+    # 🛡️ လောင်းငွေ အများဆုံး ကန့်သတ်ချက် (၁ သန်း)
+    MAX_BET = 1_000_000
+    if bet_amount > MAX_BET:
+        return await _out(event, f"❌ <b>တစ်ခါလောင်းလို့ အများဆုံး {format_usd(MAX_BET)} ပဲ လောင်းလို့ရပါတယ်။</b>", parse_mode='html')
+    
+    # 💰 Burn Rate (၂%)
+    burn = round(bet_amount * SPIN_BURN_RATE, 2)
+    
+    # Burn အတွက် သီးခြားနှုတ်မယ်
+    if burn > 0 and not await try_deduct_balance(user_id, burn):
+        return await _out(event, "❌ <b>မီးရှို့ခ မပေးနိုင်လို့ ကစားလို့မရပါ။</b>", parse_mode='html')
+    await bot3_treasury_adjust(usd=burn)
+    
+    # ကျန်တဲ့ လောင်းငွေကို နှုတ်မယ်
     if not await try_deduct_bet_bot3(event, user_id, bet_amount):
         return await _out(event, "❌ <b>Insufficient balance!</b>", parse_mode='html')
     await bot3_treasury_adjust(usd=bet_amount)
+    
     result = random.choice(["ခေါင်း", "ပန်း"])
     mention = await get_html_mention(event, user_id)
+    
     try:
         spin_msg = await _out(event, "🪙 <b>Flipping...</b>", parse_mode='html')
         await asyncio.sleep(0.5)
@@ -9365,20 +9604,37 @@ async def coin_flip_handler(event):
             pass
         await asyncio.sleep(0.5)
     except FloodWaitError:
-        await users_catcher_col.update_one({"user_id": user_id}, {"$inc": {"wallet_balance": bet_amount}})
-        await bot3_treasury_adjust(usd=-(bet_amount))
+        await users_catcher_col.update_one({"user_id": user_id}, {"$inc": {"wallet_balance": bet_amount + burn}})
+        await bot3_treasury_adjust(usd=-(bet_amount + burn))
         return await _out(event, "⚠️ <b>Too many people playing right now — your bet was refunded. Try again in a few seconds.</b>", parse_mode='html')
     except Exception:
-        await users_catcher_col.update_one({"user_id": user_id}, {"$inc": {"wallet_balance": bet_amount}})
-        await bot3_treasury_adjust(usd=-(bet_amount))
+        await users_catcher_col.update_one({"user_id": user_id}, {"$inc": {"wallet_balance": bet_amount + burn}})
+        await bot3_treasury_adjust(usd=-(bet_amount + burn))
         return await _out(event, "⚠️ <b>Something went wrong — your bet was refunded.</b>", parse_mode='html')
+    
     if choice == result:
-        # Bet was already deducted upfront, so a win pays back double (net +bet_amount, same as before)
-        await users_catcher_col.update_one({"user_id": user_id}, {"$inc": {"wallet_balance": bet_amount * 2}})
-        await bot3_treasury_adjust(usd=-(bet_amount * 2))
-        caption_text = f"🪙 {mention} <b>YOU WON!</b>\n✨ Result: [ <b>{result}</b> ]\n🎉 You guessed right! <code>+{bet_amount} USD</code>"
+        # 🐋 Whale Check
+        user_doc = await users_catcher_col.find_one({"user_id": user_id})
+        is_whale = (user_doc.get("wallet_balance", 0) if user_doc else 0) > WEALTH_THRESHOLD
+        
+        raw_win = bet_amount * 2
+        if is_whale:
+            raw_win = round(raw_win * WEALTH_MULTIPLIER_PENALTY, 2)
+            penalty_text = "\n🐋 ငွေကြေးရှိသူအခွန် (မြှောက်ကိန်း ၅၀% လျှော့)"
+        else:
+            penalty_text = ""
+        
+        await users_catcher_col.update_one({"user_id": user_id}, {"$inc": {"wallet_balance": raw_win}})
+        await bot3_treasury_adjust(usd=-(raw_win))
+        caption_text = f"🪙 {mention} <b>YOU WON!</b>\n✨ Result: [ <b>{result}</b> ]\n🎉 You guessed right! <code>+{raw_win:.2f} USD</code>"
+        if burn > 0:
+            caption_text += f"\n🔥 <b>မီးရှို့ခ:</b> <code>-{burn:.2f} USD</code>"
+        caption_text += penalty_text
     else:
-        caption_text = f"🪙 {mention} <b>YOU LOST.</b>\n💨 Result: [ <b>{result}</b> ]\n💸 You guessed wrong. <code>-{bet_amount} USD</code>"
+        caption_text = f"🪙 {mention} <b>YOU LOST.</b>\n💨 Result: [ <b>{result}</b> ]\n💸 You guessed wrong. <code>-{bet_amount:.2f} USD</code>"
+        if burn > 0:
+            caption_text += f"\n🔥 <b>မီးရှို့ခ:</b> <code>-{burn:.2f} USD</code>"
+    
     caption_text += GAME_FOOTER
     try:
         await spin_msg.edit(caption_text, parse_mode='html')
@@ -9389,20 +9645,37 @@ async def coin_flip_handler(event):
             pass
     if not event.is_private:
         schedule_game_cleanup(spin_msg.client, event.chat_id, spin_msg)
-
 @bot3.on(events.NewMessage(pattern=own_pattern(r'^[/.]dice(?:@\w+)?(?:\s+(\d+(?:\.\d+)?))?$', 'bot3')))
 async def dice_game_handler(event):
     user_id = event.sender_id
     bet_str = event.pattern_match.group(1)
+    
     if not bet_str:
         return await _out(event, f"🎲 ငွေပမာဏထည့်ပါ။\nဥပမာ: <code>/dice 1</code>", parse_mode='html')
+    
     bet_amount = round(float(bet_str), 2)
     if bet_amount <= 0:
         return await _out(event, "<b>အနည်းဆုံး 0.01 USD လောင်းပါ။</b>", parse_mode='html')
-    chat_id = event.chat_id
+    
+    # 🛡️ လောင်းငွေ အများဆုံး ကန့်သတ်ချက် (၁ သန်း)
+    MAX_BET = 1_000_000
+    if bet_amount > MAX_BET:
+        return await _out(event, f"❌ <b>တစ်ခါလောင်းလို့ အများဆုံး {format_usd(MAX_BET)} ပဲ လောင်းလို့ရပါတယ်။</b>", parse_mode='html')
+    
+    # 💰 Burn Rate (၂%)
+    burn = round(bet_amount * SPIN_BURN_RATE, 2)
+    
+    # Burn အတွက် သီးခြားနှုတ်မယ်
+    if burn > 0 and not await try_deduct_balance(user_id, burn):
+        return await _out(event, "❌ <b>မီးရှို့ခ မပေးနိုင်လို့ ကစားလို့မရပါ။</b>", parse_mode='html')
+    await bot3_treasury_adjust(usd=burn)
+    
+    # ကျန်တဲ့ လောင်းငွေကို နှုတ်မယ်
     if not await try_deduct_bet_bot3(event, user_id, bet_amount):
         return await _out(event, "❌ <b>Insufficient balance!</b>", parse_mode='html')
     await bot3_treasury_adjust(usd=bet_amount)
+    
+    chat_id = event.chat_id
     try:
         dice_msg = await _out(event, "🎲 <b>Rolling...</b>", parse_mode='html')
         await asyncio.sleep(0.5)
@@ -9412,42 +9685,99 @@ async def dice_game_handler(event):
             pass
         await asyncio.sleep(1.0)
     except FloodWaitError:
-        await users_catcher_col.update_one({"user_id": user_id}, {"$inc": {"wallet_balance": bet_amount}})
-        await bot3_treasury_adjust(usd=-(bet_amount))
+        await users_catcher_col.update_one({"user_id": user_id}, {"$inc": {"wallet_balance": bet_amount + burn}})
+        await bot3_treasury_adjust(usd=-(bet_amount + burn))
         return await _out(event, "⚠️ <b>Too many people playing right now — your bet was refunded. Try again in a few seconds.</b>", parse_mode='html')
     except Exception:
-        await users_catcher_col.update_one({"user_id": user_id}, {"$inc": {"wallet_balance": bet_amount}})
-        await bot3_treasury_adjust(usd=-(bet_amount))
+        await users_catcher_col.update_one({"user_id": user_id}, {"$inc": {"wallet_balance": bet_amount + burn}})
+        await bot3_treasury_adjust(usd=-(bet_amount + burn))
         return await _out(event, "⚠️ <b>Something went wrong — your bet was refunded.</b>", parse_mode='html')
+    
     dice_value = random.randint(1, 6)
     mention = await get_html_mention(event, user_id)
+    
     if dice_value >= 4:
-        # Bet was already deducted upfront, so a win pays back double (net +bet_amount, same as before)
-        await users_catcher_col.update_one({"user_id": user_id}, {"$inc": {"wallet_balance": bet_amount * 2}})
-        await bot3_treasury_adjust(usd=-(bet_amount * 2))
-        result_msg = await _out(event, f"🎉 {mention} <b>YOU WIN!</b> Dice: {dice_value}\n🪙 Added: <code>+{bet_amount} USD</code>{GAME_FOOTER}", parse_mode='html')
+        # 🐋 Whale Check
+        user_doc = await users_catcher_col.find_one({"user_id": user_id})
+        is_whale = (user_doc.get("wallet_balance", 0) if user_doc else 0) > WEALTH_THRESHOLD
+        
+        raw_win = bet_amount * 2
+        if is_whale:
+            raw_win = round(raw_win * WEALTH_MULTIPLIER_PENALTY, 2)
+            penalty_text = "\n🐋 ငွေကြေးရှိသူအခွန် (မြှောက်ကိန်း ၅၀% လျှော့)"
+        else:
+            penalty_text = ""
+        
+        await users_catcher_col.update_one({"user_id": user_id}, {"$inc": {"wallet_balance": raw_win}})
+        await bot3_treasury_adjust(usd=-(raw_win))
+        result_msg = await _out(event, f"🎉 {mention} <b>YOU WIN!</b> Dice: {dice_value}\n🪙 Added: <code>+{raw_win:.2f} USD</code>", parse_mode='html')
+        if burn > 0:
+            await result_msg.edit(f"{result_msg.text}\n🔥 <b>မီးရှို့ခ:</b> <code>-{burn:.2f} USD</code>{penalty_text}{GAME_FOOTER}", parse_mode='html')
     else:
-        result_msg = await _out(event, f"💸 {mention} <b>YOU LOSE!</b> Dice: {dice_value}\n🪙 Deducted: <code>-{bet_amount} USD</code>{GAME_FOOTER}", parse_mode='html')
+        result_msg = await _out(event, f"💸 {mention} <b>YOU LOSE!</b> Dice: {dice_value}\n🪙 Deducted: <code>-{bet_amount:.2f} USD</code>", parse_mode='html')
+        if burn > 0:
+            await result_msg.edit(f"{result_msg.text}\n🔥 <b>မီးရှို့ခ:</b> <code>-{burn:.2f} USD</code>{GAME_FOOTER}", parse_mode='html')
+    
     if not event.is_private:
         schedule_game_cleanup(result_msg.client, event.chat_id, result_msg)
-
-@bot3.on(events.NewMessage(pattern=own_pattern(r'^[/.]hilo(?:@\w+)?(?:\s+(\d+(?:\.\d+)?))?$', 'bot3')))
+        
+@bot3.on(events.NewMessage(pattern=own_pattern(r'^[/.]hilo(?:@\w+)?(?:\s+(\d+(?:\.\d+))?)?$', 'bot3')))
 async def hilo_game_handler(event):
     user_id = event.sender_id
     bet_str = event.pattern_match.group(1)
+    
     if not bet_str:
         return await _out(event, f"🃏 ငွေပမာဏထည့်ပါ။\nဥပမာ: <code>/hilo 1</code>", parse_mode='html')
+    
     bet_amount = round(float(bet_str), 2)
-    if bet_amount <= 0: return await _out(event, "❌ <b>Bet must be at least 0.01 USD.</b>", parse_mode='html')
-    user_doc = await users_catcher_col.find_one({"user_id": user_id})
-    balance = user_doc.get("wallet_balance", 0) if user_doc else 0
-    if balance < bet_amount: return await _out(event, f"❌ <b>Insufficient balance! You have {balance:,} USD</b>", parse_mode='html')
+    if bet_amount <= 0:
+        return await _out(event, "❌ <b>အနည်းဆုံး 0.01 USD လောင်းပါ။</b>", parse_mode='html')
+    
+    # 🛡️ လောင်းငွေ အများဆုံး ကန့်သတ်ချက် (၁ သန်း)
+    MAX_BET = 1_000_000
+    if bet_amount > MAX_BET:
+        return await _out(event, f"❌ <b>တစ်ခါလောင်းလို့ အများဆုံး {format_usd(MAX_BET)} ပဲ လောင်းလို့ရပါတယ်။</b>", parse_mode='html')
+    
+    # 💰 Burn Rate (၂%)
+    burn = round(bet_amount * SPIN_BURN_RATE, 2)
+    
+    # Burn အတွက် သီးခြားနှုတ်မယ်
+    if burn > 0 and not await try_deduct_balance(user_id, burn):
+        return await _out(event, "❌ <b>မီးရှို့ခ မပေးနိုင်လို့ ကစားလို့မရပါ။</b>", parse_mode='html')
+    await bot3_treasury_adjust(usd=burn)
+    
+    # လောင်းငွေကို နှုတ်မယ်
+    if not await try_deduct_bet_bot3(event, user_id, bet_amount):
+        user_doc = await users_catcher_col.find_one({"user_id": user_id})
+        balance = user_doc.get("wallet_balance", 0) if user_doc else 0
+        return await _out(event, f"❌ <b>Insufficient balance! You have {balance} USD</b>", parse_mode='html')
+    await bot3_treasury_adjust(usd=bet_amount)
+    
     base_card = random.randint(2, 12)
-    card_map = {11: "J", 12: "Q", 13: "K"}
-    base_display = card_map.get(base_card, str(base_card))
-    buttons = [[Button.inline("🔼 Higher", data=f"hilo_HIGH_{base_card}_{bet_amount}_{user_id}"), Button.inline("🔽 Lower", data=f"hilo_LOW_{base_card}_{bet_amount}_{user_id}")]]
-    await _out(event, f"🃏 <b>HI-LO GAME</b>\nCASINO\n💵 Bet: <code>{bet_amount:,} USD</code>\n🎴 Current card: ✨ <b>[ {base_display} ]</b> ✨\n\n<blockquote>Higher or lower? Choose!</blockquote>", buttons=buttons, parse_mode='html')
-
+    card_map = {1: "A", 11: "J", 12: "Q", 13: "K"}
+    base_display = base_card if base_card <= 10 else card_map.get(base_card, str(base_card))
+    
+    mention = await get_html_mention(event, user_id)
+    
+    buttons = [
+        [Button.inline("📈 Higher", data=f"hilo_HIGH_{base_card}_{bet_amount}_{user_id}"),
+         Button.inline("📉 Lower", data=f"hilo_LOW_{base_card}_{bet_amount}_{user_id}")]
+    ]
+    
+    await _out(
+        event,
+        f"🃏 <b>HI-LO GAME</b>\n"
+        f"━━━━━━━━━━━━━━━━━━━━\n"
+        f"👤 <b>ကစားသမား:</b> {mention}\n"
+        f"💵 <b>လောင်းငွေ:</b> <code>{format_usd(bet_amount)}</code>\n"
+        f"🔥 <b>မီးရှို့ခ (2%):</b> <code>{format_usd(burn)}</code>\n"
+        f"━━━━━━━━━━━━━━━━━━━━\n"
+        f"🎴 <b>လက်ရှိကတ်:</b> <code>[ {base_display} ]</code>\n\n"
+        f"<b>ဘယ်ကိုရွေးမလဲ?</b>",
+        buttons=buttons,
+        parse_mode='html'
+    )
+    
 @bot1.on(events.NewMessage(pattern=own_pattern(r'^[/.]daily(?:@\w+)?$', 'bot1')))
 async def daily_bounty_handler(event):
     user_id = event.sender_id
@@ -9463,8 +9793,8 @@ async def daily_bounty_handler(event):
         return await event.reply(f"⏳ {mention} <b>You already claimed today!</b> Next claim in {str(timedelta(seconds=rem_time))}.", parse_mode='html')
     if now - last_daily > 172800: streak = 0
     new_streak = streak + 1
-    base_bonus = round(random.randint(2000, 5000) / MMK_PER_USD, 2)
-    streak_bonus = round(min(new_streak * 200, 3000) / MMK_PER_USD, 2)
+    base_bonus = round(random.randint(20000, 500000) / MMK_PER_USD, 2)
+    streak_bonus = round(min(new_streak * 20000, 300000) / MMK_PER_USD, 2)
     bonus = base_bonus + streak_bonus
     await users_catcher_col.update_one({"user_id": user_id}, {"$inc": {"wallet_balance": bonus}, "$set": {"last_daily": now, "daily_streak": new_streak, "fullname": plain_name}})
     newly_earned = await check_and_award_achievements(user_id)
@@ -9472,66 +9802,215 @@ async def daily_bounty_handler(event):
     reply_text += format_achievement_unlocks(newly_earned)
     await event.reply(reply_text, parse_mode='html')
 
+# ==========================================
+# 💰 RICHEST LEADERBOARD (PAGINATED - 5 per page)
+# ==========================================
+RICHEST_PAGE_SIZE = 5
+
+async def render_richest_page(page):
+    """Render a specific page of the richest leaderboard."""
+    skip = page * RICHEST_PAGE_SIZE
+    
+    # Total users with positive balance
+    total = await users_catcher_col.count_documents({"wallet_balance": {"$gt": 0}})
+    total_pages = max(1, (total + RICHEST_PAGE_SIZE - 1) // RICHEST_PAGE_SIZE)
+    
+    # Clamp page
+    if page < 0: page = 0
+    if page >= total_pages: page = total_pages - 1
+    skip = page * RICHEST_PAGE_SIZE
+
+    # Aggregation pipeline to get balance, star, and card count
+    pipeline = [
+        {"$match": {"wallet_balance": {"$gt": 0}}},
+        {"$project": {
+            "user_id": 1,
+            "fullname": 1,
+            "wallet_balance": 1,
+            "star_balance": 1,
+            "cards": {"$size": "$harem"}  # Total cards owned
+        }},
+        {"$sort": {"wallet_balance": -1}},
+        {"$skip": skip},
+        {"$limit": RICHEST_PAGE_SIZE}
+    ]
+    users = await users_catcher_col.aggregate(pipeline).to_list(length=RICHEST_PAGE_SIZE)
+    
+    # Header
+    text = f"💰 <b>TOP RICHEST PLAYERS</b> <i>(Page {page+1}/{total_pages})</i>\n\n"
+    
+    if not users:
+        text = "🏆 <b>No wealthy players yet!</b>"
+        return text, None
+
+    # Build each user row
+    for idx, u in enumerate(users, start=skip + 1):
+        # Safe conversion for balances (fix string issues)
+        try:
+            bal = float(u.get("wallet_balance", 0))
+        except (ValueError, TypeError):
+            bal = 0.0
+            
+        try:
+            star = float(u.get("star_balance", 0))
+        except (ValueError, TypeError):
+            star = 0.0
+            
+        cards = u.get("cards", 0)
+        
+        # User mention
+        name = clean_display_name(u.get('fullname'), fallback=f"User {u['user_id']}")
+        mention = f"<a href='tg://user?id={u['user_id']}'>{escape_html(name)}</a>"
+        
+        # Format: '1' Name
+        # 💵 $10,000.00 | ⭐ 500 | 🎴 50
+        # ----------
+        text += f"<b>'{idx}'</b> {mention}\n"
+        text += f"💵 {format_usd(bal)} | ⭐ {format_star_plain(star)} | 🎴 {cards:,}\n"
+        text += f"----------\n"
+    
+    # Navigation buttons
+    buttons = []
+    nav = []
+    if page > 0:
+        nav.append(Button.inline("⬅️ Prev", data=f"richest_{page-1}"))
+    if page + 1 < total_pages:
+        nav.append(Button.inline("Next ➡️", data=f"richest_{page+1}"))
+    if nav:
+        buttons.append(nav)
+    
+    return text, (buttons if buttons else None)
+
+
 @bot1.on(events.NewMessage(pattern=own_pattern(r'^[/.]richest(?:@\w+)?$', 'bot1')))
-async def system_richest_leaderboard(event):
-    cursor = users_catcher_col.find({"wallet_balance": {"$gt": 0}}).sort("wallet_balance", -1).limit(10)
-    richest_users = await cursor.to_list(length=10)
-    if not richest_users: return await event.reply(f"🏆 <b>No wealthy players yet!</b>", parse_mode='html')
-    msg = f"💰 <b>TOP 10 RICHEST PLAYERS</b>\nECONOMY\n"
-    for i, u in enumerate(richest_users):
-        bal = u.get("wallet_balance", 0)
-        user_display = escape_html(clean_display_name(u.get('fullname'), fallback=f"User {u['user_id']}"))
-        msg += f"<b>{i+1}.</b> {user_display} — <code>{bal:,} USD</code> 🪙\n"
-    await event.reply(msg, parse_mode='html')
+async def richest_paginated_handler(event):
+    """Handle /richest command."""
+    text, buttons = await render_richest_page(0)
+    await event.reply(text, parse_mode='html', buttons=buttons)
+
+
+@bot1.on(events.CallbackQuery(pattern=r'^richest_(\d+)$'))
+async def richest_page_callback(event):
+    """Handle pagination button clicks for /richest."""
+    page = int(event.pattern_match.group(1))
+    text, buttons = await render_richest_page(page)
+    try:
+        await event.edit(text, parse_mode='html', buttons=buttons)
+        await event.answer()
+    except errors.MessageNotModifiedError:
+        await event.answer()
 
 @bot3.on(events.NewMessage(pattern=own_pattern(r'^[/.]gamble(?:@\w+)?(?:\s+(\d+(?:\.\d+)?))?$', 'bot3')))
 async def high_risk_gamble_handler(event):
     user_id = event.sender_id
     bet_str = event.pattern_match.group(1)
+    
     if not bet_str:
         return await _out(event, f"🎲 ငွေပမာဏထည့်ပါ။\nဥပမာ: <code>/gamble 1</code>", parse_mode='html')
-    bet = round(float(bet_str), 2)
-    mention = await get_html_mention(event, user_id)
-    if bet < (50 / MMK_PER_USD): return await _out(event, f"❌ <b>Minimum bet is {format_usd(50 / MMK_PER_USD)}.</b>", parse_mode='html')
-    if not await try_deduct_bet_bot3(event, user_id, bet):
+    
+    bet_amount = round(float(bet_str), 2)
+    
+    # 🛡️ လောင်းငွေ အများဆုံး ကန့်သတ်ချက် (၁ သန်း)
+    MAX_BET = 1_000_000
+    if bet_amount > MAX_BET:
+        return await _out(event, f"❌ <b>တစ်ခါလောင်းလို့ အများဆုံး {format_usd(MAX_BET)} ပဲ လောင်းလို့ရပါတယ်။</b>", parse_mode='html')
+    
+    if bet_amount < 0.01:
+        return await _out(event, f"❌ <b>အနည်းဆုံး 0.01 USD လောင်းပါ။</b>", parse_mode='html')
+    
+    # 💰 Burn Rate (၂%)
+    burn = round(bet_amount * SPIN_BURN_RATE, 2)
+    
+    # Burn အတွက် သီးခြားနှုတ်မယ်
+    if burn > 0 and not await try_deduct_balance(user_id, burn):
+        return await _out(event, "❌ <b>မီးရှို့ခ မပေးနိုင်လို့ ကစားလို့မရပါ။</b>", parse_mode='html')
+    await bot3_treasury_adjust(usd=burn)
+    
+    # လောင်းငွေကို နှုတ်မယ်
+    if not await try_deduct_bet_bot3(event, user_id, bet_amount):
         user_doc = await users_catcher_col.find_one({"user_id": user_id})
         balance = user_doc.get("wallet_balance", 0) if user_doc else 0
-        return await _out(event, f"❌ <b>Insufficient balance! You have {balance} USD</b>", parse_mode='html')
-    await bot3_treasury_adjust(usd=bet)
-    suspense_msg = await _out(event, "🎲 <b>Rolling the dice of fate...</b>", parse_mode='html')
+        return await _out(event, f"❌ <b>Insufficient balance! You have {format_usd(balance)}</b>", parse_mode='html')
+    await bot3_treasury_adjust(usd=bet_amount)
+    
+    mention = await get_html_mention(event, user_id)
+    
+    # 🎬 Animation
     try:
+        suspense_msg = await _out(event, "🎲 <b>Rolling the dice of fate...</b>", parse_mode='html')
         await asyncio.sleep(0.5)
         try:
             await suspense_msg.edit("<b>🎲 ⚀</b>", parse_mode='html')
         except Exception:
             pass
         await asyncio.sleep(0.5)
-    except FloodWaitError:
-        await users_catcher_col.update_one({"user_id": user_id}, {"$inc": {"wallet_balance": bet}})
-        await bot3_treasury_adjust(usd=-(bet))
-        return await _out(event, "⚠️ <b>Too many people playing right now — your bet was refunded. Try again in a few seconds.</b>", parse_mode='html')
-    except Exception:
-        await users_catcher_col.update_one({"user_id": user_id}, {"$inc": {"wallet_balance": bet}})
-        await bot3_treasury_adjust(usd=-(bet))
-        return await _out(event, "⚠️ <b>Something went wrong — your bet was refunded.</b>", parse_mode='html')
-    if random.choice([True, False]):
-        # Bet was already deducted upfront, so a win pays back double (net +bet, same as before)
-        await users_catcher_col.update_one({"user_id": user_id}, {"$inc": {"wallet_balance": bet * 2}})
-        await bot3_treasury_adjust(usd=-(bet * 2))
-        response = f"🔥 {mention} <b>RISK WON!</b> You doubled your bet! (+<code>{bet} USD</code>)"
-    else:
-        response = f"💸 {mention} <b>RISK LOST.</b> You lost your bet. (-<code>{bet} USD</code>)"
-    response += GAME_FOOTER
-    try:
-        await suspense_msg.edit(response, parse_mode='html')
-    except Exception:
         try:
-            await _out(event, response, parse_mode='html')
+            await suspense_msg.edit("<b>🎲 ⚂</b>", parse_mode='html')
         except Exception:
             pass
+        await asyncio.sleep(0.5)
+    except FloodWaitError:
+        await users_catcher_col.update_one({"user_id": user_id}, {"$inc": {"wallet_balance": bet_amount + burn}})
+        await bot3_treasury_adjust(usd=-(bet_amount + burn))
+        return await _out(event, "⚠️ <b>Too many people playing right now — your bet was refunded. Try again in a few seconds.</b>", parse_mode='html')
+    except Exception:
+        await users_catcher_col.update_one({"user_id": user_id}, {"$inc": {"wallet_balance": bet_amount + burn}})
+        await bot3_treasury_adjust(usd=-(bet_amount + burn))
+        return await _out(event, "⚠️ <b>Something went wrong — your bet was refunded.</b>", parse_mode='html')
+    
+    # 🎲 ရလဒ်
+    win = random.choice([True, False])
+    
+    # 🐋 Whale Check
+    user_doc = await users_catcher_col.find_one({"user_id": user_id})
+    is_whale = (user_doc.get("wallet_balance", 0) if user_doc else 0) > WEALTH_THRESHOLD
+    
+    result_text = ""
+    whale_text = ""
+    payout = 0
+    net = 0
+    
+    if win:
+        raw_win = bet_amount * 2
+        if is_whale:
+            raw_win = round(raw_win * WEALTH_MULTIPLIER_PENALTY, 2)
+            whale_text = f"\n🐋 <b>ငွေကြေးရှိသူအခွန် (၅၀% လျှော့):</b> <code>-{format_usd(round(bet_amount * 0.5, 2))}</code>"
+        payout = raw_win
+        await users_catcher_col.update_one({"user_id": user_id}, {"$inc": {"wallet_balance": payout}})
+        await bot3_treasury_adjust(usd=-(payout))
+        result_text = f"🎉 <b>RISK WON!</b> <code>+{format_usd(payout)}</code>"
+        net = round(payout - bet_amount - burn, 2)
+    else:
+        result_text = f"💸 <b>RISK LOST.</b> <code>-{format_usd(bet_amount)}</code>"
+        net = round(-bet_amount - burn, 2)
+    
+    # 📊 Final Message
+    net_display = f"{'+' if net >= 0 else ''}{format_usd(net)}"
+    
+    final_message = (
+        f"🎲 <b>GAMBLE RESULT</b>\n"
+        f"━━━━━━━━━━\n"
+        f"👤 <b>ကစားသမား:</b> {mention}\n"
+        f"💵 <b>လောင်းငွေ:</b> <code>{format_usd(bet_amount)}</code>\n"
+        f"🔥 <b>ကာစီနိုကစားခ (2%):</b> <code>{format_usd(burn)}</code>\n"
+        f"━━━━━━━━━━\n"
+        f"{result_text}\n"
+        f"📊 <b>အသားတင် (Net):</b> <code>{net_display}</code>"
+        f"{whale_text}"
+        f"\n━━━━━━━━━\n"
+        f"{GAME_FOOTER}"
+    )
+    
+    try:
+        await suspense_msg.edit(final_message, parse_mode='html')
+    except Exception:
+        try:
+            await _out(event, final_message, parse_mode='html')
+        except Exception:
+            pass
+    
     if not event.is_private:
         schedule_game_cleanup(suspense_msg.client, event.chat_id, suspense_msg)
-
 # ---- MINES ----
 # 5x5 grid, 5 hidden bombs among 20 safe tiles. Tap a hidden tile to reveal it — each safe
 # reveal raises the payout multiplier; tap a bomb and the whole bet is gone. The player picks
@@ -9595,37 +10074,62 @@ def _render_mines_board(game, game_id, final=False, hit_idx=None):
         f"<i>Box ကိုနှိပ်ပြီး ဆက်ကစားမလား၊ ငွေထုတ်မလား ရွေးပါ။</i>"
     )
     return text, rows
-
 @bot3.on(events.NewMessage(pattern=own_pattern(r'^[/.]mines(?:@\w+)?(?:\s+(\d+(?:\.\d+)?))?$', 'bot3')))
 async def mines_game_handler(event):
     global _mines_game_counter
     user_id = event.sender_id
     bet_str = event.pattern_match.group(1)
+    
     if not bet_str:
         return await _out(event, f"💣 ငွေပမာဏထည့်ပါ။\nဥပမာ: <code>/mines 1</code>", parse_mode='html')
+    
     bet = round(float(bet_str), 2)
+    
+    # 🛡️ လောင်းငွေ အများဆုံး ကန့်သတ်ချက် (၁ သန်း)
+    MAX_BET = 1_000_000
+    if bet > MAX_BET:
+        return await _out(event, f"❌ <b>တစ်ခါလောင်းလို့ အများဆုံး {format_usd(MAX_BET)} ပဲ လောင်းလို့ရပါတယ်။</b>", parse_mode='html')
+    
     if bet <= 0:
         return await _out(event, "<b>အနည်းဆုံး 0.01 USD လောင်းပါ။</b>", parse_mode='html')
+    
+    # 💰 Burn Rate (၂%)
+    burn = round(bet * SPIN_BURN_RATE, 2)
+    if burn > 0 and not await try_deduct_balance(user_id, burn):
+        return await _out(event, "❌ <b>မီးရှို့ခ မပေးနိုင်လို့ ကစားလို့မရပါ။</b>", parse_mode='html')
+    await bot3_treasury_adjust(usd=burn)
+    
     if not await try_deduct_bet_bot3(event, user_id, bet):
         user_doc = await users_catcher_col.find_one({"user_id": user_id})
         balance = user_doc.get("wallet_balance", 0) if user_doc else 0
-        return await _out(event, f"<b>မင်းမှာ {balance} USD ပဲရှိတယ်နော်!</b>", parse_mode='html')
+        return await _out(event, f"<b>မင်းမှာ {format_usd(balance)} ပဲရှိတယ်နော်!</b>", parse_mode='html')
     await bot3_treasury_adjust(usd=bet)
+    
     mention = await get_html_mention(event, user_id)
     _mines_game_counter += 1
     game_id = _mines_game_counter
     bombs = set(random.sample(range(MINES_GRID_SIZE), MINES_BOMB_COUNT))
-    game = {"user_id": user_id, "bet": bet, "bombs": bombs, "revealed": set(),
-            "chat_id": event.chat_id, "mention": mention}
+    game = {
+        "user_id": user_id,
+        "bet": bet,
+        "burn": burn,
+        "bombs": bombs,
+        "revealed": set(),
+        "chat_id": event.chat_id,
+        "mention": mention,
+        "start_time": time.time()
+    }
     active_mines_games[game_id] = game
     text, rows = _render_mines_board(game, game_id)
     await _out(event, text, parse_mode='html', buttons=rows)
+
 
 @bot3.on(events.CallbackQuery(pattern=r'^minestap_(\d+)_(\d+)$'))
 async def mines_tap_handler(event):
     game_id = int(event.pattern_match.group(1))
     idx = int(event.pattern_match.group(2))
     game = active_mines_games.get(game_id)
+    
     if not game:
         return await event.answer("⚠️ ဒီ game ပြီးသွားပါပြီ။", alert=True)
     if event.sender_id != game["user_id"]:
@@ -9640,10 +10144,14 @@ async def mines_tap_handler(event):
         _, rows = _render_mines_board(game, game_id, final=True, hit_idx=idx)
         text = (
             f"💣 <b>MINES — 💥 ဗုံးနင်းမိပြီ!</b>\n"
-            f"👤 <b>ကစားသမား −</b> {game['mention']}\n"
-            f"💵 <b>လောင်းငွေ −</b> <code>{game['bet']:,} USD</code>\n"
-            f"💎 <b>ဖွင့်နိုင်ခဲ့တာ −</b> <code>{len(game['revealed'])} / {safe_total}</code>\n"
-            f"🐸 <b>လောင်းထားတဲ့ {game['bet']:,} USD လုံးဝ ရှုံးသွားပါပြီ။</b>\n"
+            f"━━━━━━━━━━━━━━━━━━━━\n"
+            f"👤 <b>ကစားသမား:</b> {game['mention']}\n"
+            f"💵 <b>လောင်းငွေ:</b> <code>{format_usd(game['bet'])}</code>\n"
+            f"🔥 <b>မီးရှို့ခ:</b> <code>{format_usd(game['burn'])}</code>\n"
+            f"━━━━━━━━━━━━━━━━━━━━\n"
+            f"💎 <b>ဖွင့်နိုင်ခဲ့တာ:</b> <code>{len(game['revealed'])} / {safe_total}</code>\n"
+            f"🐸 <b>လောင်းထားတဲ့ {format_usd(game['bet'])} လုံးဝ ရှုံးသွားပါပြီ။</b>\n"
+            f"━━━━━━━━━━━━━━━━━━━━\n"
             f"<i>နောက်တစ်ခါ ကံကောင်းပါစေ!</i>"
         )
         await event.edit(text, parse_mode='html', buttons=rows)
@@ -9651,44 +10159,91 @@ async def mines_tap_handler(event):
         if not event.is_private:
             schedule_game_cleanup(event.client, event.chat_id, event.message_id)
         return
+    
     game["revealed"].add(idx)
     safe_total = MINES_GRID_SIZE - MINES_BOMB_COUNT
+    
+    # 🔥 3 diamonds minimum before cashout
+    MIN_REVEALS_FOR_CASHOUT = 3
     if len(game["revealed"]) >= safe_total:
         await _mines_cash_out(event, game_id, auto=True)
         return
+    
     text, rows = _render_mines_board(game, game_id)
+    
+    # ⚠️ ငွေထုတ်ဖို့ အနည်းဆုံး ၃ လုံးဖွင့်ရမယ်ဆိုတဲ့ သတိပေးချက်
+    if len(game["revealed"]) < MIN_REVEALS_FOR_CASHOUT:
+        text += f"\n⚠️ <i>ငွေထုတ်ဖို့ အနည်းဆုံး {MIN_REVEALS_FOR_CASHOUT} လုံးဖွင့်ရမယ်။ (လက်ရှိ {len(game['revealed'])}/{MIN_REVEALS_FOR_CASHOUT})</i>"
+    
     try:
         await event.edit(text, parse_mode='html', buttons=rows)
     except errors.MessageNotModifiedError:
         pass
     await event.answer("💎 လုံခြုံပါတယ်!")
 
+
 async def _mines_cash_out(event, game_id, auto=False):
     game = active_mines_games.pop(game_id, None)
     if not game:
         return await event.answer("⚠️ ဒီ game ပြီးသွားပါပြီ။", alert=True)
+    
     safe_total = MINES_GRID_SIZE - MINES_BOMB_COUNT
     safe_revealed = len(game["revealed"])
-    multiplier = _mines_fair_multiplier(safe_revealed)
-    payout = round(game["bet"] * multiplier, 2)
+    
+    # 🛡️ အနည်းဆုံး ၃ လုံးဖွင့်ပြီးမှ ငွေထုတ်ခွင့်ရမယ်
+    MIN_REVEALS_FOR_CASHOUT = 3
+    if safe_revealed < MIN_REVEALS_FOR_CASHOUT and not auto:
+        return await event.answer(f"⚠️ အနည်းဆုံး {MIN_REVEALS_FOR_CASHOUT} လုံးဖွင့်မှ ငွေထုတ်လို့ရမယ်။ လက်ရှိ {safe_revealed} လုံးပဲဖွင့်ရသေးတယ်။", alert=True)
+    
+    # 🐋 Whale Check
+    user_doc = await users_catcher_col.find_one({"user_id": game["user_id"]})
+    is_whale = (user_doc.get("wallet_balance", 0) if user_doc else 0) > WEALTH_THRESHOLD
+    
+    # 📈 Multiplier တွက်ချက်ပုံ (အနည်းဆုံး ၃ လုံးမှ ၁.၅x ခွဲတိုးမယ်)
+    if safe_revealed >= MIN_REVEALS_FOR_CASHOUT:
+        base_multiplier = 1.0
+        extra_reveals = safe_revealed - MIN_REVEALS_FOR_CASHOUT
+        multiplier = 1.0 + (extra_reveals * 0.5)  # တစ်လုံးတိုးတိုင်း ၀.၅x တိုး
+        multiplier = round(multiplier, 2)
+    else:
+        multiplier = 1.0
+    
+    # 🐋 Whale penalty
+    if is_whale and multiplier > 1.0:
+        raw_payout = round(game["bet"] * multiplier, 2)
+        whale_penalty = round(raw_payout * 0.5, 2)
+        payout = round(raw_payout - whale_penalty, 2)
+        whale_text = f"\n🐋 <b>ငွေကြေးရှိသူအခွန် (၅၀% လျှော့):</b> <code>-{format_usd(whale_penalty)}</code>"
+    else:
+        payout = round(game["bet"] * multiplier, 2)
+        whale_text = ""
+    
     await users_catcher_col.update_one({"user_id": game["user_id"]}, {"$inc": {"wallet_balance": payout}})
     await bot3_treasury_adjust(usd=-(payout))
-    net_gain = payout - game["bet"]
-    sign = "+" if net_gain >= 0 else "-"
+    
+    net_gain = round(payout - game["bet"] - game.get("burn", 0), 2)
+    sign = "+" if net_gain >= 0 else ""
+    
     header = "🏆 <b>Box အားလုံး ဖွင့်ပြီးပြီ — အများဆုံး ရလိုက်ပြီ!</b>" if auto else "💰 <b>ငွေရှင်းသိမ်းလိုက်ပြီ!</b>"
+    
     text = (
         f"💣 <b>MINES — CASH OUT</b>\n"
-        f"━━━━━━━━━━━━━━━━━━\n"
-        f"👤 <b>ကစားသမား −</b> {game['mention']}\n"
-        f"💵 <b>လောင်းငွေ −</b> <code>{game['bet']:,} USD</code>\n"
-        f"💎 <b>ဖွင့်ပြီးသား −</b> <code>{safe_revealed} / {safe_total}</code>\n"
-        f"📈 <b>Multiplier −</b> <code>x{multiplier}</code>\n"
-        f"━━━━━━━━━━━━━━━━━━\n"
+        f"━━━━━━━━━━━━━━━━━━━━\n"
+        f"👤 <b>ကစားသမား:</b> {game['mention']}\n"
+        f"💵 <b>လောင်းငွေ:</b> <code>{format_usd(game['bet'])}</code>\n"
+        f"🔥 <b>မီးရှို့ခ:</b> <code>{format_usd(game.get('burn', 0))}</code>\n"
+        f"━━━━━━━━━━━━━━━━━━━━\n"
+        f"💎 <b>ဖွင့်ပြီးသား:</b> <code>{safe_revealed} / {safe_total}</code>\n"
+        f"📈 <b>Multiplier:</b> <code>x{multiplier}</code>\n"
+        f"━━━━━━━━━━━━━━━━━━━━\n"
         f"{header}\n"
-        f"🔄 <b>ရငွေ −</b> <code>{payout:,} USD</code>\n"
-        f"📊 <b>အမြတ် −</b> <code>{sign}{abs(net_gain):,} USD</code>"
+        f"🔄 <b>ရငွေ:</b> <code>{format_usd(payout)}</code>\n"
+        f"📊 <b>အမြတ်/အရှုံး:</b> <code>{sign}{format_usd(abs(net_gain))}</code>"
+        f"{whale_text}\n"
+        f"━━━━━━━━━━━━━━━━━━━━\n"
         f"{GAME_FOOTER}"
     )
+    
     _, rows = _render_mines_board(game, game_id, final=True)
     try:
         await event.edit(text, parse_mode='html', buttons=rows)
@@ -9698,19 +10253,28 @@ async def _mines_cash_out(event, game_id, auto=False):
     if not event.is_private:
         schedule_game_cleanup(event.client, event.chat_id, event.message_id)
 
+
 @bot3.on(events.CallbackQuery(pattern=r'^minescash_(\d+)$'))
 async def mines_cashout_handler(event):
     game_id = int(event.pattern_match.group(1))
     game = active_mines_games.get(game_id)
+    
     if not game:
         return await event.answer("⚠️ ဒီ game ပြီးသွားပါပြီ။", alert=True)
     if event.sender_id != game["user_id"]:
         return await event.answer("⚠️ ဒါက မင်းရဲ့ game မဟုတ်ဘူး။", alert=True)
     if not claim_single_tap(event):
         return await event.answer()
+    
+    MIN_REVEALS_FOR_CASHOUT = 3
+    if len(game["revealed"]) < MIN_REVEALS_FOR_CASHOUT:
+        return await event.answer(f"⚠️ အနည်းဆုံး {MIN_REVEALS_FOR_CASHOUT} လုံးဖွင့်မှ ငွေထုတ်လို့ရမယ်။ လက်ရှိ {len(game['revealed'])} လုံးပဲဖွင့်ရသေးတယ်။", alert=True)
+    
     if len(game["revealed"]) == 0:
         return await event.answer("⚠️ Box တစ်ခုမှ မဖွင့်ရသေးဘူး — အနည်းဆုံး တစ်ခု ဖွင့်ပါ။", alert=True)
+    
     await _mines_cash_out(event, game_id, auto=False)
+
 
 @bot3.on(events.CallbackQuery(pattern=r'^minesnoop_(\d+)$'))
 async def mines_noop_handler(event):
@@ -9721,7 +10285,6 @@ PLINKO_ROWS = 8
 PLINKO_MULTIPLIERS = [0.5, 0.7, 1.0, 1.5, 2.0, 1.5, 1.0, 0.7, 0.5]
 active_plinko_games = {}
 _plinko_game_counter = 0
-
 @bot3.on(events.NewMessage(pattern=own_pattern(r'^[/.](?:plinko|p)(?:@\w+)?(?:\s+(\d+(?:\.\d+)?))?$', 'bot3')))
 async def plinko_cmd_handler(event):
     global _plinko_game_counter
@@ -9732,28 +10295,54 @@ async def plinko_cmd_handler(event):
         return await _out(event, "ငွေပမာဏထည့်ပါ။ ဥပမာ - /plinko 10 သို့မဟုတ် /p 10", parse_mode='html')
     
     bet = round(float(bet_str), 2)
+    
+    # 🛡️ လောင်းငွေ အများဆုံး ကန့်သတ်ချက် (၁ သန်း)
+    MAX_BET = 1_000_000
+    if bet > MAX_BET:
+        return await _out(event, f"❌ <b>တစ်ခါလောင်းလို့ အများဆုံး {format_usd(MAX_BET)} ပဲ လောင်းလို့ရပါတယ်။</b>", parse_mode='html')
+    
     if bet <= 0:
         return await _out(event, "အနည်းဆုံး ၀.၀၁ USD လောင်းပါ။", parse_mode='html')
     
-    user_doc = await users_catcher_col.find_one({"user_id": user_id})
-    if (user_doc.get("wallet_balance", 0) if user_doc else 0) < bet:
-        return await _out(event, f"ငွေမလုံလောက်ပါ။ သင့်တွင် {user_doc.get('wallet_balance', 0)} USD သာရှိသည်။", parse_mode='html')
+    # 💰 Burn Rate (၂%)
+    burn = round(bet * SPIN_BURN_RATE, 2)
+    if burn > 0 and not await try_deduct_balance(user_id, burn):
+        return await _out(event, "❌ <b>မီးရှို့ခ မပေးနိုင်လို့ ကစားလို့မရပါ။</b>", parse_mode='html')
+    await bot3_treasury_adjust(usd=burn)
+    
+    if not await try_deduct_bet_bot3(event, user_id, bet):
+        user_doc = await users_catcher_col.find_one({"user_id": user_id})
+        balance = user_doc.get("wallet_balance", 0) if user_doc else 0
+        return await _out(event, f"ငွေမလုံလောက်ပါ။ သင့်တွင် {format_usd(balance)} သာရှိသည်။", parse_mode='html')
+    await bot3_treasury_adjust(usd=bet)
     
     mention = await get_html_mention(event, user_id)
     _plinko_game_counter += 1
     game_id = _plinko_game_counter
+    
     game = {
         "user_id": user_id,
         "bet": bet,
+        "burn": burn,
         "mention": mention,
         "game_id": game_id,
-        "chat_id": event.chat_id
+        "chat_id": event.chat_id,
+        "start_time": time.time()
     }
     active_plinko_games[game_id] = game
     
-    text = f"ပလင်ကို ဂိမ်း\nကစားသမား - {mention}\nလောင်းငွေ - {bet} USD\n\nဘောလုံးကို အောက်က ခလုတ်နှိပ်ပြီး ချလိုက်ပါ။"
-    buttons = [[Button.inline("ဘောလုံးချမယ်", data=f"plinko_drop_{game_id}")]]
+    text = (
+        f"🔴 <b>PLINKO</b>\n"
+        f"━━━━━━━━━━━━━━━━━━━━\n"
+        f"👤 <b>ကစားသမား:</b> {mention}\n"
+        f"💵 <b>လောင်းငွေ:</b> <code>{format_usd(bet)}</code>\n"
+        f"🔥 <b>မီးရှို့ခ (2%):</b> <code>{format_usd(burn)}</code>\n"
+        f"━━━━━━━━━━━━━━━━━━━━\n"
+        f"<i>ဘောလုံးကို အောက်က ခလုတ်နှိပ်ပြီး ချလိုက်ပါ။</i>"
+    )
+    buttons = [[Button.inline("🔴 ဘောလုံးချမယ်", data=f"plinko_drop_{game_id}")]]
     await _out(event, text, parse_mode='html', buttons=buttons)
+
 
 @bot3.on(events.CallbackQuery(pattern=r'^plinko_drop_(\d+)$'))
 async def plinko_drop_callback(event):
@@ -9769,11 +10358,14 @@ async def plinko_drop_callback(event):
     if not claim_single_tap(event):
         return await event.answer("လုပ်ဆောင်ချက် လုပ်နေဆဲပါ။ ခဏစောင့်ပါ။", alert=False)
     
-    if not await try_deduct_bet_bot3(event, game["user_id"], game["bet"]):
-        await event.answer("ငွေမလုံလောက်တော့ပါ။", alert=True)
-        active_plinko_games.pop(game_id, None)
-        return
-    await bot3_treasury_adjust(usd=game["bet"])
+    # 🛡️ အနည်းဆုံး ၃ ခါကျအောင် ဆက်ကစားရမယ်
+    MIN_DROPS_FOR_CASHOUT = 3
+    game["drops"] = game.get("drops", 0) + 1
+    current_drop = game["drops"]
+    
+    # 🐋 Whale Check
+    user_doc = await users_catcher_col.find_one({"user_id": game["user_id"]})
+    is_whale = (user_doc.get("wallet_balance", 0) if user_doc else 0) > WEALTH_THRESHOLD
     
     position = 4
     path = []
@@ -9789,7 +10381,6 @@ async def plinko_drop_callback(event):
         position = max(0, min(len(PLINKO_MULTIPLIERS) - 1, position))
         pos_history.append(position)
     
-    mention = game['mention']
     bet = game['bet']
     
     for step in range(1, PLINKO_ROWS + 1):
@@ -9807,8 +10398,16 @@ async def plinko_drop_callback(event):
             indent = "  " * (PLINKO_ROWS - row)
             lines.append(indent + " ".join(slots))
         
-        anim_text = f"ပလင်ကို ဘောလုံးကျနေသည်\nကစားသမား - {mention}\nလောင်းငွေ - {bet} USD\n\n" + "\n".join(lines) + f"\n\nအဆင့် {step}/{PLINKO_ROWS}"
-        
+        anim_text = (
+            f"🔴 <b>PLINKO</b>\n"
+            f"━━━━━━━━━━━━━━━━━━━━\n"
+            f"👤 <b>ကစားသမား:</b> {game['mention']}\n"
+            f"💵 <b>လောင်းငွေ:</b> {format_usd(bet)}\n"
+            f"━━━━━━━━━━━━━━━━━━━━\n"
+            + "\n".join(lines) +
+            f"\n━━━━━━━━━━━━━━━━━━━━\n"
+            f"အဆင့် {step}/{PLINKO_ROWS}"
+        )
         try:
             await event.edit(anim_text, parse_mode='html', buttons=None)
             await asyncio.sleep(0.3)
@@ -9816,28 +10415,127 @@ async def plinko_drop_callback(event):
             pass
     
     multiplier = PLINKO_MULTIPLIERS[position]
-    payout = round(game["bet"] * multiplier, 2)
+    raw_payout = round(bet * multiplier, 2)
+    
+    if is_whale and multiplier > 1.0:
+        whale_penalty = round(raw_payout * 0.5, 2)
+        payout = round(raw_payout - whale_penalty, 2)
+        whale_text = f"\n🐋 <b>ငွေကြေးရှိသူအခွန် (၅၀% လျှော့):</b> <code>-{format_usd(whale_penalty)}</code>"
+    else:
+        payout = raw_payout
+        whale_text = ""
+    
+    # ပထမ ၃ ခါကျတဲ့အထိ multiplier ကို ၁.၀ ပဲထားမယ်
+    if current_drop < MIN_DROPS_FOR_CASHOUT:
+        payout = bet
+        multiplier = 1.0
+        whale_text = ""
+    
     await users_catcher_col.update_one({"user_id": game["user_id"]}, {"$inc": {"wallet_balance": payout}})
     await bot3_treasury_adjust(usd=-(payout))
     
-    active_plinko_games.pop(game_id, None)
+    # အနည်းဆုံး ၃ ခါ ပြည့်သွားရင် ဆက်ကစားခွင့်ရှိမရှိစစ်
+    if current_drop < MIN_DROPS_FOR_CASHOUT:
+        game["drops"] = current_drop
+        active_plinko_games[game_id] = game
+        text = (
+            f"🔴 <b>PLINKO</b>\n"
+            f"━━━━━━━━━━━━━━━━━━━━\n"
+            f"👤 <b>ကစားသမား:</b> {game['mention']}\n"
+            f"💵 <b>လောင်းငွေ:</b> {format_usd(bet)}\n"
+            f"🔥 <b>မီးရှို့ခ:</b> {format_usd(game['burn'])}\n"
+            f"━━━━━━━━━━━━━━━━━━━━\n"
+            f"🎯 <b>ကျသွားသည့်နေရာ:</b> အမှတ် {position} (မြှောက်ကိန်း x{multiplier})\n"
+            f"🔄 <b>ရငွေ:</b> {format_usd(payout)}\n"
+            f"━━━━━━━━━━━━━━━━━━━━\n"
+            f"⚠️ <i>ငွေထုတ်ဖို့ အနည်းဆုံး {MIN_DROPS_FOR_CASHOUT} ခါကျရမယ်။ (လက်ရှိ {current_drop}/{MIN_DROPS_FOR_CASHOUT})</i>\n\n"
+            f"ဆက်ကျမလား ဒါမှမဟုတ် ငွေထုတ်မလား?"
+        )
+        buttons = [
+            [Button.inline("🔴 ထပ်ကျမယ်", data=f"plinko_drop_{game_id}")],
+            [Button.inline("💰 ငွေထုတ်မယ်", data=f"plinko_cashout_{game_id}")]
+        ]
+        await event.edit(text, parse_mode='html', buttons=buttons)
+        await event.answer(f"အကြိမ် {current_drop}/{MIN_DROPS_FOR_CASHOUT}")
+        return
     
+    # ၃ ခါပြည့်သွားရင် ငွေထုတ်ခွင့်ရပြီ
+    game["drops"] = current_drop
+    active_plinko_games[game_id] = game
+    
+    net = round(payout - bet - game.get("burn", 0), 2)
+    net_display = f"{'+' if net >= 0 else ''}{format_usd(net)}"
     path_str = " → ".join(path)
-    final_text = f"ပလင်ကို ရလဒ်\nကစားသမား - {mention}\nလောင်းငွေ - {bet} USD\nဘောလုံးလမ်းကြောင်း - {path_str}\nနောက်ဆုံးကျသွားသည့်နေရာ - အမှတ် {position} (မြှောက်ကိန်း x{multiplier})\nရငွေ - {payout} USD\n"
-    net = round(payout - bet, 2)
-    if net > 0:
-        final_text += f"အမြတ် - +{net} USD"
-    elif net < 0:
-        final_text += f"အရှုံး - {net} USD"
-    else:
-        final_text += f"အပြိုင်"
     
-    await event.edit(final_text, parse_mode='html', buttons=None)
+    text = (
+        f"🔴 <b>PLINKO</b>\n"
+        f"━━━━━━━━━━━━━━━━━━━━\n"
+        f"👤 <b>ကစားသမား:</b> {game['mention']}\n"
+        f"💵 <b>လောင်းငွေ:</b> {format_usd(bet)}\n"
+        f"🔥 <b>မီးရှို့ခ:</b> {format_usd(game['burn'])}\n"
+        f"━━━━━━━━━━━━━━━━━━━━\n"
+        f"🔴 <b>ဘောလုံးလမ်းကြောင်း:</b> {path_str}\n"
+        f"🎯 <b>ကျသွားသည့်နေရာ:</b> အမှတ် {position} (မြှောက်ကိန်း x{multiplier})\n"
+        f"🔄 <b>ရငွေ:</b> {format_usd(payout)}\n"
+        f"📊 <b>အသားတင်:</b> <code>{net_display}</code>"
+        f"{whale_text}\n"
+        f"━━━━━━━━━━━━━━━━━━━━\n"
+        f"{GAME_FOOTER}"
+    )
+    buttons = [[Button.inline("🔄 အသစ်စပါ", data=f"plinko_new_{game_id}")]]
+    await event.edit(text, parse_mode='html', buttons=buttons)
     await event.answer("ဘောလုံးကျသွားပြီ။")
     
     if not event.is_private:
         schedule_game_cleanup(event.client, event.chat_id, event.message_id, delay=15)
 
+
+@bot3.on(events.CallbackQuery(pattern=r'^plinko_cashout_(\d+)$'))
+async def plinko_cashout_callback(event):
+    game_id = int(event.pattern_match.group(1))
+    game = active_plinko_games.get(game_id)
+    
+    if not game:
+        return await event.answer("ဒီဂိမ်းသက်တမ်းကုန်သွားပါပြီ။", alert=True)
+    
+    if event.sender_id != game["user_id"]:
+        return await event.answer("ဒါက မင်းရဲ့ဂိမ်းမဟုတ်ဘူး။", alert=True)
+    
+    if not claim_single_tap(event):
+        return await event.answer("လုပ်ဆောင်ချက် လုပ်နေဆဲပါ။", alert=False)
+    
+    MIN_DROPS_FOR_CASHOUT = 3
+    drops = game.get("drops", 0)
+    
+    if drops < MIN_DROPS_FOR_CASHOUT:
+        return await event.answer(f"⚠️ အနည်းဆုံး {MIN_DROPS_FOR_CASHOUT} ခါကျမှ ငွေထုတ်လို့ရမယ်။ လက်ရှိ {drops} ခါပဲကျသေးတယ်။", alert=True)
+    
+    # နောက်ဆုံးကျခဲ့တဲ့ payout ကိုရယူမယ်
+    payout = game.get("last_payout", game["bet"])
+    await users_catcher_col.update_one({"user_id": game["user_id"]}, {"$inc": {"wallet_balance": payout}})
+    await bot3_treasury_adjust(usd=-(payout))
+    
+    net = round(payout - game["bet"] - game.get("burn", 0), 2)
+    net_display = f"{'+' if net >= 0 else ''}{format_usd(net)}"
+    
+    active_plinko_games.pop(game_id, None)
+    
+    text = (
+        f"🔴 <b>PLINKO — CASH OUT</b>\n"
+        f"👤 <b>ကစားသမား:</b> {game['mention']}\n"
+        f"💵 <b>လောင်းငွေ:</b> {format_usd(game['bet'])}\n"
+        f"🔥 <b>​ဆော့ခ:</b> {format_usd(game.get('burn', 0))}\n"
+        f"💰 <b>ရငွေ:</b> {format_usd(payout)}\n"
+        f"📊 <b>အသားတင်:</b> <code>{net_display}</code>\n"
+        f"{GAME_FOOTER}"
+    )
+    await event.edit(text, parse_mode='html', buttons=None)
+    await event.answer("ငွေထုတ်ပြီးပါပြီ။")
+
+
+@bot3.on(events.CallbackQuery(pattern=r'^plinko_new_(\d+)$'))
+async def plinko_new_callback(event):
+    await event.answer("🔄 /plinko နဲ့ အသစ်စပါ။", alert=True)
 # ---- BLACKJACK (၂၁ ကောင်း) ----
 # ကတ်အုပ်စု (အမှတ်၊ သင်္ကေတ)
 CARD_SUITS = ["♠", "♥", "♦", "♣"]
@@ -9887,36 +10585,46 @@ def _render_bj_board(game, dealer_hidden=True, game_over=False, message=""):
     player_hand = game["player_hand"]
     dealer_hand = game["dealer_hand"]
     bet = game["bet"]
+    burn = game.get("burn", 0)
     
     player_val = _hand_value(player_hand)
     dealer_val = _hand_value(dealer_hand) if not dealer_hidden else _hand_value([dealer_hand[0]])
     
-    text = f"ဘလက်ဂျက် (၂၁ ကောင်း)\n"
-    text += f"ကစားသမား - {game['mention']}\n"
-    text += f"လောင်းငွေ - {bet} USD\n\n"
+    text = (
+        f"🃏 <b>BLACKJACK</b>\n"
+        f"━━━━━━━━━━━━━━━━━━━━\n"
+        f"👤 <b>ကစားသမား:</b> {game['mention']}\n"
+        f"💵 <b>လောင်းငွေ:</b> {format_usd(bet)}\n"
+        f"🔥 <b>မီးရှို့ခ:</b> {format_usd(burn)}\n"
+        f"━━━━━━━━━━━━━━━━━━━━\n"
+        f"🎴 <b>စတီဗင်ချောင်:</b> {_hand_display(dealer_hand, dealer_hidden)}\n"
+    )
     
-    text += f"ဒိုင်လာ - {_hand_display(dealer_hand, dealer_hidden)}\n"
     if not dealer_hidden:
-        text += f"ဒိုင်လာ ပေါင်း - {dealer_val}\n"
-    text += f"\nသင့်ကတ် - {_hand_display(player_hand)}\n"
-    text += f"သင့်ပေါင်း - {player_val}\n"
+        text += f"📊 <b>စတီ​ဗင်​​​ ပေါင်း:</b> {dealer_val}\n"
+    
+    text += (
+        f"━━━━━━━━━━━━━━━━━━━━\n"
+        f"🎴 <b>သင့်ကတ်:</b> {_hand_display(player_hand)}\n"
+        f"📊 <b>သင့်ပေါင်း:</b> {player_val}\n"
+    )
     
     if message:
         text += f"\n{message}"
     
     if game_over:
-        text += "\n\n/blackjack သို့မဟုတ် .bj ဖြင့် အသစ်စနိုင်ပါသည်။"
+        text += f"\n━━━━━━━━━━━━━━━━━━━━\n{GAME_FOOTER}"
         return text, None
     
     buttons = []
     if not game.get("stand"):
         row = []
         if player_val < 21:
-            row.append(Button.inline("နောက်ထပ်ကတ်ယူမယ် (Hit)", data=f"bj_hit_{game['game_id']}"))
-        row.append(Button.inline("ရပ်မယ် (Stand)", data=f"bj_stand_{game['game_id']}"))
+            row.append(Button.inline("📥 Hit", data=f"bj_hit_{game['game_id']}"))
+        row.append(Button.inline("🛑 Stand", data=f"bj_stand_{game['game_id']}"))
         buttons.append(row)
-        if len(player_hand) == 2 and game["bet"] * 2 <= game["max_bet"]:
-            buttons.append([Button.inline("လောင်းငွေနှစ်ဆ (Double Down)", data=f"bj_double_{game['game_id']}")])
+        if len(player_hand) == 2 and not game.get("doubled"):
+            buttons.append([Button.inline("💎 Double Down", data=f"bj_double_{game['game_id']}")])
     
     return text, buttons
 
@@ -9930,16 +10638,25 @@ async def blackjack_cmd_handler(event):
         return await _out(event, "ငွေပမာဏထည့်ပါ။ ဥပမာ - /bj 10", parse_mode='html')
     
     bet = round(float(bet_str), 2)
+    
+    # 🛡️ လောင်းငွေ အများဆုံး ကန့်သတ်ချက် (၁ သန်း)
+    MAX_BET = 1_000_000
+    if bet > MAX_BET:
+        return await _out(event, f"❌ <b>တစ်ခါလောင်းလို့ အများဆုံး {format_usd(MAX_BET)} ပဲ လောင်းလို့ရပါတယ်။</b>", parse_mode='html')
+    
     if bet < BJ_MIN_BET:
         return await _out(event, f"အနည်းဆုံး {BJ_MIN_BET} USD လောင်းပါ။", parse_mode='html')
     
-    user_doc = await users_catcher_col.find_one({"user_id": user_id})
-    balance = user_doc.get("wallet_balance", 0) if user_doc else 0
-    if balance < bet:
-        return await _out(event, f"ငွေမလုံလောက်ပါ။ သင့်တွင် {balance} USD သာရှိသည်။", parse_mode='html')
+    # 💰 Burn Rate (၂%)
+    burn = round(bet * SPIN_BURN_RATE, 2)
+    if burn > 0 and not await try_deduct_balance(user_id, burn):
+        return await _out(event, "❌ <b>မီးရှို့ခ မပေးနိုင်လို့ ကစားလို့မရပါ။</b>", parse_mode='html')
+    await bot3_treasury_adjust(usd=burn)
     
     if not await try_deduct_bet_bot3(event, user_id, bet):
-        return await _out(event, "ငွေနှုတ်လို့မရပါ။ ထပ်ကြိုးစားပါ။", parse_mode='html')
+        user_doc = await users_catcher_col.find_one({"user_id": user_id})
+        balance = user_doc.get("wallet_balance", 0) if user_doc else 0
+        return await _out(event, f"ငွေမလုံလောက်ပါ။ သင့်တွင် {format_usd(balance)} သာရှိသည်။", parse_mode='html')
     await bot3_treasury_adjust(usd=bet)
     
     mention = await get_html_mention(event, user_id)
@@ -9953,7 +10670,8 @@ async def blackjack_cmd_handler(event):
     game = {
         "user_id": user_id,
         "bet": bet,
-        "max_bet": balance,
+        "burn": burn,
+        "max_bet": 0,
         "mention": mention,
         "game_id": game_id,
         "chat_id": event.chat_id,
@@ -9962,11 +10680,13 @@ async def blackjack_cmd_handler(event):
         "dealer_hand": dealer_hand,
         "stand": False,
         "doubled": False,
+        "start_time": time.time()
     }
     active_blackjack_games[game_id] = game
     
     text, buttons = _render_bj_board(game, dealer_hidden=True, game_over=False)
     await _out(event, text, parse_mode='html', buttons=buttons)
+
 
 @bot3.on(events.CallbackQuery(pattern=r'^bj_(hit|stand|double)_(\d+)$'))
 async def blackjack_callback(event):
@@ -9994,13 +10714,13 @@ async def blackjack_callback(event):
         new_card = game["deck"].pop()
         game["player_hand"].append(new_card)
         if _hand_value(game["player_hand"]) > 21:
-            game["stand"] = True  # ပျက်သွားပြီ
+            game["stand"] = True
     
     elif action == "double":
         if len(game["player_hand"]) != 2 or game.get("doubled"):
             return await event.answer("ဒီအချိန်မှာ Double Down မလုပ်နိုင်ပါ။", alert=True)
         if game["bet"] * 2 > game["max_bet"]:
-            return await event.answer(f"ငွေမလုံလောက်ပါ။ နှစ်ဆဖို့ {game['bet']*2} USD လိုပါတယ်။", alert=True)
+            return await event.answer(f"ငွေမလုံလောက်ပါ။ နှစ်ဆဖို့ {format_usd(game['bet']*2)} လိုပါတယ်။", alert=True)
         if not await try_deduct_bet_bot3(event, game["user_id"], game["bet"]):
             return await event.answer("ငွေထပ်နှုတ်လို့မရပါ။", alert=True)
         await bot3_treasury_adjust(usd=game["bet"])
@@ -10008,11 +10728,10 @@ async def blackjack_callback(event):
         game["doubled"] = True
         new_card = game["deck"].pop()
         game["player_hand"].append(new_card)
-        game["stand"] = True  # Double Down လုပ်ရင် ရပ်ရမယ်
+        game["stand"] = True
     
     # ---- ဂိမ်းပြီးဆုံးမှု စစ်ဆေးမယ် ----
     if game.get("stand") or _hand_value(game["player_hand"]) > 21:
-        # ဒိုင်လာရဲ့ ကတ်တွေကို ပြမယ်
         dealer_val = _hand_value(game["dealer_hand"])
         while dealer_val < 17:
             game["dealer_hand"].append(game["deck"].pop())
@@ -10021,6 +10740,10 @@ async def blackjack_callback(event):
         player_val = _hand_value(game["player_hand"])
         result_msg = ""
         payout = 0
+        
+        # 🐋 Whale Check
+        user_doc = await users_catcher_col.find_one({"user_id": game["user_id"]})
+        is_whale = (user_doc.get("wallet_balance", 0) if user_doc else 0) > WEALTH_THRESHOLD
         
         if player_val > 21:
             result_msg = "သင့်ကတ်ပျက်သွားသည်။ ရှုံးသည်။"
@@ -10036,14 +10759,44 @@ async def blackjack_callback(event):
             payout = 0
         else:
             result_msg = f"အပြိုင် ({player_val} vs {dealer_val})"
-            payout = game["bet"]  # ကိုယ်လောင်းထားတဲ့ငွေပြန်ရမယ်
+            payout = game["bet"]
+        
+        # Whale penalty for win only
+        whale_text = ""
+        if is_whale and payout > game["bet"]:
+            raw_win = payout
+            penalty = round(raw_win * 0.5, 2)
+            payout = round(raw_win - penalty, 2)
+            whale_text = f"\n🐋 <b>ငွေကြေးရှိသူအခွန် (၅၀% လျှော့):</b> <code>-{format_usd(penalty)}</code>"
         
         if payout > 0:
             await users_catcher_col.update_one({"user_id": game["user_id"]}, {"$inc": {"wallet_balance": payout}})
         await bot3_treasury_adjust(usd=-(payout))
         
+        net = round(payout - game["bet"] - game.get("burn", 0), 2)
+        net_display = f"{'+' if net >= 0 else ''}{format_usd(net)}"
+        
         game_over = True
-        text, _ = _render_bj_board(game, dealer_hidden=False, game_over=True, message=f"{result_msg}\nရငွေ - {payout} USD")
+        text = (
+            f"🃏 <b>BLACKJACK</b>\n"
+            f"━━━━━━━━━━━━━━━━━━━━\n"
+            f"👤 <b>ကစားသမား:</b> {game['mention']}\n"
+            f"💵 <b>လောင်းငွေ:</b> <code>{format_usd(game['bet'])}</code>\n"
+            f"🔥 <b>မီးရှို့ခ (2%):</b> <code>{format_usd(game.get('burn', 0))}</code>\n"
+            f"━━━━━━━━━━━━━━━━━━━━\n"
+            f"🎴 <b>ဒိုင်လာ:</b> {_hand_display(game['dealer_hand'], hidden=False)}\n"
+            f"📊 <b>ဒိုင်လာပေါင်း:</b> {dealer_val}\n"
+            f"━━━━━━━━━━━━━━━━━━━━\n"
+            f"🎴 <b>သင့်ကတ်:</b> {_hand_display(game['player_hand'])}\n"
+            f"📊 <b>သင့်ပေါင်း:</b> {player_val}\n"
+            f"━━━━━━━━━━━━━━━━━━━━\n"
+            f"{result_msg}\n"
+            f"🔄 <b>ရငွေ:</b> {format_usd(payout)}\n"
+            f"📊 <b>အသားတင်:</b> <code>{net_display}</code>"
+            f"{whale_text}\n"
+            f"━━━━━━━━━━━━━━━━━━━━\n"
+            f"{GAME_FOOTER}"
+        )
         active_blackjack_games.pop(game_id, None)
         await event.edit(text, parse_mode='html', buttons=None)
         await event.answer("ဂိမ်းပြီးဆုံးပါပြီ။")
@@ -10058,6 +10811,7 @@ async def blackjack_callback(event):
         await event.answer()
     except errors.MessageNotModifiedError:
         await event.answer()
+        
 # ---- CRASH GAME (ပြိုကျဂိမ်း) ----
 CRASH_MIN_BET = 0.5
 CRASH_MAX_MULTIPLIER = 100.0
@@ -10194,7 +10948,6 @@ async def crash_cashout_callback(event):
 RPS_MIN_BET = 0.5
 active_rps_games = {}
 _rps_game_counter = 0
-
 @bot3.on(events.NewMessage(pattern=own_pattern(r'^[/.](?:rps)(?:@\w+)?(?:\s+(\d+(?:\.\d+)?))?$', 'bot3')))
 async def rps_cmd_handler(event):
     global _rps_game_counter
@@ -10205,15 +10958,25 @@ async def rps_cmd_handler(event):
         return await _out(event, "ငွေပမာဏထည့်ပါ။ ဥပမာ - /rps 5", parse_mode='html')
     
     bet = round(float(bet_str), 2)
+    
+    # 🛡️ လောင်းငွေ အများဆုံး ကန့်သတ်ချက် (၁ သန်း)
+    MAX_BET = 1_000_000
+    if bet > MAX_BET:
+        return await _out(event, f"❌ <b>တစ်ခါလောင်းလို့ အများဆုံး {format_usd(MAX_BET)} ပဲ လောင်းလို့ရပါတယ်။</b>", parse_mode='html')
+    
     if bet < RPS_MIN_BET:
         return await _out(event, f"အနည်းဆုံး {RPS_MIN_BET} USD လောင်းပါ။", parse_mode='html')
     
-    user_doc = await users_catcher_col.find_one({"user_id": user_id})
-    if (user_doc.get("wallet_balance", 0) if user_doc else 0) < bet:
-        return await _out(event, f"ငွေမလုံလောက်ပါ။ သင့်တွင် {user_doc.get('wallet_balance', 0)} USD သာရှိသည်။", parse_mode='html')
+    # 💰 Burn Rate (၂%)
+    burn = round(bet * SPIN_BURN_RATE, 2)
+    if burn > 0 and not await try_deduct_balance(user_id, burn):
+        return await _out(event, "❌ <b>မီးရှို့ခ မပေးနိုင်လို့ ကစားလို့မရပါ။</b>", parse_mode='html')
+    await bot3_treasury_adjust(usd=burn)
     
     if not await try_deduct_bet_bot3(event, user_id, bet):
-        return await _out(event, "ငွေနှုတ်လို့မရပါ။", parse_mode='html')
+        user_doc = await users_catcher_col.find_one({"user_id": user_id})
+        balance = user_doc.get("wallet_balance", 0) if user_doc else 0
+        return await _out(event, f"ငွေမလုံလောက်ပါ။ သင့်တွင် {format_usd(balance)} သာရှိသည်။", parse_mode='html')
     await bot3_treasury_adjust(usd=bet)
     
     mention = await get_html_mention(event, user_id)
@@ -10223,6 +10986,7 @@ async def rps_cmd_handler(event):
     game = {
         "user_id": user_id,
         "bet": bet,
+        "burn": burn,
         "mention": mention,
         "game_id": game_id,
         "chat_id": event.chat_id,
@@ -10230,15 +10994,24 @@ async def rps_cmd_handler(event):
     }
     active_rps_games[game_id] = game
     
-    text = f"ကျောက်/ကတ်ကြေး/စာရွက် ဂိမ်း\nကစားသမား - {mention}\nလောင်းငွေ - {bet} USD\n\nအောက်က ရွေးချယ်စရာတစ်ခုကို နှိပ်ပါ။"
+    text = (
+        f"🪨 <b>RPS (ကျောက်/ကတ်ကြေး/စာရွက်)</b>\n"
+        f"━━━━━━━━━━━━━━━━━━━━\n"
+        f"👤 <b>ကစားသမား:</b> {mention}\n"
+        f"💵 <b>လောင်းငွေ:</b> <code>{format_usd(bet)}</code>\n"
+        f"🔥 <b>မီးရှို့ခ (2%):</b> <code>{format_usd(burn)}</code>\n"
+        f"━━━━━━━━━━━━━━━━━━━━\n"
+        f"<i>အောက်က ရွေးချယ်စရာတစ်ခုကို နှိပ်ပါ။</i>"
+    )
     buttons = [
         [
-            Button.inline("ကျောက်", data=f"rps_play_{game_id}_ကျောက်"),
-            Button.inline("ကတ်ကြေး", data=f"rps_play_{game_id}_ကတ်ကြေး"),
-            Button.inline("စာရွက်", data=f"rps_play_{game_id}_စာရွက်")
+            Button.inline("🪨 ကျောက်", data=f"rps_play_{game_id}_ကျောက်"),
+            Button.inline("✂️ ကတ်ကြေး", data=f"rps_play_{game_id}_ကတ်ကြေး"),
+            Button.inline("📄 စာရွက်", data=f"rps_play_{game_id}_စာရွက်")
         ]
     ]
     await _out(event, text, parse_mode='html', buttons=buttons)
+
 
 @bot3.on(events.CallbackQuery(pattern=r'^rps_play_(\d+)_(.+)$'))
 async def rps_play_callback(event):
@@ -10255,15 +11028,18 @@ async def rps_play_callback(event):
         return await event.answer("ဒါက မင်းရဲ့ဂိမ်းမဟုတ်ဘူး။", alert=True)
     
     if not claim_single_tap(event):
-        return await event.answer("လုပ်ဆောင်ချက် လုပ်နေဆဲပါ။", alert=False)
+        return await event.answer("လုပ်ဆောင်ချက် လုပ်နေဆဲပါ။ ခဏစောင့်ပါ။", alert=False)
     
     if game.get("done"):
         return await event.answer("ဂိမ်းပြီးသွားပါပြီ။", alert=True)
     
+    # 🐋 Whale Check
+    user_doc = await users_catcher_col.find_one({"user_id": game["user_id"]})
+    is_whale = (user_doc.get("wallet_balance", 0) if user_doc else 0) > WEALTH_THRESHOLD
+    
     bot_choice = random.choice(["ကျောက်", "ကတ်ကြေး", "စာရွက်"])
     game["done"] = True
     
-    # အနိုင်အရှုံး ဆုံးဖြတ်မယ်
     win = False
     tie = False
     if player_choice == bot_choice:
@@ -10275,51 +11051,74 @@ async def rps_play_callback(event):
     
     payout = 0
     result_msg = ""
+    whale_text = ""
+    
     if tie:
-        payout = game["bet"]  # အပြိုင်ဆိုရင် ကိုယ်လောင်းထားတဲ့ငွေ ပြန်ရမယ်
-        result_msg = "အပြိုင်"
+        payout = game["bet"]
+        result_msg = "🤝 အပြိုင်"
     elif win:
-        payout = game["bet"] * 2  # နိုင်ရင် ၂ ဆ ပြန်ရမယ်
-        result_msg = "သင်နိုင်သည်"
+        raw_payout = game["bet"] * 2
+        if is_whale:
+            whale_penalty = round(raw_payout * 0.5, 2)
+            payout = round(raw_payout - whale_penalty, 2)
+            whale_text = f"\n🐋 <b>ငွေကြေးရှိသူအခွန် (၅၀% လျှော့):</b> <code>-{format_usd(whale_penalty)}</code>"
+        else:
+            payout = raw_payout
+        result_msg = "🎉 သင်နိုင်သည်"
     else:
         payout = 0
-        result_msg = "သင်ရှုံးသည်"
+        result_msg = "💸 သင်ရှုံးသည်"
     
     if payout > 0:
         await users_catcher_col.update_one({"user_id": game["user_id"]}, {"$inc": {"wallet_balance": payout}})
     await bot3_treasury_adjust(usd=-(payout))
     
-    net = round(payout - game["bet"], 2)
+    net = round(payout - game["bet"] - game.get("burn", 0), 2)
+    net_display = f"{'+' if net >= 0 else ''}{format_usd(net)}"
+    
     active_rps_games.pop(game_id, None)
     
-    text = f"ကျောက်/ကတ်ကြေး/စာရွက် ရလဒ်\nကစားသမား - {game['mention']}\nလောင်းငွေ - {game['bet']} USD\n\nသင်ရွေး - {player_choice}\nBot ရွေး - {bot_choice}\nရလဒ် - {result_msg}\nရငွေ - {payout} USD\n"
-    if net > 0:
-        text += f"အမြတ် - +{net} USD"
-    elif net < 0:
-        text += f"အရှုံး - {net} USD"
-    else:
-        text += f"အပြိုင်"
+    # Emoji map for choices
+    choice_emoji = {"ကျောက်": "🪨", "ကတ်ကြေး": "✂️", "စာရွက်": "📄"}
+    
+    text = (
+        f"🪨 <b>RPS ရလဒ်</b>\n"
+        f"━━━━━━━━━━━━━━━━━━━━\n"
+        f"👤 <b>ကစားသမား:</b> {game['mention']}\n"
+        f"💵 <b>လောင်းငွေ:</b> <code>{format_usd(game['bet'])}</code>\n"
+        f"🔥 <b>မီးရှို့ခ:</b> <code>{format_usd(game.get('burn', 0))}</code>\n"
+        f"━━━━━━━━━━━━━━━━━━━━\n"
+        f"{choice_emoji.get(player_choice, '')} <b>သင်ရွေး:</b> {player_choice}\n"
+        f"{choice_emoji.get(bot_choice, '')} <b>Bot ရွေး:</b> {bot_choice}\n"
+        f"━━━━━━━━━━━━━━━━━━━━\n"
+        f"{result_msg}\n"
+        f"🔄 <b>ရငွေ:</b> <code>{format_usd(payout)}</code>\n"
+        f"📊 <b>အသားတင်:</b> <code>{net_display}</code>"
+        f"{whale_text}\n"
+        f"━━━━━━━━━━━━━━━━━━━━\n"
+        f"{GAME_FOOTER}"
+    )
     
     await event.edit(text, parse_mode='html', buttons=None)
     await event.answer(result_msg)
     if not event.is_private:
         schedule_game_cleanup(event.client, event.chat_id, event.message_id, delay=15)
+        
 # ---- ကံဘီး (Wheel of Fortune) ----
 WHEEL_MIN_BET = 0.5
 # ကဏ္ဍများ (မြှောက်ကိန်း၊ အလေးချိန်)
 WHEEL_SEGMENTS = [
     {"multiplier": 0.0, "weight": 20, "label": "၀x"},
-    {"multiplier": 0.5, "weight": 15, "label": "၀.၅x"},
-    {"multiplier": 1.0, "weight": 15, "label": "၁x"},
-    {"multiplier": 2.0, "weight": 12, "label": "၂x"},
+    {"multiplier": 0.5, "weight": 20, "label": "၀.၅x"},
+    {"multiplier": 1.0, "weight": 20, "label": "၁x"},
+    {"multiplier": 0.0, "weight": 15, "label": "၀x"},
     {"multiplier": 3.0, "weight": 10, "label": "၃x"},
-    {"multiplier": 5.0, "weight": 8, "label": "၅x"},
-    {"multiplier": 10.0, "weight": 5, "label": "၁၀x"},
-    {"multiplier": 20.0, "weight": 2, "label": "၂၀x"},
+    {"multiplier": 5.0, "weight": 0, "label": "၅x"},
+    {"multiplier": 10.0, "weight": 0, "label": "၁၀x"},
+    {"multiplier": 20.0, "weight": 0, "label": "၂၀x"},
 ]
 active_wheel_games = {}
 _wheel_game_counter = 0
-
 @bot3.on(events.NewMessage(pattern=own_pattern(r'^[/.](?:wheel)(?:@\w+)?(?:\s+(\d+(?:\.\d+)?))?$', 'bot3')))
 async def wheel_cmd_handler(event):
     global _wheel_game_counter
@@ -10330,15 +11129,25 @@ async def wheel_cmd_handler(event):
         return await _out(event, "ငွေပမာဏထည့်ပါ။ ဥပမာ - /wheel 5", parse_mode='html')
     
     bet = round(float(bet_str), 2)
+    
+    # 🛡️ လောင်းငွေ အများဆုံး ကန့်သတ်ချက် (၁ သန်း)
+    MAX_BET = 1_000_000
+    if bet > MAX_BET:
+        return await _out(event, f"❌ <b>တစ်ခါလောင်းလို့ အများဆုံး {format_usd(MAX_BET)} ပဲ လောင်းလို့ရပါတယ်။</b>", parse_mode='html')
+    
     if bet < WHEEL_MIN_BET:
         return await _out(event, f"အနည်းဆုံး {WHEEL_MIN_BET} USD လောင်းပါ။", parse_mode='html')
     
-    user_doc = await users_catcher_col.find_one({"user_id": user_id})
-    if (user_doc.get("wallet_balance", 0) if user_doc else 0) < bet:
-        return await _out(event, f"ငွေမလုံလောက်ပါ။ သင့်တွင် {user_doc.get('wallet_balance', 0)} USD သာရှိသည်။", parse_mode='html')
+    # 💰 Burn Rate (၂%)
+    burn = round(bet * SPIN_BURN_RATE, 2)
+    if burn > 0 and not await try_deduct_balance(user_id, burn):
+        return await _out(event, "❌ <b>မီးရှို့ခ မပေးနိုင်လို့ ကစားလို့မရပါ။</b>", parse_mode='html')
+    await bot3_treasury_adjust(usd=burn)
     
     if not await try_deduct_bet_bot3(event, user_id, bet):
-        return await _out(event, "ငွေနှုတ်လို့မရပါ။", parse_mode='html')
+        user_doc = await users_catcher_col.find_one({"user_id": user_id})
+        balance = user_doc.get("wallet_balance", 0) if user_doc else 0
+        return await _out(event, f"ငွေမလုံလောက်ပါ။ သင့်တွင် {format_usd(balance)} သာရှိသည်။", parse_mode='html')
     await bot3_treasury_adjust(usd=bet)
     
     mention = await get_html_mention(event, user_id)
@@ -10348,6 +11157,7 @@ async def wheel_cmd_handler(event):
     game = {
         "user_id": user_id,
         "bet": bet,
+        "burn": burn,
         "mention": mention,
         "game_id": game_id,
         "chat_id": event.chat_id,
@@ -10355,9 +11165,18 @@ async def wheel_cmd_handler(event):
     }
     active_wheel_games[game_id] = game
     
-    text = f"ကံဘီး ဂိမ်း\nကစားသမား - {mention}\nလောင်းငွေ - {bet} USD\n\nအောက်က ခလုတ်နှိပ်ပြီး ဘီးလှည့်ပါ။"
-    buttons = [[Button.inline("ဘီးလှည့်မယ်", data=f"wheel_spin_{game_id}")]]
+    text = (
+        f"🎡 <b>WHEEL OF FORTUNE (ကံဘီး)</b>\n"
+        f"━━━━━━━━━━━━━━━━━━━━\n"
+        f"👤 <b>ကစားသမား:</b> {mention}\n"
+        f"💵 <b>လောင်းငွေ:</b> <code>{format_usd(bet)}</code>\n"
+        f"🔥 <b>မီးရှို့ခ (2%):</b> <code>{format_usd(burn)}</code>\n"
+        f"━━━━━━━━━━━━━━━━━━━━\n"
+        f"<i>အောက်က ခလုတ်နှိပ်ပြီး ဘီးလှည့်ပါ။</i>"
+    )
+    buttons = [[Button.inline("🎡 ဘီးလှည့်မယ်", data=f"wheel_spin_{game_id}")]]
     await _out(event, text, parse_mode='html', buttons=buttons)
+
 
 @bot3.on(events.CallbackQuery(pattern=r'^wheel_spin_(\d+)$'))
 async def wheel_spin_callback(event):
@@ -10371,10 +11190,14 @@ async def wheel_spin_callback(event):
         return await event.answer("ဒါက မင်းရဲ့ဂိမ်းမဟုတ်ဘူး။", alert=True)
     
     if not claim_single_tap(event):
-        return await event.answer("လုပ်ဆောင်ချက် လုပ်နေဆဲပါ။", alert=False)
+        return await event.answer("လုပ်ဆောင်ချက် လုပ်နေဆဲပါ။ ခဏစောင့်ပါ။", alert=False)
     
     if game.get("done"):
         return await event.answer("ဂိမ်းပြီးသွားပါပြီ။", alert=True)
+    
+    # 🐋 Whale Check
+    user_doc = await users_catcher_col.find_one({"user_id": game["user_id"]})
+    is_whale = (user_doc.get("wallet_balance", 0) if user_doc else 0) > WEALTH_THRESHOLD
     
     # အလေးချိန်ပေါ်မူတည်ပြီး ကျပန်းရွေးမယ်
     choices = []
@@ -10387,28 +11210,44 @@ async def wheel_spin_callback(event):
     game["done"] = True
     
     multiplier = chosen["multiplier"]
-    payout = round(game["bet"] * multiplier, 2)
+    raw_payout = round(game["bet"] * multiplier, 2)
+    
+    whale_text = ""
+    if is_whale and multiplier > 1.0:
+        whale_penalty = round(raw_payout * 0.5, 2)
+        payout = round(raw_payout - whale_penalty, 2)
+        whale_text = f"\n🐋 <b>ငွေကြေးရှိသူအခွန် (၅၀% လျှော့):</b> <code>-{format_usd(whale_penalty)}</code>"
+    else:
+        payout = raw_payout
     
     if payout > 0:
         await users_catcher_col.update_one({"user_id": game["user_id"]}, {"$inc": {"wallet_balance": payout}})
     await bot3_treasury_adjust(usd=-(payout))
     
-    net = round(payout - game["bet"], 2)
+    net = round(payout - game["bet"] - game.get("burn", 0), 2)
+    net_display = f"{'+' if net >= 0 else ''}{format_usd(net)}"
+    
     active_wheel_games.pop(game_id, None)
     
-    text = f"ကံဘီး ရလဒ်\nကစားသမား - {game['mention']}\nလောင်းငွေ - {game['bet']} USD\n\nဘီးရပ်သွားသည့်နေရာ - {chosen['label']} (မြှောက်ကိန်း x{multiplier})\nရငွေ - {payout} USD\n"
-    if net > 0:
-        text += f"အမြတ် - +{net} USD"
-    elif net < 0:
-        text += f"အရှုံး - {net} USD"
-    else:
-        text += f"အပြိုင်"
+    text = (
+        f"🎡 <b>WHEEL OF FORTUNE ရလဒ်</b>\n"
+        f"━━━━━━━━━━━━━━━━━━━━\n"
+        f"👤 <b>ကစားသမား:</b> {game['mention']}\n"
+        f"💵 <b>လောင်းငွေ:</b> <code>{format_usd(game['bet'])}</code>\n"
+        f"🔥 <b>မီးရှို့ခ:</b> <code>{format_usd(game.get('burn', 0))}</code>\n"
+        f"━━━━━━━━━━━━━━━━━━━━\n"
+        f"🎯 <b>ဘီးရပ်သွားသည့်နေရာ:</b> {chosen['label']} (မြှောက်ကိန်း x{multiplier})\n"
+        f"🔄 <b>ရငွေ:</b> <code>{format_usd(payout)}</code>\n"
+        f"📊 <b>အသားတင်:</b> <code>{net_display}</code>"
+        f"{whale_text}\n"
+        f"━━━━━━━━━━━━━━━━━━━━\n"
+        f"{GAME_FOOTER}"
+    )
     
     await event.edit(text, parse_mode='html', buttons=None)
     await event.answer(f"{chosen['label']} ကျသွားပါပြီ။")
     if not event.is_private:
         schedule_game_cleanup(event.client, event.chat_id, event.message_id, delay=15)
-# ---- ဘက်ကရက် (Baccarat) ----
 BAC_MIN_BET = 0.5
 BAC_SUITS = ["♠", "♥", "♦", "♣"]
 BAC_RANKS = ["A", "2", "3", "4", "5", "6", "7", "8", "9", "10", "J", "Q", "K"]
