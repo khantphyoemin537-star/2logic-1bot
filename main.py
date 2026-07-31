@@ -6791,6 +6791,36 @@ async def execute_star_shop_purchase(buyer_id, char_id):
         f"<code>/harem</code> <i>ဖြင့် ကြည့်နိုင်ပါတယ်။</i>"
         f"{premium_note}"
     )
+@bot1.on(events.NewMessage(pattern=own_pattern(r'^[/.]fixallbalances(?:@\w+)?$', 'bot1')))
+async def fix_all_balances_handler(event):
+    if event.sender_id != OWNER_ID:
+        return
+    if not event.is_private:
+        return await event.reply("📩 ဒီ Command ကို Bot DM မှာပဲ သုံးလို့ရပါတယ်။", parse_mode='html')
+    
+    status_msg = await event.reply("⏳ <b>User အားလုံးရဲ့ Balance ကို ပြင်ဆင်နေပါတယ်...</b>", parse_mode='html')
+    
+    # wallet_balance အကုန်ပြောင်းမယ်
+    result_wallet = await users_catcher_col.update_many(
+        {},
+        [{"$set": {"wallet_balance": {"$toDouble": "$wallet_balance"}}}]
+    )
+    
+    # star_balance အကုန်ပြောင်းမယ်
+    result_star = await users_catcher_col.update_many(
+        {},
+        [{"$set": {"star_balance": {"$toDouble": "$star_balance"}}}]
+    )
+    
+    await status_msg.edit(
+        f"✅ <b>User အားလုံးရဲ့ Balance ကို ပြင်ဆင်ပြီးပါပြီ။</b>\n"
+        f"━━━━━━━━━━━━━━━━━━━━\n"
+        f"💵 <b>Wallet ပြင်ဆင်မှု:</b> <code>{result_wallet.modified_count}</code> ဦး ပြောင်းလဲခဲ့တယ်\n"
+        f"⭐ <b>Star ပြင်ဆင်မှု:</b> <code>{result_star.modified_count}</code> ဦး ပြောင်းလဲခဲ့တယ်\n"
+        f"━━━━━━━━━━━━━━━━━━━━\n"
+        f"<i>အခုဆိုရင် အကုန်လုံး အဆင်ပြေသွားပါပြီ။</i>",
+        parse_mode='html'
+    )
 
 # ==========================================
 # 🏷️ /sell [char_id] — OWNER BUYBACK ONLY. Player-to-player card trading has been disabled
