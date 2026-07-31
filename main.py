@@ -12650,7 +12650,33 @@ async def squad_list_command(event):
     await _out(event, text, parse_mode='html')
 
 
+# ==========================================
+# 💰 /fixbalance — Owner: လူတိုင်းရဲ့ လက်ကျန်ငွေကို USD 10,000 နဲ့ Star 500 ပြန်သတ်မှတ်မယ် (Owner မပါ)
+# ==========================================
+@bot1.on(events.NewMessage(pattern=own_pattern(r'^[/.]fixbalance(?:@\w+)?$', 'bot1')))
+async def owner_fix_all_balances(event):
+    if event.sender_id != OWNER_ID:
+        return
 
+    status_msg = await event.reply("⏳ <b>လူတိုင်းရဲ့ လက်ကျန်ငွေကို USD 10,000 နဲ့ Star 500 ပြန်သတ်မှတ်နေပါပြီ (Owner မပါ)...</b>", parse_mode='html')
+    
+    try:
+        # Owner ကိုချန်လှပ်ပြီး ကျန်သူအားလုံးကို update လုပ်မယ်
+        result = await users_catcher_col.update_many(
+            {"user_id": {"$ne": OWNER_ID}},  # Owner မဟုတ်သူများ
+            {"$set": {"wallet_balance": 10000.00, "star_balance": 500.00}}
+        )
+        
+        await status_msg.edit(
+            f"✅ <b>Balance Reset Complete!</b>\n"
+            f"👥 <b>Users updated:</b> <code>{result.modified_count}</code>\n"
+            f"💰 <b>New USD:</b> <code>$10,000.00</code>\n"
+            f"⭐ <b>New Star:</b> <code>500 ⭐</code>\n\n"
+            f"<i>(Owner အကောင့်ကို ထိခိုက်မှုမရှိစေရ ချန်လှပ်ထားပါသည်။)</i>",
+            parse_mode='html'
+        )
+    except Exception as e:
+        await status_msg.edit(f"❌ Error: <code>{escape_html(str(e))}</code>", parse_mode='html')
 # ==========================================
 # 🚀 SYSTEM INITIALIZATION
 # ==========================================
