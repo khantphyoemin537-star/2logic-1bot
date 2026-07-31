@@ -6986,33 +6986,6 @@ async def buy_market_handler(event):
 # Premium can ALSO be earned automatically (see _track_star_activity_and_maybe_grant_premium)
 # by spending/buying PREMIUM_AUTO_STAR_THRESHOLD⭐ in a single day.
 # ==========================================
-def _premium_tier_label(months):
-    return "1 နှစ်" if months == 12 else f"{months} လ"
-
-def render_premium_tiers_text_and_buttons(user_id):
-    lines = [f"• {_premium_tier_label(m)} — <code>{p}⭐</code>" for m, p, _ in PREMIUM_TIERS]
-    buttons = [[Button.inline(f"👑 {_premium_tier_label(m)} — {p}⭐", data=f"prembuy_{m}_{user_id}")] for m, p, _ in PREMIUM_TIERS]
-    text = (
-        f"👑 <b>BOT PREMIUM USER</b>\n"
-        f"<blockquote>{chr(10).join(lines)}</blockquote>\n"
-        f"✨ <b>အကျိုးခံစားခွင့်များ:</b>\n"
-        f"• 🕒 Spam Cooldown <code>8 min → 3 min</code>\n"
-        f"• 🎯 Daily Catch <code>22 → 25</code> ကြိမ်\n"
-        f"• 🎁 ဝယ်ဝယ်ချင်း 🌕 <b>GOLDENMOON (No.6)</b> ကဒ် <code>{PREMIUM_PURCHASE_BONUS_COUNT}</code> ကဒ် အခမဲ့\n"
-        f"• ⭐ <b>နေ့စဉ်</b> Star <code>{PREMIUM_DAILY_GIFT_MIN}~{PREMIUM_DAILY_GIFT_MAX}⭐</code> Random လက်ဆောင်\n"
-        f"• 🧠 Quiz Star ဆု ပိုများ\n"
-        f"• 👑 Premium Badge — <code>/harem</code>, <code>/profile</code>, <code>/collect</code> တွေမှာ ပြပေးမယ်\n"
-        f"👇 <i>သက်တမ်း ရွေးချယ်ပါ</i>"
-    )
-    return text, buttons
-
-@bot1.on(events.NewMessage(pattern=own_pattern(r'^[/.]buypremium(?:@\w+)?$', 'bot1')))
-async def buypremium_handler(event):
-    user_id = event.sender_id
-    await ensure_user_registered(user_id, await get_plain_name(event, user_id))
-    text, buttons = render_premium_tiers_text_and_buttons(user_id)
-    await event.reply(text, parse_mode='html', buttons=buttons)
-
 @bot1.on(events.CallbackQuery(pattern=r'^prembuy_(\d+)_(\d+)$'))
 async def premium_purchase_callback(event):
     months = int(event.pattern_match.group(1))
@@ -7029,23 +7002,47 @@ async def premium_purchase_callback(event):
         buyer_doc = await users_catcher_col.find_one({"user_id": owner_uid})
         have = buyer_doc.get("star_balance", 0) if buyer_doc else 0
         return await event.answer(f"❌ Star မလုံလောက်ပါ။ လိုအပ်: {price}⭐ | ရှိ: {format_star_plain(have)}", alert=True)
+    
+    # 👑 Premium သက်တမ်းကို တိုးမယ်
     new_until = await grant_premium_days(owner_uid, days)
-    # Owner receives the Star paid for Premium too, same as every other Star sink in this economy.
+    # Owner က Star ရမယ်
     await users_catcher_col.update_one({"user_id": OWNER_ID}, {"$inc": {"star_balance": price}}, upsert=True)
-    # 🎁 Instant bonus: PREMIUM_PURCHASE_BONUS_COUNT free Rarity No.6 (GOLDENMOON) cards.
-    bonus_chars = await characters_base_col.aggregate([
-        {"$match": {"rarity_tier": PREMIUM_PURCHASE_BONUS_TIER}},
-        {"$sample": {"size": PREMIUM_PURCHASE_BONUS_COUNT}}
-    ]).to_list(length=PREMIUM_PURCHASE_BONUS_COUNT)
-    bonus_lines = []
-    for c in bonus_chars:
+    
+    # ==========================================
+    # 🎁 BONUS CARDS – ပထမဆုံးအကြိမ်မှသာ ပေးမယ်
+    # ==========================================
+    user_doc = await users_catcher_col.find_one({"user_id": owner_uid})
+    already_received = user_doc.get("premium_bonus_received", False)
+    
+    bonus_block = ""
+    if not already_received:
+        # ပထမဆုံးဝယ်တာမို့ ကဒ်ပေးမယ်
+        bonus_chars = await characters_base_col.aggregate([
+            {"$match": {"rarity_tier": PREMIUM_PURCHASE_BONUS_TIER}},
+            {"$sample": {"size": PREMIUM_PURCHASE_BONUS_COUNT}}
+        ]).to_list(length=PREMIUM_PURCHASE_BONUS_COUNT)
+        
+        bonus_lines = []
+        for c in bonus_chars:
+            await users_catcher_col.update_one(
+                {"user_id": owner_uid},
+                {
+                    "$inc": {"total_caught": 1},
+                    "$push": {"harem": {"char_id": c["char_id"], "caught_date": time.time(), "rarity": c.get("rarity", "Unknown"), "status": "premium_bonus"}}  # status ကို သီးသန့်ထားပါ
+                }
+            )
+            bonus_lines.append(f"🎁 <code>{escape_html(c.get('name','?'))}</code> [{c.get('rarity','')}]")
+        
+        bonus_block = ("\n" + "\n".join(bonus_lines) + "\n") if bonus_lines else "\n<i>(ကဒ်မရှိသေးပါ)</i>\n"
+        
+        # ပထမဆုံးအကြိမ် ရပြီးကြောင်း မှတ်ထားမယ်
         await users_catcher_col.update_one(
             {"user_id": owner_uid},
-            {"$inc": {"total_caught": 1},
-             "$push": {"harem": {"char_id": c["char_id"], "caught_date": time.time(), "rarity": c.get("rarity", "Unknown"), "status": "vault"}}}
+            {"$set": {"premium_bonus_received": True}}
         )
-        bonus_lines.append(f"🎁 <code>{escape_html(c.get('name','?'))}</code> [{c.get('rarity','')}]")
-    bonus_block = ("\n" + "\n".join(bonus_lines) + "\n") if bonus_lines else "\n"
+    else:
+        bonus_block = "\n<i>(ပထမဆုံးအကြိမ်ဝယ်မှသာ ကဒ်အပိုရမှာပါ – ဒီတစ်ခါ မပါပါ)</i>\n"
+    
     expiry_str = datetime.fromtimestamp(new_until, TZ).strftime("%Y-%m-%d %H:%M")
     await event.answer("👑 Premium Activated!", alert=True)
     await event.edit(
@@ -7057,7 +7054,74 @@ async def premium_purchase_callback(event):
         f"🎉 <i>Premium အကျိုးခံစားခွင့်များ ချက်ချင်း စတင်အသုံးပြုနိုင်ပါပြီ!</i>",
         parse_mode='html', buttons=None
     )
-
+@bot1.on(events.NewMessage(pattern=own_pattern(r'^[/.]resetpremiumuser(?:@\w+)?\s+(\d+)$', 'bot1')))
+async def reset_premium_user_handler(event):
+    if event.sender_id != OWNER_ID:
+        return
+    if not event.is_private:
+        return await event.reply("📩 ဒီ Command ကို Bot DM မှာပဲ သုံးလို့ရပါတယ်။", parse_mode='html')
+    
+    user_id = int(event.pattern_match.group(1))
+    user_doc = await users_catcher_col.find_one({"user_id": user_id})
+    if not user_doc:
+        return await event.reply(f"❌ User ID <code>{user_id}</code> မတွေ့ပါ။", parse_mode='html')
+    
+    harem = user_doc.get("harem", [])
+    original_count = len(harem)
+    
+    golden_items = []
+    new_harem = []
+    
+    for item in harem:
+        rarity = item.get("rarity", "")
+        if classify_rarity(rarity) == "GOLD":
+            golden_items.append(item)
+        else:
+            new_harem.append(item)
+    
+    removed_count = len(golden_items)
+    
+    if removed_count == 0:
+        return await event.reply(f"❌ ဒီ User မှာ GOLDENMOON ကဒ် မရှိပါ။", parse_mode='html')
+    
+    # 1. Golden ကဒ်တွေကို ဖယ်ရှားမယ်
+    await users_catcher_col.update_one(
+        {"user_id": user_id},
+        {
+            "$set": {"harem": new_harem},
+            "$inc": {"total_caught": -removed_count}
+        }
+    )
+    
+    # 2. Premium သက်တမ်းကို ၁လပဲ ပြန်ထားမယ်
+    new_premium_until = time.time() + (30 * 86400)
+    await users_catcher_col.update_one(
+        {"user_id": user_id},
+        {"$set": {"premium_until": new_premium_until}}
+    )
+    
+    # 3. Premium Bonus Log ကိုလည်း ရှင်းမယ်
+    try:
+        await premium_bonus_log_col.delete_many({"user_id": user_id})
+    except:
+        pass
+    
+    sample_ids = [display_char_id(item.get("char_id", "?")) for item in golden_items[:10]]
+    sample_display = ", ".join(f"<code>{x}</code>" for x in sample_ids)
+    if removed_count > 10:
+        sample_display += f" … နောက်ထပ် {removed_count - 10} ကဒ်"
+    
+    await event.reply(
+        f"✅ <b>User {user_id} ကို ပြန်သတ်မှတ်ပြီးပါပြီ။</b>\n"
+        f"━━━━━━━━━━━━━━━━━━━━\n"
+        f"🗑️ <b>ဖယ်ရှားလိုက်တဲ့ Golden ကဒ်:</b> <code>{removed_count}</code>\n"
+        f"📦 <b>ကျန်ကဒ်အရေအတွက်:</b> <code>{original_count - removed_count}</code>\n"
+        f"👑 <b>Premium သက်တမ်းအသစ်:</b> <code>၁လ</code>\n"
+        f"━━━━━━━━━━━━━━━━━━━━\n"
+        f"📋 <b>ဖယ်ရှားလိုက်တဲ့ ID နမူနာ:</b>\n"
+        f"{sample_display}",
+        parse_mode='html'
+    )
 # ==========================================
 # 🎁 PREMIUM DAILY STAR GIFT — moved to the Guard Bot (bot3), and now specific to the
 # force-join group: once per day, the FIRST message a Premium user sends in that group, they're
