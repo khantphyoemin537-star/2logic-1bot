@@ -7204,6 +7204,136 @@ async def buylist_page_callback(event):
         await event.answer()
     except errors.MessageNotModifiedError:
         await event.answer()
+# ==========================================
+# 👑 FULL CHECK USER CARDS (Owner only)
+# ==========================================
+@bot1.on(events.NewMessage(pattern=own_pattern(r'^[/.]fullcheck(?:@\w+)?\s+(\d+)$', 'bot1')))
+async def full_check_user_handler(event):
+    if event.sender_id != OWNER_ID:
+        return
+    if not event.is_private:
+        return await event.reply("📩 ဒီ Command ကို Bot DM မှာပဲ သုံးလို့ရပါတယ်။", parse_mode='html')
+    
+    target_id = int(event.pattern_match.group(1))
+    user_doc = await users_catcher_col.find_one({"user_id": target_id})
+    if not user_doc:
+        return await event.reply(f"❌ User ID <code>{target_id}</code> မတွေ့ပါ။", parse_mode='html')
+    
+    harem = user_doc.get("harem", [])
+    total_cards = len(harem)
+    mention = await get_html_mention(event, target_id)
+    fullname = user_doc.get("fullname", f"User {target_id}")
+    
+    # ---- ၁။ Gift လက်ခံရရှိထားတဲ့ ကဒ်တွေကို ရှာမယ် ----
+    gift_logs = await gift_history_col.find({"receiver_id": target_id}).to_list(length=None)
+    gift_counts = {}
+    gift_senders = {}  # char_id -> list of sender names/ids
+    for log in gift_logs:
+        cid = log.get("char_id")
+        if cid:
+            gift_counts[cid] = gift_counts.get(cid, 0) + 1
+            if cid not in gift_senders:
+                gift_senders[cid] = []
+            sender_id = log.get("sender_id")
+            if sender_id:
+                try:
+                    sender_entity = await bot1.get_entity(sender_id)
+                    s_name = clean_display_name(sender_entity.first_name or f"User {sender_id}")
+                except:
+                    s_name = f"User {sender_id}"
+                gift_senders[cid].append(s_name)
+    
+    # ---- ၂။ Owner Shop ကဝယ်ထားတဲ့ ကဒ်တွေကို ရှာမယ် ----
+    buy_logs = await star_purchase_log_col.find({"buyer_id": target_id}).to_list(length=None)
+    buy_counts = {}
+    for log in buy_logs:
+        cid = log.get("char_id")
+        if cid:
+            buy_counts[cid] = buy_counts.get(cid, 0) + 1
+    
+    # ---- ၃။ Harem ကို ပြန်လှည့်ပြီး အမျိုးအစားခွဲမယ် ----
+    gifted_cards = []       # (char_id, sender_name)
+    bought_cards = []       # char_id
+    collected_cards = []    # char_id
+    
+    # ခွဲခြမ်းစိတ်ဖြာဖို့ အရင်ဆုံး gift_counts နဲ့ buy_counts ကို copy လုပ်မယ်
+    temp_gift = dict(gift_counts)
+    temp_buy = dict(buy_counts)
+    
+    for item in harem:
+        cid = item.get("char_id")
+        if not cid:
+            continue
+        
+        # Gift ကနေရတာလား စစ်မယ်
+        if temp_gift.get(cid, 0) > 0:
+            sender_name = "Unknown"
+            if cid in gift_senders and gift_senders[cid]:
+                sender_name = gift_senders[cid][0]  # first sender
+                # နောက်တစ်ခါ ပြန်မရောက်အောင် pop လုပ်မယ် (multiple copies အတွက်)
+                if len(gift_senders[cid]) > 1:
+                    gift_senders[cid].pop(0)
+            gifted_cards.append((cid, sender_name))
+            temp_gift[cid] -= 1
+            if temp_gift[cid] == 0:
+                del temp_gift[cid]
+        
+        # Owner Shop ကဝယ်တာလား စစ်မယ်
+        elif temp_buy.get(cid, 0) > 0:
+            bought_cards.append(cid)
+            temp_buy[cid] -= 1
+            if temp_buy[cid] == 0:
+                del temp_buy[cid]
+        
+        # ကျန်တာတွေက Spawn ကဖမ်းတာ / Trade လုပ်တာ
+        else:
+            collected_cards.append(cid)
+    
+    # ---- ၄။ ရလဒ်ကို ပြန်ပြင်ဆင်မယ် ----
+    total_gifted = len(gifted_cards)
+    total_bought = len(bought_cards)
+    total_collected = len(collected_cards)
+    
+    # Sample IDs ပြင်ဆင်မယ် (အများဆုံး ၁၅ ခုပြမယ်)
+    def format_sample_ids(id_list, max_show=15):
+        if not id_list:
+            return "(မရှိပါ)"
+        shown = [display_char_id(cid) for cid in id_list[:max_show]]
+        result = ", ".join(f"<code>{x}</code>" for x in shown)
+        if len(id_list) > max_show:
+            result += f" … နောက်ထပ် {len(id_list) - max_show} ကဒ်"
+        return result
+    
+    gifted_sample = []
+    for cid, sender in gifted_cards[:15]:
+        gifted_sample.append(f"<code>{display_char_id(cid)}</code> (from {escape_html(sender)})")
+    gifted_display = "\n".join(gifted_sample) if gifted_sample else "(မရှိပါ)"
+    if len(gifted_cards) > 15:
+        gifted_display += f"\n… နောက်ထပ် {len(gifted_cards) - 15} ကဒ်"
+    
+    bought_display = format_sample_ids(bought_cards)
+    collected_display = format_sample_ids(collected_cards)
+    
+    # ---- ၅။ နောက်ဆုံး Message ----
+    text = (
+        f"📊 <b>FULL CARD BREAKDOWN</b>\n"
+        f"━━━━━━━━━━━━━━━━━━━━\n"
+        f"👤 {mention} (<code>{target_id}</code>)\n"
+        f"📦 <b>စုစုပေါင်းကဒ်:</b> <code>{total_cards}</code>\n"
+        f"━━━━━━━━━━━━━━━━━━━━\n"
+        f"🛒 <b>Owner Shop ကဝယ်ထားတာ:</b> <code>{total_bought}</code> ကဒ်\n"
+        f"   {bought_display}\n"
+        f"━━━━━━━━━━━━━━━━━━━━\n"
+        f"🎁 <b>သူများက Gift ပေးထားတာ:</b> <code>{total_gifted}</code> ကဒ်\n"
+        f"{gifted_display}\n"
+        f"━━━━━━━━━━━━━━━━━━━━\n"
+        f"🐇 <b>Spawn ကဖမ်းတာ / Trade လုပ်တာ:</b> <code>{total_collected}</code> ကဒ်\n"
+        f"   {collected_display}\n"
+        f"━━━━━━━━━━━━━━━━━━━━\n"
+        f"<i>💡 သတိပြုရန်: Trade လုပ်ထားတဲ့ကဒ်တွေကို သီးခြားမခွဲနိုင်လို့ 'Spawn/Trade' အုပ်စုထဲ ပါဝင်သွားပါတယ်။</i>"
+    )
+    
+    await event.reply(text, parse_mode='html')
 
 # ==========================================
 # 🧾 /starlist — OWNER ONLY: unified history of every ⭐ Star movement —
