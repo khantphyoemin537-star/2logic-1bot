@@ -7739,7 +7739,7 @@ async def premium_purchase_callback(event):
     await event.edit(
         f"👑 <b>BOT PREMIUM ACTIVATED!</b>\n"
         f"<blockquote>"
-        f"⏳ <b>သက်တမ်း:</b> <code>{expiry_str}</code> အထိ
+        f"⏳ <b>သက်တမ်း:</b> <code>{expiry_str}</code> အထိ"
         f"</blockquote>\n"
         f"🎉 <i>Premium အကျိုးခံစားခွင့်များ ချက်ချင်း စတင်အသုံးပြုနိုင်ပါပြီ!</i>",
         parse_mode='html', buttons=None
