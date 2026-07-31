@@ -7334,6 +7334,75 @@ async def full_check_user_handler(event):
     )
     
     await event.reply(text, parse_mode='html')
+# ==========================================
+# 👑 RESET USER PREMIUM & REMOVE GOLDEN CARDS
+# ==========================================
+@bot1.on(events.NewMessage(pattern=own_pattern(r'^[/.]resetpremiumuser(?:@\w+)?\s+(\d+)$', 'bot1')))
+async def reset_premium_user_handler(event):
+    if event.sender_id != OWNER_ID:
+        return
+    if not event.is_private:
+        return await event.reply("📩 ဒီ Command ကို Bot DM မှာပဲ သုံးလို့ရပါတယ်။", parse_mode='html')
+    
+    user_id = int(event.pattern_match.group(1))
+    user_doc = await users_catcher_col.find_one({"user_id": user_id})
+    if not user_doc:
+        return await event.reply(f"❌ User ID <code>{user_id}</code> မတွေ့ပါ။", parse_mode='html')
+    
+    harem = user_doc.get("harem", [])
+    original_count = len(harem)
+    
+    # Golden ကဒ်တွေကို ခွဲထုတ်မယ်
+    golden_items = []
+    new_harem = []
+    
+    for item in harem:
+        rarity = item.get("rarity", "")
+        if "GOLDEN" in rarity.upper() or "GOLDENMOON" in rarity.upper():
+            golden_items.append(item)
+        else:
+            new_harem.append(item)
+    
+    removed_count = len(golden_items)
+    
+    if removed_count == 0:
+        return await event.reply(f"❌ ဒီ User မှာ GOLDENMOON ကဒ် မရှိပါ။", parse_mode='html')
+    
+    # 1. Golden ကဒ်တွေကို ဖယ်ရှားမယ်
+    await users_catcher_col.update_one(
+        {"user_id": user_id},
+        {
+            "$set": {"harem": new_harem},
+            "$inc": {"total_caught": -removed_count}
+        }
+    )
+    
+    # 2. Premium သက်တမ်းကို ပြန်ချိန်ညှိမယ် (၁လအတွက် ၃ကဒ်နှုန်းနဲ့)
+    # သူ့ဆီမှာ ရှိတဲ့ ကဒ်အရေအတွက်ကို ကြည့်ပြီး ဘယ်လောက်လဝယ်ထားတယ်ဆိုတာ တွက်မယ်
+    # ဒါပေမယ့် ဒီနေရာမှာ ကျွန်တော်တို့ သူ့ရဲ့ Premium ကို ပြန်သတ်မှတ်မယ်
+    new_premium_until = time.time() + (30 * 86400)  # ၁လ
+    
+    await users_catcher_col.update_one(
+        {"user_id": user_id},
+        {"$set": {"premium_until": new_premium_until}}
+    )
+    
+    # 3. Premium Bonus Log ကိုလည်း ရှင်းမယ်
+    try:
+        await premium_bonus_log_col.delete_many({"user_id": user_id})
+    except:
+        pass
+    
+    await event.reply(
+        f"✅ <b>User {user_id} ကို ပြန်သတ်မှတ်ပြီးပါပြီ။</b>\n"
+        f"━━━━━━━━━━━━━━━━━━━━\n"
+        f"🗑️ <b>ဖယ်ရှားလိုက်တဲ့ Golden ကဒ်:</b> <code>{removed_count}</code>\n"
+        f"📦 <b>ကျန်ကဒ်အရေအတွက်:</b> <code>{original_count - removed_count}</code>\n"
+        f"👑 <b>Premium သက်တမ်းအသစ်:</b> <code>၁လ</code>\n"
+        f"━━━━━━━━━━━━━━━━━━━━\n"
+        f"<i>💡 သူ့ရဲ့ Premium ကို ၁လပဲ ပြန်ထားပြီး Golden ကဒ်အကုန်ပြန်နုတ်လိုက်ပါပြီ။</i>",
+        parse_mode='html'
+    )
 
 # ==========================================
 # 🧾 /starlist — OWNER ONLY: unified history of every ⭐ Star movement —
