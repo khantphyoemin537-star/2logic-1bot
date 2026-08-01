@@ -9035,8 +9035,8 @@ SLOT_BET_PRESETS = [1, 10, 100, 1000, 10000, 100000]
 # net <= 0 — i.e. before you've ever completed a winning spin.
 # 💡 These are game-balance numbers, not technical constants — tune them to taste:
 SPIN_BURN_RATE = 0.02            # 2% of the bet is burned as a flat "machine fee" every spin, win or lose
-CASHOUT_PROFIT_TAX = 0.05        # 5% tax, taken only from PROFIT (net > 0) when you cash out
-WEALTH_THRESHOLD = 1000          # USD wallet balance above which whale tax starts applying at all
+CASHOUT_PROFIT_TAX = 0.03        # 5% tax, taken only from PROFIT (net > 0) when you cash out
+WEALTH_THRESHOLD = 1000000          # USD wallet balance above which whale tax starts applying at all
 # 🩹 CHANGED (per owner request): the old system applied a single flat 50% cut to EVERY whale,
 # whether they were $1,001 or $10,000,000 — a hard cliff that felt punishing right at the
 # threshold and prompted player complaints. Replaced with a progressive table: the cut now
@@ -9044,9 +9044,9 @@ WEALTH_THRESHOLD = 1000          # USD wallet balance above which whale tax star
 # is whichever tier it satisfies, using the highest (richest) tier that applies.
 WHALE_TAX_TIERS = [
     (1_000,   0.85),   # $1,000   – $5,000    → 15% cut
-    (5_000,   0.70),   # $5,000   – $20,000   → 30% cut
-    (20_000,  0.55),   # $20,000  – $100,000  → 45% cut
-    (100_000, 0.40),   # $100,000+            → 60% cut
+    (5_000,   0.85),   # $5,000   – $20,000   → 30% cut
+    (20_000,  0.85),   # $20,000  – $100,000  → 45% cut
+    (100_000, 0.85),   # $100,000+            → 60% cut
 ]
 
 def get_whale_multiplier(balance):
