@@ -4817,13 +4817,9 @@ async def release_spawn(chat_id, chosen_char):
         spawn_text = (
             f"{rarity_emoji} 𝘼 𝘾𝙝𝙖𝙧𝙖𝙘𝙩𝙚𝙧 𝙝𝙖𝙨 𝙖𝙥𝙥𝙚𝙖𝙧𝙚𝙙\n"
             f"𝙞𝙣 𝙩𝙝𝙞𝙨 𝙂𝙧𝙤𝙪𝙥 𝘾𝙝𝙖𝙩 𝙩𝙝𝙤..\n"
-            f"Event:{event_display}\n"
             f"Artist:{artist_display}\n"
-            f"❖ 𝗥𝗘𝗣𝗟𝗬 /w , /waifu or /who\n"
-            f"to this message to /obtain [name].🎒\n"
+            f"❖ 𝗥𝗘𝗣𝗟𝗬 /w to this message to /obtain [name].🎒\n"
             f"❖ 𝗢𝗯𝘁𝗮𝗶𝗻 𝗔𝗦𝗔𝗣!\n"
-            f"🔗 <a href=\"https://t.me/Comeback_BoD\">GROUP_LINK</a>  •  "
-            f"<a href=\"https://t.me/Character_Collocters\">CHANNEL_LINK</a>"
         )
 
         async def _post_spawn(media):
@@ -5500,13 +5496,13 @@ async def catch_handler(event):
     # racer's own /obtain message, which meant onlookers could see (via the reply preview)
     # who was in the running before the result was ever revealed. Sent as a plain message now,
     # so nobody knows who's even attempting it until the final edit reveals the winner.
-    temp_msg = await bot1.send_message(chat_id, "💫")
-    await asyncio.sleep(1)
+    temp_msg = await bot1.send_message(chat_id, "⚡️")
+    await asyncio.sleep(0.5)
     try:
-        await temp_msg.edit("🦄")
+        await temp_msg.edit("💥")
     except errors.MessageNotModifiedError:
         pass
-    await asyncio.sleep(1)
+    await asyncio.sleep(0.5)
     await perform_catch(chat_id, user_id, spawn_data, event, reply_to_msg=event.id, is_callback=False, temp_msg_id=temp_msg.id)
 
 async def _reply_already_caught(event, spawn_data):
@@ -7686,8 +7682,8 @@ PREMIUM_TIERS = [  # (months, price in ⭐, days credited) — the 5 /buypremium
 PREMIUM_DAILY_CATCH_LIMIT = 25  # vs DAILY_CATCH_LIMIT (22) for everyone else
 PREMIUM_SPAM_MUTE_SECONDS = 180  # 3 minutes, vs SPAM_CATCH_MUTE_SECONDS (8 min / 480s)
 PREMIUM_QUIZ_REWARD_MULTIPLIER = 1.5  # Premium winners' rarity-gate quiz Star bonus is scaled by this
-PREMIUM_PURCHASE_BONUS_TIER = "GOLD"  # Rarity No.6 (🌕 GOLDENMOON) — free cards on every /buypremium purchase
-PREMIUM_PURCHASE_BONUS_COUNT = 0
+PREMIUM_PURCHASE_BONUS_TIER = "RARE"  # Rarity No.6 (🌕 GOLDENMOON) — free cards on every /buypremium purchase
+PREMIUM_PURCHASE_BONUS_COUNT = 2
 
 def is_premium_active(user_doc):
     """True if user_doc's premium_until is still in the future. Safe to call with None."""
