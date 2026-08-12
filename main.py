@@ -2403,10 +2403,8 @@ async def send_force_sub_prompt(event):
     force_sub_prompt_last_sent[user_id] = now
     link = await get_force_sub_invite_link()
     text = (
-        "🐉🦋 <b>ခဏစောင့်ဦးနော်!</b> ဒီကောင်လေးတွေကို Collect လုပ်ချင်ရင် အောက်က Group ထဲ အရင်ဝင်ဖို့လိုပါတယ် 🦄\n"
-        "👇 Group ထဲဝင်ပြီးမှ ဒီ command ကို ပြန်ရိုက်ပေးပါ့။\n\n"
-        "🐉🦋 <b>Hold up!</b> You'll need to join our group before you can collect these little guys 🦄\n"
-        "👇 Tap below to join, then send the command again."
+        "🐉🦋 Haremနဲ့ရထားတဲ့ ကဒ်တွေ ကြည့်ဖို့ အောက်က Group ထဲ အရင်ဝင်ဖို့လိုပါတယ် 🦄\n"
+        " Group ထဲဝင်ပြီးမှ ဒီ command ကို ပြန်ရိုက်ပေးပါ့။"
     )
     buttons = [[Button.url("Join Group / Group ဝင်ရန်", link)]] if link else None
     try:
@@ -2856,7 +2854,7 @@ async def system_start_router(event):
         f"<b>Group အုပ်ချုပ်ရေး</b> လုပ်ဆောင်ချက်တွေကိုပါ တစ်နေရာတည်း ပေါင်းစပ်ပေးထားပါတယ်။\n\n"
         f"Group ထဲမှာ Character များကို ဖမ်းဆီးရင်း 💵 USD နဲ့ ⭐ Star ရရှိနိုင်ပြီး၊ Casino ဂိမ်းတွေ "
         f"ဆော့ကစားပြီးလည်း ⭐ Star ထပ်ရယူနိုင်ပါတယ်။\n\n"
-        f"အောက်က Button များ နှိပ်ပြီး ဘာတွေ ရနိုင်လဲ ကြည့်လိုက်ပါ။ 🙂"
+        f"အောက်က Button များ နှိပ်ပြီး ဘာတွေ ရနိုင်လဲ ကြည့်လိုက်ပါ။ "
         f"{referral_note}"
     )
     buttons = [
@@ -3122,7 +3120,7 @@ async def _run_auto_calculator(event):
             except Exception:
                 pass
 
-TODAY_TOP_LIMIT = 20
+TODAY_TOP_LIMIT = 30
 
 async def render_today_leaderboard():
     """Returns the /today text, or None if nobody has caught anything yet today.
@@ -6220,7 +6218,7 @@ async def catch_handler(event):
     # who was in the running before the result was ever revealed. Sent as a plain message now,
     # so nobody knows who's even attempting it until the final edit reveals the winner.
     temp_msg = await bot1.send_message(chat_id, "⚡️")
-    await asyncio.sleep(0.5)
+    await asyncio.sleep(1)
     try:
         await temp_msg.edit("💥")
     except errors.MessageNotModifiedError:
