@@ -754,7 +754,7 @@ def format_star_plain(star_amount):
 # relative to its own defaults below. Rarity 5-9 (the common tiers) are never touched by this —
 # only the quiz-gated bracket scales. "Global" means exactly that: one setting, shared by every
 # chat, regardless of which chat the owner happens to type the command in.
-DEFAULT_RARITY_WEIGHTS = dict(zip(RARITY_TIERS, [3, 3, 4, 7, 12, 20, 32, 50, 70]))
+DEFAULT_RARITY_WEIGHTS = dict(zip(RARITY_TIERS, [7, 3, 7, 10, 12, 20, 32, 50, 60]))
 # No.1 ULTRA=1 ... No.9 COMMON=75 — a ~75x gap between rarest and most common by default.
 # ✏️ To add more levels yourself later, just add another "level: multiplier" pair here — e.g.
 # {1: 1, 2: 3, 3: 5} adds a level 3 that's 5x default. Nothing else needs to change.
@@ -2147,7 +2147,7 @@ FORCE_SUB_PROMPT_TTL = 30  # seconds — the join-nudge message deletes itself a
 # search/scrap/richest/leaderboard/lb/achievements. Deliberately excludes /start, /help,
 # /game, /weather, /gift, /fav, and every admin/owner-only command — /gift and /fav no longer
 # nudge a non-member to join the force-sub group.
-FORCE_SUB_GATED_COMMANDS = {"slot", "game", "morgan"}
+FORCE_SUB_GATED_COMMANDS = {"slot", "game", "harem"}
 _FORCE_SUB_CMD_RE = re.compile(r'^[/.](\w+)')
 
 force_sub_membership_cache = bot_state.force_sub_membership_cache  # user_id -> (is_member: bool, expiry_ts: float)
@@ -2197,9 +2197,9 @@ async def send_force_sub_prompt(event):
     force_sub_prompt_last_sent[user_id] = now
     link = await get_force_sub_invite_link()
     text = (
-        "🐉🦋 <b>ခဏစောင့်ဦးနော်!</b> ဒီကောင်လေးတွေကို Collect လုပ်ချင်ရင် အောက်က Group ထဲ အရင်ဝင်ဖို့လိုပါတယ် 🦄\n"
+        "🐉🦋 <b>harem လုပ်ချင်ရင် အောက်က Group ထဲ အရင်ဝင်ဖို့လိုပါတယ် 🦄\n"
         "👇 Group ထဲဝင်ပြီးမှ ဒီ command ကို ပြန်ရိုက်ပေးပါ့။\n\n"
-        "🐉🦋 <b>Hold up!</b> You'll need to join our group before you can collect these little guys 🦄\n"
+        "🐉🦋 <b>Hold up!</b> You'll need to join our group🦄\n"
         "👇 Tap below to join, then send the command again."
     )
     buttons = [[Button.url("Join Group / Group ဝင်ရန်", link)]] if link else None
