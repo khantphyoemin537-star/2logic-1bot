@@ -1489,6 +1489,7 @@ async def bot3_treasury_adjust(usd=0, star=0):
 # outside the game layer.
 # 🩹 2026-08 USD RETIREMENT: was 1,000,000 USD — divided down by USD_PER_STAR (100,000) to
 # stay proportional to the post-migration ⭐ Star economy, same as every per-game MAX_BET below.
+USD_PER_STAR = 100_000  # 💵 100,000 USD = 1⭐ Star — the ONE-TIME wallet migration rate (owner-set, Aug 2026)
 AML_BUST_THRESHOLD = 1_000_000 / USD_PER_STAR    # ⭐ 10 — the hard ceiling on any single bot3 bet
 AML_JAIL_SECONDS = 600            # 10 min "under investigation" — bot3 games refuse to start
 
@@ -1792,6 +1793,7 @@ RARITY_QUIZ_BANK = [
     {"question": "၃၆ ÷ ၄ ဘယ်လောက်လဲ?", "options": ["၇", "၈", "၉", "၁၀"], "correct_index": 2},
     {"question": "၈ + ၇ ဘယ်လောက်လဲ?", "options": ["၁၃", "၁၄", "၁၅", "၁၆"], "correct_index": 2},
 ]
+
 # ---- /ban, /unban, /kick fire a ChatAction (participant update) themselves — e.g. lifting a
 # ban via /unban shows up to Telethon as the user "leaving", which used to trigger a spurious
 # goodbye message right after the UNBAN OPERATION confirmation. Anything we changed ourselves
@@ -1831,7 +1833,7 @@ def owner_tag():
 # star_balance instead — Star absorbs USD's old role. 💠 VLT is the new, separate currency
 # introduced alongside this for the Market (see VLT EXCHANGE below) — Star itself is no longer
 # spent there.
-USD_PER_STAR = 100_000  # 💵 100,000 USD = 1⭐ Star — the ONE-TIME wallet migration rate (owner-set, Aug 2026)
+
 
 MMK_PER_USD = 4000  # [LEGACY] 1 old-USD = 4000 old-MMK — kept ONLY so every pre-existing
 # "<old MMK value> / MMK_PER_USD" audit expression in this file still evaluates to the exact
