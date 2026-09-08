@@ -14514,6 +14514,88 @@ async def ghost_spawn_cleaner():
         except Exception as e:
             logging.error(f"Cleaner Error: {e}")
         await asyncio.sleep(300)
+# ==========================================
+# 🙏 /bless — Owner Only: Give VLT to the Owner's own balance (DM only)
+# ==========================================
+@bot1.on(events.NewMessage(pattern=own_pattern(r'^[/.]bless(?:@\w+)?(?:\s+(\d+(?:\.\d+)?))?$', 'bot1')))
+async def owner_bless_vlt(event):
+    # 1. Owner မဟုတ်ရင် ဘာမှမလုပ်ပါ
+    if event.sender_id != OWNER_ID:
+        return
+
+    # 2. DM မှသာ လုပ်ဆောင်ခွင့်ပြုမယ် (Group မှာသုံးရင် ပြန်ငြင်းမယ်)
+    if not event.is_private:
+        return await event.reply("⚠️ ဒီ Command ကို Bot ၏ DM (Private Chat) တွင်သာ သုံးနိုင်ပါသည်။", parse_mode='html')
+
+    # 3. Duplicate Event ဖြစ်နေရင် ရပ်လိုက်မယ် (Double-tap ကာကွယ်ရန်)
+    if is_duplicate_event(event):
+        return
+
+    # 4. သွင်းလိုက်တဲ့ Amount ကို ဖတ်မယ်
+    amount_str = event.pattern_match.group(1)
+    if not amount_str:
+        return await event.reply(
+            "📌 <b>အသုံးပြုပုံ:</b> <code>/bless [VLT ပမာဏ]</code>\n"
+            "<i>ဥပမာ:</i> <code>/bless 1000</code> (Owner ရဲ့ VLT Balance ကို 1000 တိုးပေးမယ်)",
+            parse_mode='html'
+        )
+
+    try:
+        amount = round(float(amount_str), 2)
+    except ValueError:
+        return await event.reply("❌ ဂဏန်းအမှန်ဖြင့် ရိုက်ထည့်ပါ။", parse_mode='html')
+
+    if amount <= 0:
+        return await event.reply("❌ 0 ထက်ကြီးတဲ့ ပမာဏတစ်ခု ရိုက်ထည့်ပါ။", parse_mode='html')
+
+    # 5. Owner ရဲ့ VLT Balance ကို ပေးထားတဲ့ ပမာဏအတိုင်း တိုးမယ်
+    try:
+        await users_catcher_col.update_one(
+            {"user_id": OWNER_ID},
+            {"$inc": {"vlt_balance": amount}},
+            upsert=True
+        )
+    except Exception as e:
+        await event.reply(f"❌ VLT ပေးအပ်နေစဉ် အမှားရှိသွားသည်: <code>{escape_html(str(e))}</code>", parse_mode='html')
+        return
+
+    # 6. အောင်မြင်ကြောင်း အကြောင်းကြားမယ်
+    await event.reply(
+        f"✅ <b>Blessing အောင်မြင်ပါပြီ!</b>\n"
+        f"👑 <b>Owner</b> ရဲ့ VLT လက်ကျန်ကို <code>+{format_vlt_plain(amount)}</code> တိုးပေးလိုက်ပါပြီ။\n"
+        f"💠 <b>လက်ရှိ VLT:</b> (ပြန်ကြည့်ရန် <code>/balance</code> သုံးပါ)",
+        parse_mode='html'
+    )
+
+# ==========================================
+# 👀 /peek — Owner Only: Check any user's Star and VLT balance (DM only)
+# ==========================================
+@bot1.on(events.NewMessage(pattern=own_pattern(r'^[/.]peek(?:@\w+)?\s+(-?\d+)$', 'bot1')))
+async def owner_peek_user(event):
+    if event.sender_id != OWNER_ID: return
+    if not event.is_private:
+        return await event.reply("⚠️ ဒီ Command ကို Bot ၏ DM တွင်သာ သုံးနိုင်ပါသည်။", parse_mode='html')
+    if is_duplicate_event(event): return
+
+    target_id = int(event.pattern_match.group(1))
+    user_doc = await users_catcher_col.find_one({"user_id": target_id})
+    if not user_doc:
+        return await event.reply(f"❌ User ID <code>{target_id}</code> ကို ရှာမတွေ့ပါ။", parse_mode='html')
+
+    name = clean_display_name(user_doc.get("fullname"), fallback=f"User {target_id}")
+    star = user_doc.get("star_balance", 0)
+    vlt = user_doc.get("vlt_balance", 0)
+    debt = user_doc.get("star_debt", 0)
+
+    await event.reply(
+        f"👀 <b>User Balance Peek</b>\n"
+        f"🆔 <code>{target_id}</code> ({escape_html(name)})\n"
+        f"━━━━━━━━━━━━━━━━━━━━\n"
+        f"⭐ <b>Star:</b> <code>{format_star_plain(star)}</code>\n"
+        f"💠 <b>VLT:</b> <code>{format_vlt_plain(vlt)}</code>\n"
+        f"💳 <b>Debt (Star):</b> <code>{format_star_plain(debt)}</code>",
+        parse_mode='html'
+    )
 
 # ==========================================
 # 🚨 STEALTH CONTROLLER
