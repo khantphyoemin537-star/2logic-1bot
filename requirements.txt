@@ -1,4 +1,4 @@
-telethon>=1.40.0
+telethon>=1.44.0
 pymongo
 flask
 Pillow
