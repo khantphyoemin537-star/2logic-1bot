@@ -642,7 +642,7 @@ async def try_deduct_vlt(user_id, amount):
 # the same tap — different users, or the same user on a different button/message,
 # are never affected.
 _recent_callback_taps = bot_state._recent_callback_taps
-CALLBACK_TAP_WINDOW = 2.5  # seconds — long enough to eat a double-tap, short enough to never block a genuine retry
+CALLBACK_TAP_WINDOW = 4 # seconds — long enough to eat a double-tap, short enough to never block a genuine retry
 
 def claim_single_tap(event, extra=""):
     """Returns True the first time this exact (user, message, button data) combo is
@@ -4046,8 +4046,8 @@ NEW_CHARACTER_BOOST_MULTIPLIER = 8
 # SPAWN_TIER_FIRST_SELECTION = False puts the previous behaviour back exactly (per-card weight x freshness).
 # ==========================================
 SPAWN_TIER_FIRST_SELECTION = True
-SPAWN_FAIR_CATCH_TARGET = 10      # catches every card should reach before already-caught cards get priority
-SPAWN_FAIR_DEFICIT_STEP = 2       # extra pull per catch still missing from the target
+SPAWN_FAIR_CATCH_TARGET = 20     # catches every card should reach before already-caught cards get priority
+SPAWN_FAIR_DEFICIT_STEP = 5     # extra pull per catch still missing from the target
 SPAWN_UNKNOWN_TIER_WEIGHT = 1     # share for a card whose rarity can't be classified (a stray shouldn't take a big slice)
 
 def spawn_fairness_multiplier(char):
@@ -4087,7 +4087,7 @@ RARITY_GATE_TIMEOUT_SECONDS = 360
 # own, shown directly in the spawn's own caption ("Solved by X +10VLT") instead of a separate
 # "Gate Cleared!" message — see release_spawn()'s gate_winner_mention param and
 # rarity_gate_answer_callback below.
-RARITY_GATE_REWARD_VLT = 10
+RARITY_GATE_REWARD_VLT = 200
 # 🎨 NEW (2026-09, per owner request — "ပိုမိုက်အောင် လုပ်ပေး"): a curated pool of 100 four-digit
 # numbers — start_rarity_gate_quiz() below draws 4 at random per gate instead of generating 4
 # fresh random digits every time. Add, remove, or edit entries freely; nothing else in the code
@@ -4545,11 +4545,11 @@ QUIZ_STAR_REWARD_MAX = 7
 # absolute numbers it moves between are smaller. See run_vlt_rate_10x_reduction() below for how
 # the LIVE rate already sitting in vlt_market_col gets carried over (also ÷10, not reset to the
 # new starting rate — today's market position/trend is preserved, not thrown away).
-VLT_RATE_MIN = 26.67   # ⭐ floor — 1💠 is never worth less than this many Star
+VLT_RATE_MIN = 40.67   # ⭐ floor — 1💠 is never worth less than this many Star
 VLT_RATE_MAX = 86.67   # ⭐ ceiling — 1💠 is never worth more than this many Star
 VLT_STARTING_RATE = 56.67  # ⭐ per 1💠 — the midpoint, used the first time the market doc is created
 VLT_HISTORY_MAX = 24
-VLT_DRIFT_INTERVAL_SECONDS = 900  # ⏱️ how often the background drift tick nudges the rate (15 min)
+VLT_DRIFT_INTERVAL_SECONDS = 120  # ⏱️ how often the background drift tick nudges the rate (15 min)
 VLT_DRIFT_STEP_MAX = 4.5  # ⭐ largest random nudge (up or down) applied per drift tick
 
 
@@ -4574,7 +4574,7 @@ TRIVIA_SPAWN_MAX_MSGS = 110  # max group messages between trivia spawns (per cha
 # and cached in memory (get_trivia_target), so a chat already partway to an old 45-55 target
 # keeps that one until it fires (or the bot restarts); every roll after that uses these.
 TRIVIA_TIMEOUT_SECONDS = 120  # how long a trivia question stays open before revealing the answer unsolved
-TRIVIA_OPTIONS_REVEAL_DELAY = 5  # 🩹 NEW (per owner report): seconds the question sits alone,
+TRIVIA_OPTIONS_REVEAL_DELAY = 2  # 🩹 NEW (per owner report): seconds the question sits alone,
 # with NO options text and NO buttons at all, before either appears. Was: options+buttons
 # posted instantly alongside the question, which just trained people to reflex-mash without
 # reading (and still occasionally win by luck) — see trigger_trivia_spawn's two-stage send.
@@ -4609,7 +4609,7 @@ GOLDEN_QUESTION_EMOJI = "🌟"        # the one signature symbol for this event 
 # Trivia is untouched by any of this — its target (TRIVIA_SPAWN_MIN_MSGS/MAX_MSGS above) is
 # never doubled and never gated by member count, regardless of group size.
 # ==========================================
-MIN_GROUP_MEMBERS_FOR_SPAWN = 30
+MIN_GROUP_MEMBERS_FOR_SPAWN = 20
 GROUP_MEMBER_COUNT_CACHE_TTL = 3600  # 1 hour — member counts don't change fast enough to justify
 # refetching more often, and being off by up to an hour here is harmless either direction.
 
